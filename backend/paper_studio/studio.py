@@ -263,6 +263,25 @@ async def fix_diagrams(md: str) -> tuple[str, int, int]:
     return md, repaired, removed
 
 
+async def ensure_workflow_diagram(md: str) -> str:
+    """Every paper gets an experimental-workflow flowchart in its protocol section (writers occasionally skip it)."""
+    m = re.search(r"(?ms)^# Experimental Protocol\s*\n(.*?)(?=^# )", md)
+    if not m or "```mermaid" in m.group(1):
+        return md
+    try:
+        out = await llm.complete_json(
+            "You draw a Mermaid flowchart of an experimental workflow. First line 'flowchart TD'; 5-8 nodes; single-letter "
+            "ids; labels in [ ] (or { } for a decision) with plain words only; edges -->. Return only the code.",
+            f"EXPERIMENTAL PROTOCOL:\n{m.group(1)[:5000]}", _Diagram, effort="low", tier="fast")
+        code = re.sub(r"^```(?:mermaid)?\n?|\n?```$", "", out.code.strip())
+    except llm.LLMError:
+        return md
+    if mermaid_problems(code):
+        return md
+    block = f"\nFigure: Experimental workflow\n```mermaid\n{code}\n```\n\n"
+    return md[: m.end(1)].rstrip() + "\n" + block + md[m.end(1):]
+
+
 def _paragraphs(md: str) -> list[tuple[int, int, str]]:
     """Prose paragraphs (start, end, text) outside code fences, tables, headings, lists, math, figures."""
     out, pos, fence = [], 0, False
@@ -518,6 +537,7 @@ async def run(req: StudioRequest, ctx) -> str:
     body, bad_cites = _fix_citations(body, len(refs))
     body = _sanitize_mermaid(body)
     body, diagrams_repaired, diagrams_removed = await fix_diagrams(body)
+    body = await ensure_workflow_diagram(body)
     abs_shingles = set().union(*(_shingles(p.abstract or "") for p in refs))
     paras = _paragraphs(body)
     flags: dict[int, list[str]] = {}

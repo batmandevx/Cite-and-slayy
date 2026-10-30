@@ -711,25 +711,25 @@ def _slug(s: str) -> str:
 # ---------- library ----------
 
 @app.get("/api/library/trending")
-async def library_trending(query: str = "", days: int = 365):
+async def library_trending(query: str = "", days: int = 365, page: int = 1):
     try:
-        return await library.trending(query, days)
+        return await library.trending(query, days, page=min(page, 20))
     except Exception as e:  # upstream API hiccup: report, don't crash
         raise HTTPException(502, f"OpenAlex unavailable: {e}")
 
 
 @app.get("/api/library/latest")
-async def library_latest(query: str = ""):
+async def library_latest(query: str = "", page: int = 1):
     try:
-        return await library.latest(query)
+        return await library.latest(query, page=min(page, 20))
     except Exception as e:
         raise HTTPException(502, f"arXiv unavailable: {e}")
 
 
 @app.get("/api/library/books")
-async def library_books(query: str = ""):
+async def library_books(query: str = "", page: int = 1):
     try:
-        return await library.books(query)
+        return await library.books(query, page=min(page, 20))
     except Exception as e:
         raise HTTPException(502, f"Open Library unavailable: {e}")
 

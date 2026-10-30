@@ -296,7 +296,7 @@ function CatchRetraction() {
 // ---------------- shell ----------------
 const GAMES = [
   { id: "runner", name: "Neon Runner", desc: "3D: dodge, jump, grab gems", icon: Rocket, color: "bg-pink", three: true },
-  { id: "rings", name: "Ring Flyer", desc: "3D: fly a paper plane through rings", icon: Plane, color: "bg-blue", three: true },
+  { id: "rings", name: "Ring Flyer", desc: "3D: fly a jet through glowing rings", icon: Plane, color: "bg-blue", three: true },
   { id: "bubbles", name: "Bubble Pop", desc: "3D: pop bubbles, dodge bombs", icon: Sparkles, color: "bg-mint", three: true },
   { id: "meteor", name: "Meteor Shield", desc: "3D: guard the planet from meteors", icon: Shield, color: "bg-orange", three: true },
   { id: "maze", name: "Tilt Maze", desc: "3D: tilt the board, roll to the goal", icon: Orbit, color: "bg-violet", three: true },

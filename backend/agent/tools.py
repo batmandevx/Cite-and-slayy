@@ -340,6 +340,46 @@ async def review_paper(document_id: str, venue: str | None = None, emit=None, **
             "link": {"tab": "verdict", "doc": document_id, "audit": v.audit_id, "review": review_id}}
 
 
+class _StudioCtx:
+    """Turns Paper Studio's per-agent JSON progress into readable tool-progress lines."""
+
+    def __init__(self, emit):
+        self.emit = emit
+
+    async def update(self, stage: str, message: str, progress: float | None = None) -> None:
+        import json as _json
+        try:
+            text = _json.loads(message).get("text", message)
+        except ValueError:
+            text = message
+        if self.emit and text:
+            await self.emit(text)
+
+
+async def write_paper(topic: str, angle: str = "", template: str = "ieee", emit=None, **_) -> dict:
+    """Write a complete paper with the Paper Studio agent team (counts against the user's paper allowance)."""
+    from backend.accounts.auth import is_premium
+    from backend.llm.client import set_premium
+    from backend.paper_studio import studio
+    if not str(topic or "").strip():
+        raise ToolError("give a topic")
+    _metered("papers")
+    user = _user()
+    set_premium(is_premium(user))
+    req = studio.StudioRequest(topic=str(topic)[:300], angle=str(angle or "")[:1500],
+                               template=template if template in ("ieee", "springer", "plain") else "ieee",
+                               author=user.get("name") or "", max_refs=30 if user.get("plan") == "max" else 20)
+    pid = await studio.run(req, _StudioCtx(emit))
+    _own("paper_studio", pid)
+    p = get_store().get("paper_studio", pid) or {}
+    r = p.get("report") or {}
+    return {"summary": f"Paper ready: “{p.get('title', topic)[:80]}” · {p.get('words', 0):,} words · {len(p.get('references') or [])} real references",
+            "data": {"paper_id": pid, "title": p.get("title"), "highlights": p.get("highlights"), "summary": p.get("summary"),
+                     "pending_results": "Result cells marked “to be measured” must be filled with the author's own experiments.",
+                     "integrity": {k: r.get(k) for k in ("claims_supported", "claims_unsupported", "verbatim_paragraphs_after")}},
+            "link": {"tab": "studio", "paper": pid}}
+
+
 async def scan_field(query: str, max_papers: int = 300, emit=None, **_) -> dict:
     _metered("scans")
     run_id = await gap.run(GapRadarRequest(query=query, max_papers=max(100, min(int(max_papers), 800))), _QuietCtx(emit))
@@ -446,6 +486,8 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
          {"document_id": "from list_papers"}, audit_paper, slow=True),
     Tool("review_paper", "Run the reviewer jury + Go/No-Go verdict on an uploaded paper (uses its latest audit).",
          {"document_id": "from list_papers", "venue": "optional target venue"}, review_paper, slow=True),
+    Tool("write_paper", "Write a COMPLETE research paper on a topic with the Paper Studio agent team: real references, figures, equations, diagrams, IEEE/Springer format (~1-3 min). Use when the user asks you to write the paper.",
+         {"topic": "specific paper topic", "angle": "optional: method idea or constraints", "template": "ieee | springer | plain"}, write_paper, slow=True),
     Tool("scan_field", "Run a Gap Radar scan of a research field: clusters recent papers and classifies Rising/Saturated/Underexplored (~1-2 min).",
          {"query": "field", "max_papers": "100-800, default 300"}, scan_field, slow=True),
     Tool("research_questions", "Generate 3 research questions grounded in real papers for a cluster from a scan.",

@@ -63,24 +63,25 @@ async def books(query: str, limit: int = PER_PAGE, page: int = 1) -> list[dict]:
     return out
 
 
-@lru_cache
-def _gut() -> SourceClient:
-    return SourceClient("openalex", min_interval=0.5, timeout=12)
-
-
 async def _gutenberg(query: str, page: int) -> list[dict]:
-    """Project Gutenberg public-domain e-books (via the Gutendex API). Slow at times: on failure, return nothing."""
+    """Project Gutenberg public-domain e-books, via the Internet Archive's Gutenberg mirror (fast and cached)."""
+    q = (query or "science").replace('"', "")
     try:
-        f = await _gut().get("https://gutendex.com/books", {"search": query or "science", "page": max(1, page)})
+        f = await _ol().get("https://archive.org/advancedsearch.php", {
+            "q": f"({q}) AND collection:gutenberg AND mediatype:texts", "fl[]": ["identifier", "title", "creator", "year"],
+            "rows": 12, "page": max(1, page), "output": "json"})
     except Exception:
         return []
     out = []
-    for b in (f.data or {}).get("results", [])[:16]:
-        fm = b.get("formats") or {}
-        read = fm.get("text/html") or fm.get("text/html; charset=utf-8") or f"https://www.gutenberg.org/ebooks/{b['id']}"
-        out.append({"title": b.get("title"), "authors": [a.get("name", "") for a in (b.get("authors") or [])][:2],
-                    "year": None, "read_url": read, "openlibrary_url": f"https://www.gutenberg.org/ebooks/{b['id']}",
-                    "download_url": fm.get("application/epub+zip"), "cover": fm.get("image/jpeg"), "source": "Project Gutenberg"})
+    for d in ((f.data or {}).get("response") or {}).get("docs", []):
+        ident = d.get("identifier")
+        if not ident:
+            continue
+        creator = d.get("creator")
+        out.append({"title": d.get("title"), "authors": (creator if isinstance(creator, list) else [creator] if creator else [])[:2],
+                    "year": d.get("year"), "read_url": f"https://archive.org/details/{ident}", "openlibrary_url": f"https://archive.org/details/{ident}",
+                    "download_url": f"https://archive.org/download/{ident}", "cover": f"https://archive.org/services/img/{ident}",
+                    "source": "Project Gutenberg"})
     return out
 
 

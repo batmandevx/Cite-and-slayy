@@ -396,6 +396,19 @@ you around the app and announces when the paper is ready.
 - **Journal / conference finder:** `POST /api/venues/find` ranks venues by where the most similar papers of the last 6 years
   were published (embedding-weighted), with OpenAlex facts: type, publisher, open access, DOAJ, APC, h-index and 2-year mean citedness.
 
+### 4.10 Submission kit, originality fixer, Azora writes papers
+
+- **Submission kit** (`backend/paper_studio/kit.py`): cover letter and declarations written from the paper's own content
+  (unknowns left as [placeholders]); a pre-submission checklist computed from the manuscript (abstract length, keywords,
+  references, captions, pending “to be measured” results, AI disclosure, integrity report); reviewer candidates taken from
+  authors of cited works; and a response-to-reviewers template. Export to Word or Markdown.
+- **Originality fixer** (`backend/citeguard/fixer.py`): for each possible-overlap paragraph in an audit, suggests a rewrite in
+  original words with an in-text citation to the matched source, and shows shared wording (3-word sequences) before and after.
+  It does not try to hide AI use; papers carry an AI-assistance acknowledgment.
+- **Diagrams:** every Mermaid block is validated against a strict flowchart grammar, repaired or dropped before it reaches a
+  paper, unclosed fences are closed, and each paper gets an experimental-workflow flowchart.
+- **Azora AI `write_paper` tool:** Azora can pick a topic from a field scan and trend experiments, then run the full Paper Studio.
+
 ## 5. The "never fabricate" guarantees
 
 | Rule | Where it's enforced |

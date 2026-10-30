@@ -11,7 +11,7 @@ import json
 import uuid
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from backend.agent.tools import TOOLS, ToolError, describe
 from backend.cache.store import get_store, now
@@ -53,6 +53,19 @@ class _Step(BaseModel):
     tool: str
     args_json: str
     reply: str
+
+    @field_validator("args_json", mode="before")
+    @classmethod
+    def _args_as_text(cls, v):
+        """Models sometimes send the arguments as an object instead of a JSON string; accept both."""
+        if v is None:
+            return "{}"
+        return v if isinstance(v, str) else json.dumps(v)
+
+    @field_validator("thought", "tool", "reply", mode="before")
+    @classmethod
+    def _none_to_empty(cls, v):
+        return "" if v is None else v
 
 
 def _history_text(messages: list[dict]) -> str:

@@ -11,7 +11,7 @@ interface LibPaper {
   id: string; title: string; year?: number; date?: string; venue?: string | null; cited_by?: number;
   authors: string[]; abstract: string; read_url?: string | null; pdf_url?: string | null; is_oa: boolean;
 }
-interface Book { title: string; authors: string[]; year?: number; read_url: string; openlibrary_url: string; cover?: string | null }
+interface Book { title: string; authors: string[]; year?: number; read_url: string; openlibrary_url: string; cover?: string | null; download_url?: string | null; source?: string }
 interface Idea { title: string; pitch: string; method: string; evidence: { title: string; url?: string | null }[] }
 
 type Col = "trending" | "latest" | "books";
@@ -21,7 +21,7 @@ const QUICK = ["large language models", "retrieval augmented generation", "diffu
 
 function PaperCard({ p, i }: { p: LibPaper; i: number }) {
   return (
-    <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
+    <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: (i % 24) * 0.03 }}
       whileHover={{ y: -4, rotate: i % 2 ? 0.4 : -0.4 }}
       className="card flex flex-col p-4">
       <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px] font-bold">
@@ -51,6 +51,8 @@ export function LibraryTab() {
   const [query, setQuery] = useState("large language models");
   const [col, setCol] = useState<Col>("trending");
   const [data, setData] = useState<Record<string, LibPaper[] | Book[]>>({});
+  const [pages, setPages] = useState<Record<string, number>>({});
+  const [more, setMore] = useState(false);
   const [errs, setErrs] = useState<Record<string, string>>({});
   const key = `${col}|${query}`;
   const [ideas, setIdeas] = useState<Idea[] | null>(null);
@@ -58,11 +60,26 @@ export function LibraryTab() {
 
   useEffect(() => {
     if (data[key]) return;
-    const qs = encodeURIComponent(col === "books" && query === "large language models" ? "artificial intelligence" : query);
-    api.get<LibPaper[] | Book[]>(`/api/library/${col}?query=${qs}`)
+    api.get<LibPaper[] | Book[]>(`/api/library/${col}?query=${encodeURIComponent(col === "books" && query === "large language models" ? "artificial intelligence" : query)}`)
       .then((r) => setData((d) => ({ ...d, [key]: r })))
       .catch((e: Error) => { setErrs((x) => ({ ...x, [key]: e.message })); setData((d) => ({ ...d, [key]: [] })); });
   }, [col, query, key, data]);
+
+  const qsFor = () => encodeURIComponent(col === "books" && query === "large language models" ? "artificial intelligence" : query);
+  const loadMore = async () => {
+    const next = (pages[key] ?? 1) + 1;
+    setMore(true);
+    try {
+      const r = await api.get<(LibPaper | Book)[]>(`/api/library/${col}?query=${qsFor()}&page=${next}`);
+      const seen = new Set((data[key] ?? []).map((x) => ("id" in x ? x.id : x.read_url)));
+      const fresh = r.filter((x) => !seen.has("id" in x ? x.id : x.read_url));
+      setData((d) => ({ ...d, [key]: [...(d[key] ?? []), ...fresh] as LibPaper[] | Book[] }));
+      setPages((p) => ({ ...p, [key]: next }));
+      if (!fresh.length) toast({ title: "That's everything for this search", tone: "accent" });
+    } catch (e) {
+      toast({ title: "Couldn't load more", body: (e as Error).message, tone: "crit" });
+    } finally { setMore(false); }
+  };
 
   const genIdeas = () => {
     setIdeasBusy(true); setIdeas(null);
@@ -124,7 +141,7 @@ export function LibraryTab() {
           <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
             {(items as Book[]).map((b, i) => (
               <motion.a key={b.read_url} href={b.read_url} target="_blank" rel="noreferrer"
-                initial={{ opacity: 0, y: 20, rotate: -3 }} animate={{ opacity: 1, y: 0, rotate: 0 }} transition={{ delay: i * 0.04 }}
+                initial={{ opacity: 0, y: 20, rotate: -3 }} animate={{ opacity: 1, y: 0, rotate: 0 }} transition={{ delay: (i % 24) * 0.03 }}
                 whileHover={{ y: -8, rotate: i % 2 ? 2 : -2 }} className="group block">
                 <div className="aspect-[2/3] overflow-hidden rounded-lg border-[2.5px] border-edge bg-violet shadow-[5px_5px_0_var(--shadow-c)]">
                   {b.cover ? <img src={b.cover} alt="" loading="lazy" className="size-full object-cover" /> : (
@@ -133,6 +150,11 @@ export function LibraryTab() {
                 </div>
                 <div className="mt-2 line-clamp-2 text-sm font-bold leading-tight group-hover:underline">{b.title}</div>
                 <div className="text-[11px] text-muted">{b.authors.join(", ")}{b.year ? ` · ${b.year}` : ""}</div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {b.source && <span className={clsx("rounded-full border border-edge px-1.5 text-[9px] font-extrabold uppercase", b.source === "Project Gutenberg" ? "bg-yellow text-[#121212]" : "bg-mint text-[#121212]")}>{b.source}</span>}
+                  {b.download_url && <span onClick={(e) => { e.preventDefault(); window.open(b.download_url!, "_blank"); }}
+                    className="rounded-full border border-edge bg-lime px-1.5 text-[9px] font-extrabold uppercase text-[#121212]">Download</span>}
+                </div>
               </motion.a>
             ))}
           </div>
@@ -142,6 +164,14 @@ export function LibraryTab() {
           </div>
         )}
         {items && items.length === 0 && !err && <p className="py-10 text-center text-sm text-muted">No results for “{query}”.</p>}
+        {items && items.length > 0 && (
+          <div className="mt-6 flex justify-center">
+            <motion.button whileHover={{ y: -3 }} whileTap={{ scale: 0.95 }} onClick={loadMore} disabled={more}
+              className="btn-brut inline-flex items-center gap-2 rounded-2xl bg-surface px-6 py-3 font-display font-extrabold disabled:opacity-60">
+              {more ? "Loading…" : `Load more · ${items.length} shown`}
+            </motion.button>
+          </div>
+        )}
       </section>
 
       {/* ideas */}

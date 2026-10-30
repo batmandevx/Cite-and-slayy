@@ -15,12 +15,12 @@ client = TestClient(app)
 NOW = datetime.now(timezone.utc)
 
 
-def test_agent_has_fifteen_registered_tools():
-    assert len(agent_tools.TOOLS) == 15
+def test_agent_has_registered_tools():
+    assert len(agent_tools.TOOLS) >= 16
     for expected in (
         "search_papers", "trend_experiment", "venue_fit_experiment", "text_integrity_test",
         "check_citation", "check_retraction", "test_claim", "list_papers", "audit_paper",
-        "review_paper", "scan_field", "research_questions", "save_note", "pin_stickies", "add_todos",
+        "review_paper", "write_paper", "scan_field", "research_questions", "save_note", "pin_stickies", "add_todos",
     ):
         assert expected in agent_tools.TOOLS
 

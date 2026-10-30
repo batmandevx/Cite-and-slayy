@@ -84,6 +84,7 @@ function Dashboard() {
   const [savedName] = usePersistent<string>("displayName", "");
   const name = savedName || me?.name?.split(" ")[0] || "Ayush";
   const [auroraOpen, setAuroraOpen] = useState(() => new URLSearchParams(window.location.search).get("aurora") === "1");
+  const [, setStudioPaper] = usePersistent<string | null>("studioPaper", null);
   const [gapRun, setGapRun] = usePersistent<string | null>("gapRun", null);
   const [topic, setTopic] = usePersistent<string>("topic", "Gradient-spectral rank allocation for LoRA fine-tuning under a fixed parameter budget");
   const [documentId, setDocumentId] = usePersistent<string | null>("documentId", null);
@@ -103,6 +104,7 @@ function Dashboard() {
   const safeTab: Tab = VALID_TABS.has(tab) ? tab : "home";
   const go = (t: Tab) => { setTab(VALID_TABS.has(t) ? t : "home"); window.scrollTo({ top: 0, behavior: "smooth" }); };
   const open = (t: OpenTarget | AppLink) => {
+    if ("paper" in t && t.paper) setStudioPaper(t.paper);
     if (t.gap) setGapRun(t.gap);
     if (t.doc) {
       setDocumentId(t.doc);

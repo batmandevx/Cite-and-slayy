@@ -15,6 +15,7 @@ import { AuroraOrb } from "./AuroraOrb";
 
 export interface AppLink {
   tab: string;
+  paper?: string;
   doc?: string;
   audit?: string;
   review?: string;
