@@ -23,7 +23,46 @@ from backend.common.config import get_settings
 
 COOKIE = "slayy_session"
 SESSION_DAYS = 30
-LOCAL_USER = {"uid": "local", "email": "local@localhost", "name": "Ayush", "plan": "max", "picture": None}
+LOCAL_USER = {"uid": "local", "email": "local@localhost", "name": "Ayush", "plan": "max", "is_owner": True, "picture": None}
+
+
+def owner_emails() -> set[str]:
+    s = get_settings()
+    items = {e.strip().lower() for e in (s.owner_emails or "").split(",") if "@" in e}
+    ce = (s.contact_email or "").strip().lower()
+    if "@" in ce and not ce.endswith(("@example.com", "@localhost", "@x.org", "@uni.edu")):
+        items.add(ce)
+    return items
+
+
+def is_owner(user: dict | None) -> bool:
+    if not user:
+        return False
+    if not get_settings().auth_required or user.get("uid") == "local" or user.get("is_owner"):
+        return True
+    return (user.get("email") or "").strip().lower() in owner_emails()
+
+
+def is_paid(user: dict | None) -> bool:
+    """True for Dev Owner, Pro, Max, or any user with an active Paper Pack."""
+    if not user:
+        return False
+    return is_owner(user) or user.get("plan") in ("pro", "max") or bool(bonus(user))
+
+
+def require_paid(user: dict, feature: str) -> None:
+    """Enforce that a feature is available exclusively to Paid plans (Pro, Max, Paper Pack) and the Dev Owner."""
+    if is_paid(user):
+        return
+    label = FEATURE_LABEL.get(feature, feature)
+    raise HTTPException(402, {
+        "code": "paid_only",
+        "feature": feature,
+        "label": label,
+        "limit": 0,
+        "plan": user.get("plan", "free"),
+        "message": f"{label[:1].upper() + label[1:]} is a paid feature (Pro, Max, or Paper Pack). Upgrade to unlock!",
+    })
 
 # Job kind -> store kind of the object its result_id points to (ownership is recorded when a job finishes).
 JOB_RESULT_KIND = {"gap_radar": "gap_run", "autoclaw": "autoclaw_run", "citeguard": "audit", "jury": "verdict",
@@ -80,11 +119,15 @@ def upsert_user(email: str, name: str | None = None, picture: str | None = None,
     idx = store.get("user_email", email)
     user = get_user(idx["uid"]) if idx else None
     if not user:
+        is_own = email in owner_emails()
         user = {"uid": uuid.uuid4().hex[:16], "email": email, "name": name or email.split("@")[0], "picture": picture,
-                "plan": "free", "provider": provider, "created_at": now().isoformat()}
+                "plan": "max" if is_own else "free", "is_owner": is_own, "provider": provider, "created_at": now().isoformat()}
         store.put("user_email", email, {"uid": user["uid"]})
     else:
         user.update({k: v for k, v in {"name": name, "picture": picture}.items() if v})
+        if email in owner_emails():
+            user["is_owner"] = True
+            user["plan"] = "max"
     user["last_login"] = now().isoformat()
     store.put("user", user["uid"], user)
     return user
@@ -215,8 +258,9 @@ def usage(user: dict) -> dict[str, int]:
 
 
 def consume(user: dict, feature: str, n: int = 1) -> None:
-    """Count one use of a metered feature, or raise 402 with an upgrade hint when the plan's limit is reached."""
-    if not get_settings().auth_required:
+    """Count one use of a metered feature, or raise 402 with an upgrade hint when the plan's limit is reached.
+    Dev Owner always has unlimited access to every feature."""
+    if not get_settings().auth_required or is_owner(user):
         return
     store = get_store()
     plan = plan_of(user)
@@ -244,7 +288,7 @@ def consume(user: dict, feature: str, n: int = 1) -> None:
 
 def refund(user: dict, feature: str) -> None:
     """Give a use back when the job failed before producing anything."""
-    if not get_settings().auth_required:
+    if not get_settings().auth_required or is_owner(user):
         return
     store = get_store()
     if user.get("_used_pack"):            # the use came from a Paper Pack: give the pack credit back
@@ -261,7 +305,21 @@ def refund(user: dict, feature: str) -> None:
 
 
 def is_premium(user: dict) -> bool:
-    return plan_of(user)["engine"] == "premium" or bool(user.get("_used_pack")) or bool(bonus(user))
+    return is_owner(user) or plan_of(user)["engine"] == "premium" or bool(user.get("_used_pack")) or bool(bonus(user))
+
+
+def unlock_owner(user: dict, access_key: str) -> bool:
+    """Promote the signed-in user to Dev Owner when they present the configured OWNER_ACCESS_KEY."""
+    expected = (get_settings().owner_access_key or "").strip()
+    if not expected or not access_key.strip():
+        return False
+    if not hmac.compare_digest(access_key.strip(), expected):
+        return False
+    user["is_owner"] = True
+    user["plan"] = "max"
+    if user.get("uid") and user.get("uid") != "local":
+        get_store().put("user", user["uid"], user)
+    return True
 
 
 # ---------- ownership ----------

@@ -87,3 +87,138 @@ def test_wording_overlap_drops_after_paraphrase():
     src = "noble metal nanoparticles remain stable inside biological environments"
     assert wording_overlap("Noble metal nanoparticles remain stable inside biological environments.", src) == 1.0
     assert wording_overlap("Gold and silver particles persist in cells without degrading.", src) == 0.0
+
+
+def test_monograph_sections_venues_figure_and_ieee_latex_export():
+    from backend.paper_studio.studio import SECTIONS
+    keys = [k for k, *_ in SECTIONS]
+    assert keys == ["intro", "related", "formulation", "method", "theory", "analysis", "protocol", "discussion"]
+    png = figures.venues_chart([("IEEE Access", 14), ("NeurIPS", 9), ("ICML", 6)])
+    assert png.startswith(b"\x89PNG")
+    md = (
+        "# Abstract\n\nFormal summary.\n\n**Keywords:** conformal prediction, drift, online calibration\n\n"
+        "# Proposed Method\n\n> **Algorithm 1:** Adaptive Calibration\n> **Input:** stream $z_t$\n\n"
+        "Table: Positioning across five dimensions\n"
+        "| Family | Drift | O(1) | distribution-free | Tamper-evident | Notes |\n"
+        "|---|---|---|---|---|---|\n"
+        "| Split CP | No | Yes | Yes | No | Static |\n"
+        "| Ours | Yes | Yes | Yes | Yes | Adaptive |\n"
+    )
+    tex = export.to_latex(md, "ADITI: Drift-Aware Intervals", "ieee", "A. Author", "VIT")
+    assert "\\begin{IEEEkeywords}" in tex
+    assert "\\toprule" in tex and "\\bottomrule" in tex
+    assert "\\begin{table*}" in tex
+    assert "\\fbox{\\parbox" in tex
+
+
+def test_unmeasured_ignores_theorem_and_assumption_labels():
+    allowed = {"25"}
+    assert not _unmeasured("Under Assumption A12 and Proposition 14, the design targets non-stationary streams.", allowed, "ADITI")
+
+
+def test_demo_showcase_papers_endpoints():
+    from fastapi.testclient import TestClient
+    from backend.app.main import app
+    c = TestClient(app)
+    res = c.get("/api/demo-papers")
+    assert res.status_code == 200
+    items = res.json()
+    assert [x["slug"] for x in items] == ["aditi", "aliza", "cast"]
+    pdf = c.get("/api/demo-papers/aditi/pdf")
+    assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
+    imp = c.post("/api/demo-papers/aliza/import")
+    assert imp.status_code == 200 and imp.json()["title"].startswith("ALIZA:")
+    samples = c.get("/api/documents/samples")
+    assert samples.status_code == 200
+    titles = [s.get("title") or "" for s in samples.json()]
+    assert any("ADITI:" in t for t in titles) and any("ALIZA:" in t for t in titles) and any("Chiral Amplification" in t for t in titles)
+
+
+def test_venue_finder_handles_coined_camel_case_and_hyphenated_titles():
+    import asyncio
+    from backend.app import venue_finder
+
+    title = "ResidentLoop: Hardware-Software Co-Design for Autonomous GPU-Resident Closed-Loop Control with Bounded End-to-End Latency"
+    abstract = (
+        "Embedded autonomous systems increasingly deploy GPU-accelerated neural networks for time-critical control, "
+        "yet contemporary architectures retain the CPU as mediator of every sensor-to-actuator iteration."
+    )
+    qs = venue_finder.build_search_queries(title, abstract)
+    assert len(qs) >= 2
+    # Must drop coined CamelCase system name 'ResidentLoop' and split hyphens like 'GPU-Resident'
+    assert all("ResidentLoop" not in q for q in qs)
+    assert any("GPU" in q for q in qs)
+
+    # Mock OpenAlex client to verify venue aggregation + source fallback works even if /sources returns empty
+    class _FakeFetched:
+        def __init__(self, data):
+            self.data = data
+
+    class _FakeClient:
+        async def get(self, url, params=None):
+            if url.endswith("/works"):
+                return _FakeFetched({
+                    "results": [
+                        {
+                            "id": "https://openalex.org/W1",
+                            "doi": "https://doi.org/10.1109/TCAD.2024.1",
+                            "title": "Hardware-Software Co-Design for Real-Time GPU Control Systems",
+                            "publication_year": 2024,
+                            "abstract_inverted_index": {"GPU": [0], "control": [1], "latency": [2]},
+                            "primary_location": {
+                                "source": {
+                                    "id": "https://openalex.org/S111",
+                                    "display_name": "IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems",
+                                    "type": "journal",
+                                    "host_organization_name": "IEEE",
+                                    "is_oa": False,
+                                }
+                            },
+                        }
+                    ]
+                })
+            return _FakeFetched({"results": []})
+
+    orig_client = venue_finder.openalex.client
+    venue_finder.openalex.client = lambda: _FakeClient()
+    try:
+        res = asyncio.run(venue_finder.find(title, abstract, kind="any", oa_only=False))
+        assert len(res["venues"]) >= 1
+        assert "IEEE Transactions" in res["venues"][0]["name"]
+    finally:
+        venue_finder.openalex.client = orig_client
+
+
+def test_turnitin_scanner_verbatim_and_ai_stylometric_signals():
+    import asyncio
+    from backend.citeguard import turnitin
+
+    sources = [
+        {
+            "key": "10.1000/test1",
+            "openalex_id": "W999",
+            "title": "Adaptive Conformal Calibration Under Non-Stationary Covariate Drift",
+            "authors": ["A. Gibbs", "E. Candes"],
+            "year": 2023,
+            "venue": "NeurIPS",
+            "doi": "10.1000/test1",
+            "url": "https://doi.org/10.1000/test1",
+            "abstract": "Online adaptive conformal inference updates miscoverage levels via gradient step sizes on the pinball loss under distribution shift.",
+            "sentences": [
+                "Online adaptive conformal inference updates miscoverage levels via gradient step sizes on the pinball loss under distribution shift."
+            ],
+        }
+    ]
+    text = (
+        "In the realm of streaming uncertainty quantification, calibration plays a pivotal role in safety-critical decisions, "
+        "highlighting its multifaceted importance across deployments. "
+        "Online adaptive conformal inference updates miscoverage levels via gradient step sizes on the pinball loss under distribution shift. "
+        "Moreover, this framework meticulously balances interval width against empirical validity, underscoring the resilience of online quantile tracking."
+    )
+    scored = asyncio.run(turnitin._score_manuscript("Test Conformal Manuscript", text, sources, exclude_quotes=True))
+    assert scored["similarity_pct"] > 20
+    assert scored["verbatim_pct"] > 20
+    assert len(scored["sources"]) == 1 and scored["sources"][0]["id"] == 1
+    assert scored["ai_pct"] > 30
+    assert scored["cliche_count"] >= 3
+

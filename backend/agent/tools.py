@@ -141,38 +141,31 @@ async def venue_fit_experiment(query: str, **_) -> dict:
     """Live experiment: where do the closest real peer-reviewed papers on OpenAlex actually get published?"""
     if not str(query).strip():
         raise ToolError("provide a research topic, title or abstract")
-    f = await openalex.related_works(str(query).strip()[:400], per_page=40)
-    raw = (f.data or {}).get("results", [])
-    papers = [openalex.to_paper(w) for w in raw]
-    venue_counts: Counter[str] = Counter()
-    oa_count = 0
-    cites: list[int] = []
-    for w, p in zip(raw, papers):
-        if (w.get("open_access") or {}).get("is_oa"):
-            oa_count += 1
-        if p.cited_by is not None:
-            cites.append(p.cited_by)
-        v = (p.venue or "").strip()
-        if v and not any(rep in v.lower() for rep in PREPRINT_REPOS):
-            venue_counts[v] += 1
-    top = venue_counts.most_common(6)
-    med_cites = round(statistics.median(cites), 1) if cites else 0
-    oa_pct = round(100 * oa_count / len(papers)) if papers else 0
+    from backend.app import venue_finder
+
+    res = await venue_finder.find(str(query).strip()[:400], "", kind="any", oa_only=False, limit=6)
+    venues = res.get("venues") or []
+    oa_count = sum(1 for v in venues if v.get("is_oa"))
+    oa_pct = round(100 * oa_count / len(venues)) if venues else 0
+    top = [(v["name"], max(1, int(v.get("similar_papers") or 1))) for v in venues[:6]]
+    examples = [ex for v in venues[:4] for ex in (v.get("examples") or [])[:1]]
     summary = (
-        f"Analyzed {len(papers)} related OpenAlex works · top venue: {top[0][0]} ({top[0][1]}) · {oa_pct}% OA · median {med_cites} cites"
-        if top else f"Analyzed {len(papers)} related OpenAlex works ({oa_pct}% OA, mostly preprints)"
+        f"Matched {len(venues)} peer-reviewed venues across {res.get('searched', 0)} similar OpenAlex works · top: {top[0][0]}"
+        if top else f"Searched OpenAlex works ({res.get('note', 'no matching venues')})"
     )
     return {
         "summary": summary,
         "data": {
-            "sample_size": len(papers),
+            "sample_size": res.get("searched", 0),
             "open_access_pct": oa_pct,
-            "median_citations": med_cites,
-            "top_venues": [{"venue": v, "count": n} for v, n in top],
+            "top_venues": [{"venue": v["name"], "type": v.get("type"), "fit": v.get("fit"),
+                            "h_index": v.get("h_index"), "is_oa": v.get("is_oa"), "count": v.get("similar_papers")}
+                           for v in venues[:6]],
             "note": "Preprint servers (arXiv, Zenodo, SSRN, bioRxiv) excluded from venue ranking.",
         },
-        "chart": {"type": "bar", "items": [{"label": v[:28], "value": n} for v, n in top]} if top else None,
-        "papers": [_paper(p) for p in papers[:4]],
+        "chart": {"type": "bar", "items": [{"label": name[:28], "value": n} for name, n in top]} if top else None,
+        "papers": [{"title": ex["title"], "year": ex.get("year"), "url": ex.get("url")} for ex in examples[:4]],
+        "link": {"tab": "venues"},
     }
 
 

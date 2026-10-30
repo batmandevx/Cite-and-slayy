@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import re
+from typing import Literal
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,7 +16,7 @@ from fastapi.responses import Response
 
 from backend.accounts import auth, billing
 from backend.accounts.plans import plan_of, public_pack, public_plans
-from backend.app import dashboard, export as exporter, library, pipeline, reports
+from backend.app import dashboard, demo_papers, export as exporter, library, pipeline, reports
 from backend.paper_studio import kit as kit_mod
 from backend.paper_studio import studio
 from backend.app.jobs import jobs
@@ -38,8 +39,8 @@ app = FastAPI(title="Cite and Slayy", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=get_settings().cors_origins.split(","),
                    allow_methods=["*"], allow_headers=["*"], allow_credentials=True)
 
-# Endpoints anyone may call without signing in (landing page, sign-in itself, payment-provider webhooks).
-PUBLIC = ("/api/health", "/api/stats", "/api/auth/", "/api/billing/plans", "/api/billing/upi-claim", "/api/billing/webhook")
+# Endpoints anyone may call without signing in (landing page, sign-in itself, payment-provider webhooks, demo showcase PDFs).
+PUBLIC = ("/api/health", "/api/stats", "/api/auth/", "/api/billing/plans", "/api/billing/upi-claim", "/api/billing/webhook", "/api/demo-papers")
 
 
 @app.middleware("http")
@@ -126,13 +127,41 @@ async def auth_me(request: Request):
     user = auth.current_user(request)
     if not user:
         raise HTTPException(401, "Please sign in")
+    owner = auth.is_owner(user)
+    paid = auth.is_paid(user)
     plan = plan_of(user)
-    return {"uid": user["uid"], "email": user["email"], "name": user.get("name"), "picture": user.get("picture"),
-            "plan": user.get("plan", "free"), "plan_name": plan["name"], "limits": plan["limits"], "usage": auth.usage(user),
-            "renews_at": user.get("renews_at"), "cancel_at_period_end": user.get("cancel_at_period_end", False),
-            "engine": "Azora Pro engine" if plan["engine"] == "premium" else "Azora standard engine",
-            "ai_budget_used": min(1.0, auth.ai_spend_inr(user) / max(1, plan["ai_budget_inr"] + (auth.bonus(user).get("ai_budget_inr", 0) if auth.bonus(user) else 0))),
-            "pack": ({"credits": auth.bonus(user)["credits"], "expires": auth.bonus(user)["expires"]} if auth.bonus(user) else None)}
+    return {
+        "uid": user["uid"],
+        "email": user["email"],
+        "name": user.get("name"),
+        "picture": user.get("picture"),
+        "plan": "max" if owner else user.get("plan", "free"),
+        "plan_name": "Dev Owner · Unlimited" if owner else plan["name"],
+        "is_owner": owner,
+        "is_paid": paid,
+        "limits": plan["limits"],
+        "usage": auth.usage(user),
+        "renews_at": user.get("renews_at"),
+        "cancel_at_period_end": user.get("cancel_at_period_end", False),
+        "engine": "Azora Pro engine" if (owner or plan["engine"] == "premium") else "Azora standard engine",
+        "ai_budget_used": 0.0 if owner else min(
+            1.0,
+            auth.ai_spend_inr(user) / max(1, plan["ai_budget_inr"] + (auth.bonus(user).get("ai_budget_inr", 0) if auth.bonus(user) else 0)),
+        ),
+        "pack": ({"credits": auth.bonus(user)["credits"], "expires": auth.bonus(user)["expires"]} if auth.bonus(user) else None),
+    }
+
+
+class OwnerUnlockRequest(BaseModel):
+    key: str
+
+
+@app.post("/api/auth/owner-unlock")
+async def auth_owner_unlock(body: OwnerUnlockRequest, request: Request):
+    user = me(request)
+    if not auth.unlock_owner(user, body.key):
+        raise HTTPException(403, "Invalid Dev Owner access key")
+    return {"ok": True, "is_owner": True, "plan": "max", "plan_name": "Dev Owner · Unlimited"}
 
 
 # ---------- billing ----------
@@ -313,14 +342,51 @@ async def upload(request: Request, file: UploadFile = File(...)):
         raise HTTPException(400, str(e))
 
 
+@app.get("/api/demo-papers")
+async def get_demo_papers():
+    """Public metadata for the 20-page showcase research papers."""
+    return demo_papers.list_public()
+
+
+@app.get("/api/demo-papers/{slug}/pdf")
+async def get_demo_paper_pdf(slug: str, download: bool = False):
+    found = demo_papers.pdf_path(slug)
+    if not found:
+        raise HTTPException(404, "Demo paper not found")
+    item, path = found
+    disp = "attachment" if download else "inline"
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'{disp}; filename="{item["filename"]}"',
+            "Cache-Control": "public, max-age=86400",
+        },
+    )
+
+
+@app.post("/api/demo-papers/{slug}/import", response_model=DocumentInfo)
+async def import_demo_paper(slug: str):
+    import asyncio as _asyncio
+    info = await _asyncio.to_thread(demo_papers.register_one, slug)
+    if not info:
+        raise HTTPException(404, "Demo paper not found")
+    return info
+
+
 @app.get("/api/documents/samples", response_model=list[DocumentInfo])
 async def samples():
-    """Register and list the bundled demo documents."""
-    out = []
-    for p in sorted((ROOT / "demo" / "sample_pdfs").glob("*")) + [ROOT / "demo/autoclaw_run/deliverables/paper.pdf"]:
-        if p.suffix.lower() in docs.ALLOWED and p.exists():
-            out.append(docs.save_path(p, p.name if p.name != "paper.pdf" else "GARD_autoresearchclaw_showcase.pdf"))
-    return out
+    """Register and list the bundled demo & showcase documents."""
+    import asyncio as _asyncio
+
+    def _load() -> list[DocumentInfo]:
+        out = list(demo_papers.register_all())
+        for p in sorted((ROOT / "demo" / "sample_pdfs").glob("*")) + [ROOT / "demo/autoclaw_run/deliverables/paper.pdf"]:
+            if p.suffix.lower() in docs.ALLOWED and p.exists():
+                out.append(docs.save_path(p, p.name if p.name != "paper.pdf" else "GARD_autoresearchclaw_showcase.pdf"))
+        return out
+
+    return await _asyncio.to_thread(_load)
 
 
 @app.get("/api/documents/{document_id}", response_model=DocumentInfo)
@@ -652,7 +718,7 @@ async def paper_studio_start(req: studio.StudioRequest, request: Request):
         auth.check_access("document", d, user)
     auth.consume(user, "papers")
     llm.set_premium(auth.is_premium(user))
-    req.max_refs = 30 if user.get("plan") == "max" or user.get("_used_pack") else 20
+    req.max_refs = 34 if user.get("plan") == "max" or user.get("_used_pack") else 26
     return JobRef(job_id=jobs.submit("paper_studio", lambda ctx: studio.run(req, ctx), owner=user["uid"],
                                      on_error=lambda: auth.refund(user, "papers")).job_id)
 
@@ -718,6 +784,33 @@ async def paper_studio_undo(pid: str, request: Request):
     return {"ok": True}
 
 
+class ReplaceMarkdownRequest(BaseModel):
+    markdown: str
+    preserve_references: bool = True
+
+
+@app.post("/api/paper-studio/{pid}/replace-markdown")
+async def paper_studio_replace_markdown(pid: str, body: ReplaceMarkdownRequest, request: Request):
+    user = me(request)
+    auth.check_access("paper_studio", pid, user)
+    p = get_store().get("paper_studio", pid)
+    if not p:
+        raise HTTPException(404, "paper not found")
+    new_md = body.markdown.strip()
+    if not new_md:
+        raise HTTPException(400, "markdown cannot be empty")
+    old_md = p.get("markdown") or ""
+    if body.preserve_references and "# References" not in new_md and "# References" in old_md:
+        refs_tail = old_md[old_md.index("# References"):]
+        new_md = f"{new_md}\n\n{refs_tail}"
+    p.setdefault("versions", []).append({"markdown": old_md, "note": "before AI & Plagiarism reduction"})
+    p["versions"] = p["versions"][-15:]
+    p["markdown"] = new_md
+    p["words"] = len(re.findall(r"\w+", new_md))
+    get_store().put("paper_studio", pid, p)
+    return {"ok": True, "paper_id": pid, "words": p["words"]}
+
+
 class VenueRequest(BaseModel):
     title: str
     abstract: str = ""
@@ -728,8 +821,95 @@ class VenueRequest(BaseModel):
 @app.post("/api/venues/find")
 async def venues_find(body: VenueRequest, request: Request):
     from backend.app import venue_finder
-    auth.consume(me(request), "assists_day")
+    me(request)  # verify session if AUTH_REQUIRED=true; OpenAlex venue lookup uses 0 LLM tokens
     return await venue_finder.find(body.title.strip()[:400], body.abstract.strip()[:3000], body.kind, body.oa_only)
+
+
+# ---------- Turnitin-style Originality (AI & Plagiarism) Report + Reducer (Paid Plans & Dev Owner Only) ----------
+
+class OriginalityScanRequest(BaseModel):
+    text: str = ""
+    title: str = ""
+    document_id: str | None = None
+    paper_id: str | None = None
+    exclude_references: bool = True
+    exclude_quotes: bool = True
+
+
+@app.post("/api/originality/scan")
+async def originality_scan(body: OriginalityScanRequest, request: Request):
+    from backend.citeguard import turnitin
+
+    user = me(request)
+    auth.require_paid(user, "integrity_scans")
+    if body.document_id:
+        auth.check_access("document", body.document_id, user)
+    if body.paper_id:
+        auth.check_access("paper_studio", body.paper_id, user)
+    auth.consume(user, "integrity_scans")
+    try:
+        rep = await turnitin.scan(
+            text=body.text[:180_000],
+            title=body.title[:400],
+            document_id=body.document_id,
+            paper_id=body.paper_id,
+            exclude_references=body.exclude_references,
+            exclude_quotes=body.exclude_quotes,
+        )
+    except ValueError as e:
+        auth.refund(user, "integrity_scans")
+        raise HTTPException(400, str(e)) from e
+    except KeyError as e:
+        auth.refund(user, "integrity_scans")
+        raise HTTPException(404, f"Document not found: {e}") from e
+    auth.own("originality_scan", rep["scan_id"], user)
+    return rep
+
+
+@app.get("/api/originality/{scan_id}")
+async def originality_get(scan_id: str, request: Request):
+    user = me(request)
+    auth.require_paid(user, "integrity_scans")
+    auth.check_access("originality_scan", scan_id, user)
+    rec = get_store().get("originality_scan", scan_id)
+    if not rec:
+        raise HTTPException(404, "scan not found")
+    return {k: v for k, v in rec.items() if not k.startswith("_")}
+
+
+class OriginalityReduceRequest(BaseModel):
+    scan_id: str | None = None
+    text: str = ""
+    title: str = ""
+    mode: Literal["both", "plagiarism", "ai"] = "both"
+
+
+@app.post("/api/originality/reduce")
+async def originality_reduce(body: OriginalityReduceRequest, request: Request):
+    from backend.citeguard import turnitin
+
+    user = me(request)
+    auth.require_paid(user, "humanize_fixes")
+    if body.scan_id:
+        auth.check_access("originality_scan", body.scan_id, user)
+    auth.consume(user, "humanize_fixes")
+    llm.set_premium(auth.is_premium(user))
+    llm.set_meter(None if auth.is_owner(user) else user["uid"])
+    try:
+        res = await turnitin.reduce(
+            scan_id=body.scan_id,
+            text=body.text[:180_000],
+            title=body.title[:400],
+            mode=body.mode,
+        )
+    except llm.LLMError as e:
+        auth.refund(user, "humanize_fixes")
+        raise HTTPException(503, str(e)) from e
+    except ValueError as e:
+        auth.refund(user, "humanize_fixes")
+        raise HTTPException(400, str(e)) from e
+    auth.own("originality_scan", res["after_scan_id"], user)
+    return res
 
 
 @app.get("/api/paper-studio/{pid}/fig/{name}.png")

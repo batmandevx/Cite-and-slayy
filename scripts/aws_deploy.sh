@@ -144,10 +144,13 @@ write_env_server() {
   fi
   local v; local out=.env.server
   : > "$out"; chmod 600 "$out"
-  for k in GEMINI_API_KEY CONTACT_EMAIL S2_API_KEY OPENALEX_API_KEY; do
+  for k in GEMINI_API_KEY CONTACT_EMAIL S2_API_KEY OPENALEX_API_KEY OWNER_EMAILS OWNER_ACCESS_KEY; do
     v=$(grep -E "^$k=" .env 2>/dev/null | tail -1 | cut -d= -f2- || true)
     [ -n "$v" ] && echo "$k=$v" >> "$out"
   done
+  if ! grep -q '^OWNER_ACCESS_KEY=' "$out"; then
+    echo "OWNER_ACCESS_KEY=$pw" >> "$out"
+  fi
   cat >> "$out" <<EOF
 LLM_PROVIDER=bedrock
 BEDROCK_REGION=$BEDROCK_REGION

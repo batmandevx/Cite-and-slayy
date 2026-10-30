@@ -101,9 +101,14 @@ def parse_md(md: str) -> list[Block]:
             while i < len(lines) and re.match(r"^\s*\d+[.)]\s+", lines[i]):
                 items.append(re.sub(r"^\s*\d+[.)]\s+", "", lines[i])); i += 1
             out.append(Block("ol", items=items)); continue
+        if s.startswith(">"):
+            q_lines = []
+            while i < len(lines) and lines[i].strip().startswith(">"):
+                q_lines.append(re.sub(r"^\s*>\s?", "", lines[i]).strip()); i += 1
+            out.append(Block("quote", "\n".join(x for x in q_lines if x))); continue
         para = [s]
         i += 1
-        while i < len(lines) and lines[i].strip() and not re.match(r"^(#{1,4}\s|```|\$\$|\||[-*+]\s|\d+[.)]\s|!\[|(table|figure):)", lines[i].strip(), re.I):
+        while i < len(lines) and lines[i].strip() and not re.match(r"^(#{1,4}\s|```|\$\$|\||>|[-*+]\s|\d+[.)]\s|!\[|(table|figure):)", lines[i].strip(), re.I):
             para.append(lines[i].strip()); i += 1
         out.append(Block("para", " ".join(para)))
     return out
@@ -133,15 +138,21 @@ def tex_inline(s: str) -> str:
 
 
 PREAMBLES = {
-    "ieee": r"""\documentclass[conference]{IEEEtran}
-\usepackage{amsmath,amssymb,graphicx,url,array}
+    "ieee": r"""\documentclass[journal]{IEEEtran}
+\usepackage{amsmath,amssymb,amsthm,graphicx,url,array,booktabs,hyperref}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{proposition}{Proposition}
+\newtheorem{assumption}{Assumption}
 \begin{document}
 \title{%(title)s}
 \author{\IEEEauthorblockN{%(author)s}\IEEEauthorblockA{%(affil)s}}
 \maketitle
 """,
     "springer": r"""\documentclass[runningheads]{llncs}
-\usepackage{amsmath,amssymb,graphicx,url,array}
+\usepackage{amsmath,amssymb,graphicx,url,array,booktabs,hyperref}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
 \begin{document}
 \title{%(title)s}
 \author{%(author)s}
@@ -149,8 +160,13 @@ PREAMBLES = {
 \maketitle
 """,
     "plain": r"""\documentclass[11pt]{article}
-\usepackage{amsmath,amssymb,graphicx,url,array,geometry}
+\usepackage{amsmath,amssymb,amsthm,graphicx,url,array,booktabs,geometry,hyperref}
 \geometry{margin=1in}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{proposition}{Proposition}
+\newtheorem{assumption}{Assumption}
 \begin{document}
 \title{%(title)s}
 \author{%(author)s \\ %(affil)s}
@@ -176,19 +192,39 @@ def to_latex(md: str, title: str, template: Template = "ieee", author: str = "Au
             name = b.text.strip().lower()
             if name == "abstract":
                 body = []
+                kw_line = ""
                 while i + 1 < len(blocks) and blocks[i + 1].kind == "para":
-                    i += 1; body.append(tex_inline(blocks[i].text))
-                out.append("\\begin{abstract}\n" + "\n\n".join(body) + "\n\\end{abstract}\n")
+                    i += 1
+                    raw_p = blocks[i].text.strip()
+                    km = re.match(r"^\*\*(?:Keywords|Index Terms):\*\*\s*(.+)$", raw_p, re.I)
+                    if km:
+                        kw_line = tex_inline(km.group(1).strip())
+                    else:
+                        body.append(tex_inline(raw_p))
+                if template == "springer" and kw_line:
+                    out.append("\\begin{abstract}\n" + "\n\n".join(body) + f"\n\\keywords{{{kw_line}}}\n\\end{{abstract}}\n")
+                else:
+                    out.append("\\begin{abstract}\n" + "\n\n".join(body) + "\n\\end{abstract}\n")
+                    if kw_line and template == "ieee":
+                        out.append(f"\\begin{{IEEEkeywords}}\n{kw_line}\n\\end{{IEEEkeywords}}\n")
+                    elif kw_line:
+                        out.append(f"\\noindent\\textbf{{Keywords:}} {kw_line}\n")
             elif name in ("references", "bibliography"):
                 in_refs = True
             else:
                 in_refs = False
-                cmd = {1: "section", 2: "section", 3: "subsection", 4: "subsubsection"}[min(b.level, 4)]
+                cmd = {1: "section", 2: "subsection", 3: "subsubsection", 4: "paragraph"}[min(b.level, 4)]
                 out.append(f"\\{cmd}{{{tex_inline(b.text)}}}\n")
         elif in_refs and b.kind in ("ol", "ul", "para"):
             refs += b.items if b.kind != "para" else [b.text]
         elif b.kind == "para":
             out.append(tex_inline(b.text) + "\n")
+        elif b.kind == "quote":
+            q_body = " \\\\\n".join(tex_inline(ln) for ln in b.text.splitlines() if ln.strip())
+            if re.search(r"algorithm\s+\d", b.text, re.I):
+                out.append("\\par\\smallskip\\noindent\\fbox{\\parbox{0.96\\linewidth}{\\small\n" + q_body + "\n}}\\smallskip\\par\n")
+            else:
+                out.append("\\begin{quote}\n" + q_body + "\n\\end{quote}\n")
         elif b.kind in ("ul", "ol"):
             env = "itemize" if b.kind == "ul" else "enumerate"
             out.append(f"\\begin{{{env}}}\n" + "".join(f"  \\item {tex_inline(x)}\n" for x in b.items) + f"\\end{{{env}}}\n")
@@ -202,9 +238,17 @@ def to_latex(md: str, title: str, template: Template = "ieee", author: str = "Au
             tab += 1
             ncol = max(len(r) for r in b.rows)
             rows = [r + [""] * (ncol - len(r)) for r in b.rows]
-            lines = [" & ".join(tex_inline(c) for c in rows[0]) + r" \\ \hline"] + [" & ".join(tex_inline(c) for c in r) + r" \\" for r in rows[1:]]
-            out.append("\\begin{table}[t]\n\\centering\n" + (f"\\caption{{{tex_inline(b.caption)}}}\n" if b.caption else "")
-                       + f"\\label{{tab:{tab}}}\n\\begin{{tabular}}{{{'l' * ncol}}}\n\\hline\n" + "\n".join(lines) + "\n\\hline\n\\end{tabular}\n\\end{table}\n")
+            wide = template == "ieee" and (ncol >= 5 or max((sum(len(c) for c in r) for r in rows), default=0) > 55)
+            env_t = "table*" if (template == "ieee" and ncol >= 5) else "table"
+            hdr = " & ".join(f"\\textbf{{{tex_inline(c)}}}" for c in rows[0]) + r" \\ \midrule"
+            body_lines = [" & ".join(tex_inline(c) for c in r) + r" \\" for r in rows[1:]]
+            tabular = f"\\begin{{tabular}}{{{'l' * ncol}}}\n\\toprule\n" + "\n".join([hdr] + body_lines) + "\n\\bottomrule\n\\end{tabular}"
+            if wide and env_t == "table":
+                tabular = f"\\resizebox{{\\columnwidth}}{{!}}{{{tabular}}}"
+            elif env_t == "table*":
+                tabular = f"\\resizebox{{\\textwidth}}{{!}}{{{tabular}}}" if max((sum(len(c) for c in r) for r in rows), default=0) > 110 else tabular
+            out.append(f"\\begin{{{env_t}}}[t]\n\\centering\n" + (f"\\caption{{{tex_inline(b.caption)}}}\n" if b.caption else "")
+                       + f"\\label{{tab:{tab}}}\n{tabular}\n\\end{{{env_t}}}\n")
         elif b.kind == "image":
             fig += 1
             path = b.text
@@ -285,9 +329,13 @@ def to_docx(md: str, title: str, template: Template = "ieee", author: str = "", 
         p = doc.add_paragraph(f"{author}\n{affil}".strip()); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     for b in parse_md(md):
         if b.kind == "heading":
-            doc.add_heading(b.text, level=min(max(b.level - 1, 1), 3))
+            doc.add_heading(b.text, level=min(max(b.level, 1), 3))
         elif b.kind == "para":
             _runs(doc.add_paragraph(), b.text)
+        elif b.kind == "quote":
+            qp = doc.add_paragraph()
+            qp.paragraph_format.left_indent = Inches(0.3)
+            _runs(qp, b.text)
         elif b.kind in ("ul", "ol"):
             for x in b.items:
                 _runs(doc.add_paragraph(style="List Bullet" if b.kind == "ul" else "List Number"), x)

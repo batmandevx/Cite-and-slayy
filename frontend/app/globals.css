@@ -317,4 +317,16 @@ h1, h2, h3, .font-display { font-family: var(--font-display); letter-spacing: -0
 .md th { background: var(--yellow); color: #121212; font-family: var(--font-display); }
 .md blockquote { border-left: 4px solid var(--pink); padding-left: .8em; color: var(--ink-2); }
 
+/* scholarly manuscript preview inside Paper Studio */
+.paper-preview .md { font-family: Georgia, "Times New Roman", Times, serif; font-size: 15px; line-height: 1.72; color: #161616; text-align: justify; }
+.paper-preview .md h1 { font-family: Georgia, "Times New Roman", serif; font-size: 1.22em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1.5px solid #1f2937; padding-bottom: 0.22em; margin-top: 1.5em; color: #111827; text-align: left; }
+.paper-preview .md h2 { font-family: Georgia, "Times New Roman", serif; font-size: 1.06em; font-weight: 700; font-style: italic; margin-top: 1.15em; color: #1f2937; text-align: left; }
+.paper-preview .md h3 { font-family: Georgia, "Times New Roman", serif; font-size: 1em; font-weight: 700; margin-top: 0.9em; color: #1f2937; }
+.paper-preview .md table { display: table; width: 100%; border-collapse: collapse; font-family: system-ui, -apple-system, sans-serif; font-size: 12.5px; margin: 0.75em 0 1.1em; border-top: 2px solid #111827; border-bottom: 2px solid #111827; }
+.paper-preview .md th { background: #f8fafc; color: #111827; font-family: system-ui, -apple-system, sans-serif; font-weight: 700; border: none; border-bottom: 1.5px solid #111827; padding: 0.45em 0.6em; text-align: left; }
+.paper-preview .md td { border: none; border-bottom: 1px solid #e5e7eb; padding: 0.42em 0.6em; vertical-align: top; color: #1f2937; text-align: left; }
+.paper-preview .md blockquote { background: #f8fafc; border: 1px solid #cbd5e1; border-left: 3.5px solid #1d4ed8; border-radius: 6px; padding: 0.75em 1em; color: #111827; font-size: 13.8px; text-align: left; }
+.paper-preview .md code { background: #f1f5f9; border: 1px solid #cbd5e1; color: #0f172a; font-size: 0.86em; }
+.paper-preview .md a { color: #1d4ed8; text-decoration: underline; text-decoration-thickness: 1px; }
+
 @media (prefers-reduced-motion: reduce) { .aurora-orb::before, .aurora-orb::after, .aurora-orbit, .aurora-eye, .beam-flow, .typing-dot { animation: none !important; } }

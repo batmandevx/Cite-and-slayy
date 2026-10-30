@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { ArrowLeft, BookOpen, Landmark, Wand2, Wrench, Compass, FilePen, Gamepad2, Gavel, LayoutDashboard, NotebookPen, ShieldCheck, Zap } from "lucide-react";
+import { ArrowLeft, BookOpen, Landmark, ScanSearch, Wand2, Wrench, Compass, FilePen, Gamepad2, Gavel, LayoutDashboard, NotebookPen, ShieldCheck, Zap } from "lucide-react";
 import Link from "next/link";
 import { AnimatePresence, motion, MotionConfig, useScroll, useSpring } from "motion/react";
 import { useEffect, useState } from "react";
@@ -17,6 +17,7 @@ import { PaperStudioTab } from "@/components/PaperStudioTab";
 import { PinBoard } from "@/components/PinBoard";
 import { Sidebar, useRailWidth } from "@/components/Sidebar";
 import { ToolboxTab } from "@/components/ToolboxTab";
+import { TurnitinTab } from "@/components/TurnitinTab";
 import { VenuesTab } from "@/components/VenuesTab";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { AccountCard, UpgradeModal } from "@/components/billing/AccountWidgets";
@@ -31,8 +32,8 @@ import { VerdictTab } from "@/components/VerdictTab";
 import { API, api, usePersistent, writePersistent } from "@/lib/api";
 import type { Health } from "@/lib/types";
 
-type Tab = "home" | "studio" | "venues" | "explore" | "draft" | "audit" | "verdict" | "notes" | "library" | "toolbox" | "play";
-const VALID_TABS = new Set<string>(["home", "studio", "venues", "explore", "draft", "audit", "verdict", "notes", "library", "toolbox", "play"]);
+type Tab = "home" | "studio" | "turnitin" | "venues" | "explore" | "draft" | "audit" | "verdict" | "notes" | "library" | "toolbox" | "play";
+const VALID_TABS = new Set<string>(["home", "studio", "turnitin", "venues", "explore", "draft", "audit", "verdict", "notes", "library", "toolbox", "play"]);
 const TABS: { id: Tab; n: number; label: string; q: string; icon: typeof Compass; color: string }[] = [
   { id: "explore", n: 1, label: "Explore gaps", q: "What should I research?", icon: Compass, color: "bg-lime" },
   { id: "draft", n: 2, label: "Draft", q: "AI drafts the paper", icon: FilePen, color: "bg-blue text-white" },
@@ -41,6 +42,7 @@ const TABS: { id: Tab; n: number; label: string; q: string; icon: typeof Compass
 ];
 const CREATE: { id: Tab; label: string; q: string; icon: typeof Compass; color: string; badge?: string }[] = [
   { id: "studio", label: "Paper Studio", q: "Topic in, full paper out", icon: Wand2, color: "bg-pink", badge: "new" },
+  { id: "turnitin", label: "AI & Plag Check", q: "Turnitin report & reducer", icon: ScanSearch, color: "bg-violet text-white", badge: "pro" },
   { id: "venues", label: "Find a venue", q: "Right journal or conference", icon: Landmark, color: "bg-blue text-white", badge: "new" },
 ];
 const WORK: { id: Tab; label: string; q: string; icon: typeof Compass; color: string; badge?: string }[] = [
@@ -52,7 +54,7 @@ const WORK: { id: Tab; label: string; q: string; icon: typeof Compass; color: st
 
 function UpgradeNudge() {
   const { me, openUpgrade } = useAuth();
-  if (me && me.plan !== "free") return null;
+  if (me && (me.is_owner || me.is_paid || me.plan !== "free")) return null;
   return (
     <motion.button onClick={() => openUpgrade()} whileHover={{ y: -2 }} whileTap={{ scale: 0.97 }}
       className="btn-brut flex w-full items-center gap-2 rounded-2xl bg-[linear-gradient(120deg,var(--pink),var(--yellow))] px-3 py-2 text-left text-[#121212]">
@@ -85,6 +87,7 @@ function Dashboard() {
   const name = savedName || me?.name?.split(" ")[0] || "Ayush";
   const [auroraOpen, setAuroraOpen] = useState(() => new URLSearchParams(window.location.search).get("aurora") === "1");
   const [, setStudioPaper] = usePersistent<string | null>("studioPaper", null);
+  const [turnitinTarget, setTurnitinTarget] = useState<{ paperId?: string | null; documentId?: string | null }>({});
   const [gapRun, setGapRun] = usePersistent<string | null>("gapRun", null);
   const [topic, setTopic] = usePersistent<string>("topic", "Gradient-spectral rank allocation for LoRA fine-tuning under a fixed parameter budget");
   const [documentId, setDocumentId] = usePersistent<string | null>("documentId", null);
@@ -179,7 +182,7 @@ function Dashboard() {
               <div className="lg:hidden"><StatusChips health={health} offline={offline} /></div>
             </div>}
             {work && <div className="mb-6 flex items-center gap-3">
-              <span className={clsx("grid size-11 place-items-center rounded-2xl border-[2.5px] border-edge text-[#121212] shadow-[3px_3px_0_var(--shadow-c)]", work.color)}><work.icon className="size-5" /></span>
+              <span className={clsx("grid size-11 place-items-center rounded-2xl border-[2.5px] border-edge shadow-[3px_3px_0_var(--shadow-c)]", work.color, !work.color.includes("text-white") && "text-[#121212]")}><work.icon className="size-5" /></span>
               <div>
                 <div className="font-display text-xs font-extrabold uppercase tracking-widest text-muted">{CREATE.some((c) => c.id === work.id) ? "Create & publish" : "Workspace"}</div>
                 <div className="font-display text-xl font-extrabold">{work.label}</div>
@@ -193,10 +196,25 @@ function Dashboard() {
                 {safeTab === "draft" && <DraftTab topic={topic} setTopic={setTopic} health={health}
                   onAudit={(id) => { setDocumentId(id); setAuditId(null); setReviewId(null); go("audit"); }} />}
                 {safeTab === "audit" && <AuditTab documentId={documentId} setDocumentId={(id) => { setDocumentId(id); if (id !== documentId) { setAuditId(null); setReviewId(null); } }} auditId={auditId} setAuditId={setAuditId}
-                  onVerdict={() => go("verdict")} />}
+                  onVerdict={() => go("verdict")}
+                  onOriginality={(docId) => { setTurnitinTarget({ documentId: docId, paperId: null }); go("turnitin"); }} />}
                 {safeTab === "verdict" && <VerdictTab documentId={documentId} auditId={auditId} reviewId={reviewId} setReviewId={setReviewId}
                   health={health} goAudit={() => go("audit")} />}
-                {safeTab === "studio" && <PaperStudioTab onPlay={() => go("play")} onAudit={() => go("audit")} />}
+                {safeTab === "studio" && (
+                  <PaperStudioTab
+                    onPlay={() => go("play")}
+                    onAudit={() => go("audit")}
+                    onAuditDoc={(id) => { setDocumentId(id); setAuditId(null); setReviewId(null); go("audit"); }}
+                    onOriginality={(pid) => { setTurnitinTarget({ paperId: pid, documentId: null }); go("turnitin"); }}
+                  />
+                )}
+                {safeTab === "turnitin" && (
+                  <TurnitinTab
+                    initialPaperId={turnitinTarget.paperId}
+                    initialDocumentId={turnitinTarget.documentId}
+                    onOpenStudio={(pid) => { setStudioPaper(pid); go("studio"); }}
+                  />
+                )}
                 {safeTab === "venues" && <VenuesTab />}
                 {safeTab === "toolbox" && <ToolboxTab />}
                 {safeTab === "notes" && <NotesTab />}

@@ -62,28 +62,36 @@ export async function exportPaper(fmt: ExportFormat, doc: PaperDoc) {
     body: fmt === "latex-zip" ? "Upload the .zip to Overleaf: New Project → Upload Project." : undefined, tone: "good" });
 }
 
-/** Print-to-PDF from rendered HTML (keeps equations, figures and diagrams exactly as shown). */
+/** Print-to-PDF from rendered HTML (keeps equations, figures and diagrams exactly as shown, styled as an IEEE/academic monograph). */
 export function printPdf(title: string, byline: string, html: string, template: string) {
   const w = window.open("", "_blank");
   if (!w) { toast({ title: "Allow pop-ups to export PDF", tone: "crit" }); return; }
   const styles = [...document.querySelectorAll("style, link[rel=stylesheet]")].map((n) => n.outerHTML).join("");
   const twoCol = template === "ieee";
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+  const banner = twoCol
+    ? `<div class="ieee-bar"><span>IEEE MONOGRAPH FORMAT · VERIFIED SCHOLARLY CITATIONS</span><span>CITE &amp; SLAYY PAPER STUDIO</span></div>`
+    : "";
   w.document.write(`<!doctype html><html data-theme="light"><head><title>${esc(title)}</title>${styles}
     <style>
-      body{background:#fff!important;background-image:none!important;color:#111;padding:0;margin:0;font-family:"Times New Roman",Georgia,serif}
-      .page{max-width:${twoCol ? "1000px" : "760px"};margin:auto;padding:36px}
-      h1.ttl{font-size:${twoCol ? "24px" : "26px"};text-align:center;margin:0 0 6px;font-family:inherit;line-height:1.25}
-      p.auth{text-align:center;color:#444;margin:0 0 22px;font-style:italic}
-      .md{font-size:${twoCol ? "10pt" : "11.5pt"};line-height:1.45;${twoCol ? "column-count:2;column-gap:26px;" : ""}text-align:justify}
-      .md h1,.md h2,.md h3{font-family:inherit;break-after:avoid}
-      .md h1{font-size:12pt;text-transform:uppercase;letter-spacing:.04em;text-align:center;margin:14px 0 6px}
-      .md h2{font-size:11pt;font-style:italic;margin:10px 0 4px}
-      .md img,.md svg{max-width:100%;break-inside:avoid}
-      .md table{font-size:8.5pt;break-inside:avoid;width:100%}
-      .md div{break-inside:avoid;border:none!important;box-shadow:none!important;background:#fff!important}
-      @page{margin:16mm}
-    </style></head><body><div class="page"><h1 class="ttl">${esc(title)}</h1><p class="auth">${esc(byline)}</p>${html}</div></body></html>`);
+      body{background:#fff!important;background-image:none!important;color:#111!important;padding:0;margin:0;font-family:"Times New Roman",Georgia,serif}
+      .page{max-width:${twoCol ? "1040px" : "780px"};margin:auto;padding:28px 34px}
+      .ieee-bar{display:flex;justify-content:space-between;border-top:2.5px solid #111;border-bottom:1px solid #555;padding:4px 0;margin-bottom:18px;font-family:Arial,Helvetica,sans-serif;font-size:7.5pt;font-weight:700;letter-spacing:.08em;color:#333}
+      h1.ttl{font-size:${twoCol ? "22pt" : "24pt"};text-align:${twoCol ? "left" : "center"};margin:0 0 8px;font-family:"Times New Roman",Georgia,serif;font-weight:700;line-height:1.2;color:#0f172a}
+      p.auth{text-align:${twoCol ? "left" : "center"};color:#334155;margin:0 0 18px;padding-bottom:12px;border-bottom:1px solid #cbd5e1;font-size:10.5pt;font-style:italic}
+      .paper-preview h1.mb-1,.paper-preview p.mb-6{display:none!important}
+      .md{font-size:${twoCol ? "9.6pt" : "11pt"};line-height:1.48;${twoCol ? "column-count:2;column-gap:24px;" : ""}text-align:justify;color:#111}
+      .md h1,.md h2,.md h3{font-family:"Times New Roman",Georgia,serif;break-after:avoid;color:#111}
+      .md h1{font-size:11pt;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid #333;padding-bottom:2px;margin:14px 0 6px;text-align:left}
+      .md h2{font-size:10pt;font-style:italic;font-weight:700;margin:10px 0 4px;text-align:left}
+      .md img,.md svg{max-width:100%;height:auto;break-inside:avoid}
+      .md table{display:table!important;font-family:Arial,Helvetica,sans-serif;font-size:7.8pt;break-inside:avoid;width:100%;border-collapse:collapse;border-top:1.8px solid #111;border-bottom:1.8px solid #111;margin:8px 0}
+      .md th{background:#f8fafc!important;color:#111!important;border:none!important;border-bottom:1.2px solid #111!important;padding:4px 5px;font-weight:700;text-align:left}
+      .md td{border:none!important;border-bottom:0.6px solid #d1d5db!important;padding:3.5px 5px;vertical-align:top;text-align:left;color:#111}
+      .md blockquote{background:#f8fafc!important;border:1px solid #cbd5e1!important;border-left:3px solid #1d4ed8!important;padding:6px 9px;margin:8px 0;break-inside:avoid;font-size:8.8pt;text-align:left}
+      .md figure,.md pre{break-inside:avoid}
+      @page{margin:14mm}
+    </style></head><body><div class="page">${banner}<h1 class="ttl">${esc(title)}</h1><p class="auth">${esc(byline)}</p>${html}</div></body></html>`);
   w.document.close();
   setTimeout(() => w.print(), 900);
 }

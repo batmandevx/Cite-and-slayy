@@ -150,3 +150,31 @@ def test_paper_pack_order_grants_credits_once(prod):
     assert user["_used_pack"] and auth.is_premium(user)
     auth.refund(user, "papers")
     assert auth.bonus(auth.get_user(user["uid"]))["credits"]["papers"] == 1
+
+
+def test_paid_only_originality_gate_and_dev_owner_bypass(prod, monkeypatch):
+    monkeypatch.setenv("OWNER_EMAILS", "ayush@owner.dev")
+    monkeypatch.setenv("OWNER_ACCESS_KEY", "owner-secret-key")
+    get_settings.cache_clear()
+
+    # 1) Regular free user is blocked (402 paid_only) from AI & Plagiarism Report and Reducer
+    free_c = login(prod, "student@x.org")
+    me_free = free_c.get("/api/auth/me").json()
+    assert me_free["is_owner"] is False and me_free["is_paid"] is False
+    r_scan = free_c.post("/api/originality/scan", json={"title": "Test", "text": "word " * 30})
+    assert r_scan.status_code == 402 and r_scan.json()["detail"]["code"] == "paid_only"
+    r_red = free_c.post("/api/originality/reduce", json={"title": "Test", "text": "word " * 30})
+    assert r_red.status_code == 402 and r_red.json()["detail"]["code"] == "paid_only"
+
+    # 2) Dev Owner (matched via OWNER_EMAILS) gets automatic unlimited access to all features
+    owner_c = login(prod, "ayush@owner.dev")
+    me_owner = owner_c.get("/api/auth/me").json()
+    assert me_owner["is_owner"] is True and me_owner["is_paid"] is True
+    assert me_owner["plan"] == "max" and "Owner" in me_owner["plan_name"]
+
+    # 3) Any user who presents the valid OWNER_ACCESS_KEY becomes Dev Owner immediately
+    assert free_c.post("/api/auth/owner-unlock", json={"key": "wrong-key"}).status_code == 403
+    assert free_c.post("/api/auth/owner-unlock", json={"key": "owner-secret-key"}).status_code == 200
+    me_unlocked = free_c.get("/api/auth/me").json()
+    assert me_unlocked["is_owner"] is True and me_unlocked["is_paid"] is True
+

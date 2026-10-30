@@ -9,6 +9,7 @@ import { motion, MotionConfig, useReducedMotion, useScroll, useSpring, useTransf
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
 import { Pricing } from "./billing/Pricing";
+import { LandingDemoPapers } from "./DemoPapersShowcase";
 import { PaperBuilder } from "./landing/PaperBuilder";
 import { Logo } from "./Logo";
 import { AnimatedNumber } from "./motion";
@@ -55,7 +56,7 @@ const GETS = [
 
 const STEPS = [
   { n: 1, icon: Compass, title: "Tell us the topic", body: "Type a topic, brainstorm one with Azora AI from your interests, or upload the papers you've studied.", color: "bg-lime" },
-  { n: 2, icon: FilePen, title: "Agents write it", body: "12 agents find real literature, measure trends, design your method and write every section with figures, equations and diagrams.", color: "bg-blue text-white" },
+  { n: 2, icon: FilePen, title: "Agents write it", body: "14 specialist agents vet real literature, measure longitudinal trends, formulate notation & theorems, and draft every section with figures, algorithms and diagrams.", color: "bg-blue text-white" },
   { n: 3, icon: ShieldCheck, title: "Say what to change", body: "“Add a comparison table.” “Make it more formal.” The agents revise, then re-check every citation, number and equation.", color: "bg-yellow" },
   { n: 4, icon: Gavel, title: "Download & submit", body: "Get LaTeX (IEEE / Springer), Word and PDF, a reviewer verdict, and a shortlist of matching journals and conferences.", color: "bg-pink" },
 ];
@@ -83,6 +84,7 @@ function LandingInner() {
           <Logo />
           <nav className="hidden items-center gap-7 font-display text-[15px] font-bold md:flex">
             <a href="#how" className="hover:text-pink">How it works</a>
+            <a href="#demos" className="hover:text-pink">Demo papers</a>
             <a href="#catches" className="hover:text-pink">What it catches</a>
             <a href="#honest" className="hover:text-pink">No fake data</a>
             <a href="#pricing" className="hover:text-pink">Pricing</a>
@@ -280,6 +282,9 @@ function LandingInner() {
           </div>
         </div>
       </section>
+
+      {/* ---------- showcase demo papers ---------- */}
+      <LandingDemoPapers />
 
       {/* ---------- pricing ---------- */}
       <section id="pricing" className="mx-auto max-w-[1240px] scroll-mt-24 px-5 py-16">

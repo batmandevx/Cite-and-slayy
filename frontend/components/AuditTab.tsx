@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { ArrowRight, ChevronDown, Download, FileSearch, FileUp, Gavel, Quote, ShieldAlert, ShieldCheck, Upload } from "lucide-react";
+import { ArrowRight, ChevronDown, Download, FileSearch, FileUp, Gavel, Quote, ShieldAlert, ShieldCheck, Sparkles, Upload } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { API, api, useJob } from "@/lib/api";
@@ -201,10 +201,11 @@ function DocumentView({ report, pages, onPick }: { report: AuditReport; pages: P
 type View = "references" | "claims" | "phrases" | "overlap" | "document";
 
 export function AuditTab({
-  documentId, setDocumentId, auditId, setAuditId, onVerdict,
+  documentId, setDocumentId, auditId, setAuditId, onVerdict, onOriginality,
 }: {
   documentId: string | null; setDocumentId: (id: string) => void;
   auditId: string | null; setAuditId: (id: string | null) => void; onVerdict: () => void;
+  onOriginality?: (docId: string) => void;
 }) {
   const [doc, setDoc] = useState<DocumentInfo | null>(null);
   const [samples, setSamples] = useState<DocumentInfo[]>([]);
@@ -226,7 +227,18 @@ export function AuditTab({
   const fileRef = useRef<HTMLInputElement>(null);
   const job = useJob();
 
-  useEffect(() => { api.get<DocumentInfo[]>("/api/documents/samples").then(setSamples).catch(() => {}); }, []);
+  useEffect(() => {
+    api.get<DocumentInfo[]>("/api/documents/samples").then((rows) => {
+      setSamples(rows);
+      if (documentId) {
+        const hit = rows.find((r) => r.document_id === documentId);
+        if (hit) {
+          setDoc((cur) => cur ?? hit);
+          api.get<PageText[]>(`/api/documents/${documentId}/text`).then((p) => setPages((cur) => (cur.length ? cur : p))).catch(() => {});
+        }
+      }
+    }).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!documentId) return;
     api.get<DocumentInfo>(`/api/documents/${documentId}`).then(setDoc).catch(() => setDoc(null));
@@ -332,6 +344,11 @@ export function AuditTab({
               <Button variant="primary" onClick={run} loading={job.running} disabled={!checks.length}>
                 <FileSearch className="size-4" /> Run CiteGuard
               </Button>
+              {onOriginality && (
+                <Button variant="blue" onClick={() => onOriginality(doc.document_id)}>
+                  <Sparkles className="size-4" /> AI &amp; Plag Report
+                </Button>
+              )}
             </div>
           </div>
         )}
