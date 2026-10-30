@@ -13,6 +13,7 @@ import type { Job, JobEvent } from "@/lib/types";
 import { Confetti } from "./Confetti";
 import { RichMarkdown } from "./notes/RichMarkdown";
 import { ReviseChat } from "./studio/ReviseChat";
+import { SubmissionKit, type Kit } from "./studio/SubmissionKit";
 import { VenueFinder } from "./studio/VenueFinder";
 import { Button, Card, Select } from "./ui";
 
@@ -20,7 +21,7 @@ interface StudioPaper {
   paper_id: string; title: string; topic: string; markdown: string; highlights: string[]; summary: string; keywords: string[];
   research_question: string; contributions: string[]; words: number; template: string; author: string; affiliation: string;
   references: { n: number; title: string; year?: number; doi?: string; url?: string; venue?: string; cited_by?: number }[];
-  history?: { at: string; instruction: string }[]; revisable?: boolean; seeded?: string[]; last_change?: string;
+  history?: { at: string; instruction: string }[]; revisable?: boolean; seeded?: string[]; last_change?: string; kit?: Kit | null;
   report: {
     references: number; candidates: number; retraction_checked: number; retracted_excluded: { title: string; doi?: string }[];
     invalid_citations_removed: number; claims_checked: number; claims_supported: number; claims_unsupported: number;
@@ -271,6 +272,7 @@ export function PaperStudioTab({ onPlay, onAudit }: { onPlay: () => void; onAudi
   const [affil, setAffil] = usePersistent("paperAffil", "Asia Pacific University");
   const [disclose, setDisclose] = usePersistent("studioDisclose", true);
   const [seeds, setSeeds] = useState<{ id: string; name: string }[]>([]);
+  const [kitVenue, setKitVenue] = useState<{ name: string; type: string } | null>(null);
   const [paperId, setPaperId] = usePersistent<string | null>("studioPaper", null);
   const [paper, setPaper] = useState<StudioPaper | null>(null);
   const [history, setHistory] = useState<{ paper_id: string; title: string; words: number; created_at: string }[]>([]);
@@ -393,7 +395,7 @@ export function PaperStudioTab({ onPlay, onAudit }: { onPlay: () => void; onAudi
                 <div className="grid gap-2.5 sm:grid-cols-2">
                   {shown.highlights.map((h, i) => (
                     <motion.div key={i} initial={{ opacity: 0, scale: 0.9, rotate: i % 2 ? 1.5 : -1.5 }} animate={{ opacity: 1, scale: 1, rotate: 0 }} transition={{ delay: 0.1 * i }}
-                      className={clsx("rounded-xl border-2 border-edge p-3 text-sm font-semibold text-[#121212]", ["bg-yellow", "bg-pink/60", "bg-lime", "bg-blue/30"][i % 4])}>{h}</motion.div>
+                      className={clsx("rounded-xl border-2 border-edge p-3 text-sm font-semibold text-[#121212]", ["bg-yellow", "bg-pink", "bg-lime", "bg-mint"][i % 4])}>{h}</motion.div>
                   ))}
                 </div>
                 <div className="mt-4 font-display text-sm font-extrabold uppercase tracking-wider text-muted">In plain words</div>
@@ -427,7 +429,14 @@ export function PaperStudioTab({ onPlay, onAudit }: { onPlay: () => void; onAudi
         )}
       </AnimatePresence>
 
-      {shown && !job.running && <VenueFinder key={shown.paper_id} title={shown.title} abstract={abstractOf(shown.markdown)} auto />}
+      {shown && !job.running && <VenueFinder key={shown.paper_id} title={shown.title} abstract={abstractOf(shown.markdown)} auto
+        onPick={(v) => { setKitVenue(v); document.getElementById("submission-kit")?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />}
+      {shown && !job.running && (
+        <div id="submission-kit" className="scroll-mt-6">
+          <SubmissionKit key={shown.paper_id} paperId={shown.paper_id} title={shown.title} template={template} author={author} affiliation={affil}
+            initial={shown.kit} venue={kitVenue} />
+        </div>
+      )}
 
       {history.length > 0 && !job.running && (
         <Card className="p-5">

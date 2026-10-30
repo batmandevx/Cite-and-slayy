@@ -1,7 +1,9 @@
 "use client";
 
 import clsx from "clsx";
-import { Brain, ExternalLink, Gamepad2, Heart, Plane, Rocket, RotateCcw, Shuffle, Sparkles, Target, Trophy } from "lucide-react";
+import { Brain, ExternalLink, Gamepad2, Heart, Orbit, Plane, Rocket, RotateCcw, Shield, Shuffle, Sparkles, Target, Trophy } from "lucide-react";
+import { MeteorShield } from "./games3d/MeteorShield";
+import { TiltMaze } from "./games3d/TiltMaze";
 import { BubblePop } from "./games3d/BubblePop";
 import { NeonRunner } from "./games3d/NeonRunner";
 import { RingFlyer } from "./games3d/RingFlyer";
@@ -296,6 +298,8 @@ const GAMES = [
   { id: "runner", name: "Neon Runner", desc: "3D: dodge, jump, grab gems", icon: Rocket, color: "bg-pink", three: true },
   { id: "rings", name: "Ring Flyer", desc: "3D: fly a paper plane through rings", icon: Plane, color: "bg-blue", three: true },
   { id: "bubbles", name: "Bubble Pop", desc: "3D: pop bubbles, dodge bombs", icon: Sparkles, color: "bg-mint", three: true },
+  { id: "meteor", name: "Meteor Shield", desc: "3D: guard the planet from meteors", icon: Shield, color: "bg-orange", three: true },
+  { id: "maze", name: "Tilt Maze", desc: "3D: tilt the board, roll to the goal", icon: Orbit, color: "bg-violet", three: true },
   { id: "quiz", name: "Tortured Phrase Quiz", desc: "Decode paper-mill gibberish", icon: Brain, color: "bg-yellow", three: false },
   { id: "memory", name: "Acronym Memory", desc: "Flip and match research acronyms", icon: Gamepad2, color: "bg-violet", three: false },
   { id: "catch", name: "Catch the Retraction", desc: "Zap the bad references", icon: Target, color: "bg-lime", three: false },
@@ -310,6 +314,8 @@ export function PlayTab() {
   const [br] = usePersistent("best3dRunner", 0);
   const [bf] = usePersistent("best3dRings", 0);
   const [bb] = usePersistent("best3dBubbles", 0);
+  const [bms] = usePersistent("best3dMeteor", 0);
+  const [bmz] = usePersistent("best3dMaze", 0);
   const g = GAMES.find((x) => x.id === game) ?? GAMES[0];
   const tile = (x: (typeof GAMES)[number], i: number) => (
     <motion.button key={x.id} onClick={() => setGame(x.id)} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}
@@ -333,9 +339,9 @@ export function PlayTab() {
       </Card>
       <div>
         <div className="mb-2 font-display text-xs font-extrabold uppercase tracking-widest text-muted">3D arcade</div>
-        <div className="grid gap-3 md:grid-cols-3">{GAMES.filter((x) => x.three).map(tile)}</div>
+        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-5">{GAMES.filter((x) => x.three).map(tile)}</div>
         <div className="mb-2 mt-4 font-display text-xs font-extrabold uppercase tracking-widest text-muted">Research games</div>
-        <div className="grid gap-3 md:grid-cols-3">{GAMES.filter((x) => !x.three).map((x, i) => tile(x, i + 3))}</div>
+        <div className="grid gap-3 md:grid-cols-3">{GAMES.filter((x) => !x.three).map((x, i) => tile(x, i + 5))}</div>
       </div>
       <div className="grid gap-5 lg:grid-cols-[1fr_240px]">
         <Card className="p-4 sm:p-5">
@@ -345,6 +351,8 @@ export function PlayTab() {
               {g.id === "runner" && <NeonRunner />}
               {g.id === "rings" && <RingFlyer />}
               {g.id === "bubbles" && <BubblePop />}
+              {g.id === "meteor" && <MeteorShield />}
+              {g.id === "maze" && <TiltMaze />}
               {g.id === "quiz" && <TorturedQuiz />}
               {g.id === "memory" && <MemoryMatch />}
               {g.id === "catch" && <CatchRetraction />}
@@ -353,7 +361,7 @@ export function PlayTab() {
         </Card>
         <Card className="h-fit p-5">
           <div className="mb-3 flex items-center gap-2 font-display text-lg font-extrabold"><Trophy className="size-5 text-warn" />Your records</div>
-          {[["Neon Runner", br], ["Ring Flyer", bf], ["Bubble Pop", bb], ["Quiz best", `${bq} / 8`], ["Memory fewest moves", bm ?? "–"], ["Catch best", bc]].map(([k, v]) => (
+          {[["Neon Runner", br], ["Ring Flyer", bf], ["Bubble Pop", bb], ["Meteor Shield", bms], ["Tilt Maze", bmz], ["Quiz best", `${bq} / 8`], ["Memory fewest moves", bm ?? "–"], ["Catch best", bc]].map(([k, v]) => (
             <div key={k as string} className="flex items-center justify-between border-b-2 border-dashed border-line py-2 text-sm last:border-0">
               <span className="text-ink-2">{k}</span><span className="font-display text-lg font-extrabold">{v}</span>
             </div>

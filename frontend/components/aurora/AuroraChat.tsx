@@ -698,7 +698,7 @@ export function AuroraChat({
                             <button
                               type="button"
                               onClick={() => saveReplyToNotes(m.content, i)}
-                              className="inline-flex items-center gap-1 rounded-lg border border-edge/40 bg-yellow/60 px-2 py-0.5 font-semibold text-[#121212] hover:bg-yellow"
+                              className="inline-flex items-center gap-1 rounded-lg border border-edge/40 bg-yellow px-2 py-0.5 font-semibold text-[#121212] hover:bg-yellow"
                             >
                               {savedIdx === i ? <><Check className="size-3" />Saved to Pages</> : <><FilePlus2 className="size-3" />Save to Notes</>}
                             </button>

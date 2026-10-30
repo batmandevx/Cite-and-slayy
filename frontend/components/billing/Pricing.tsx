@@ -85,7 +85,7 @@ function PackCard({ pack, onBuy }: { pack: PackInfo; onBuy: () => Promise<boolea
       {party > 0 && <Confetti key={party} />}
       <motion.div className="absolute inset-[-50%] bg-[conic-gradient(var(--pink),var(--yellow),var(--lime),var(--blue),var(--violet),var(--pink))]"
         animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 8, ease: "linear" }} />
-      <div className="relative grid gap-6 rounded-[24px] bg-ink p-7 text-bg md:grid-cols-[1.1fr_1fr] md:p-9">
+      <div className="relative grid gap-6 rounded-[24px] bg-[#121212] p-7 text-[#fff5e6] md:grid-cols-[1.1fr_1fr] md:p-9">
         <div>
           <span className="sticker bg-yellow text-[#121212]">Done for you · one-time</span>
           <h3 className="mt-4 font-display text-4xl font-extrabold leading-tight md:text-5xl">One paper. <span className="gradient-text">Publish-ready.</span></h3>
@@ -104,7 +104,7 @@ function PackCard({ pack, onBuy }: { pack: PackInfo; onBuy: () => Promise<boolea
         <ul className="space-y-2.5 self-center text-sm">
           {pack.perks.map((x, i) => (
             <motion.li key={x} initial={{ opacity: 0, x: 20 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }} transition={{ delay: 0.15 + i * 0.07 }}
-              className="flex gap-2.5 rounded-xl border-2 border-bg/20 bg-bg/5 px-3 py-2"><Check className="mt-0.5 size-4 shrink-0 text-lime" strokeWidth={3} />{x}</motion.li>
+              className="flex gap-2.5 rounded-xl border-2 border-white/15 bg-white/5 px-3 py-2"><Check className="mt-0.5 size-4 shrink-0 text-lime" strokeWidth={3} />{x}</motion.li>
           ))}
         </ul>
       </div>

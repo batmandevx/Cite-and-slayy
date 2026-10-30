@@ -9,6 +9,7 @@ import type {
   AuditReport, ClaimCheck, DocumentInfo, Evidence, Highlight, HighlightKind, PageText, RefStatus, ReferenceCheck, RetractionStatus,
 } from "@/lib/types";
 import { AnimatedNumber, ScoreRing, stagger, TiltCard } from "./motion";
+import { OriginalityFixer } from "./OriginalityFixer";
 import { Badge, Button, Callout, Card, Empty, ExtLink, JobProgress, Meter, SectionTitle, StatTile, type Tone } from "./ui";
 
 const CitationConstellation = lazy(() => import("./three/CitationConstellation"));
@@ -276,7 +277,7 @@ export function AuditTab({
           Works on any paper. Every reference is checked against Crossref, Semantic Scholar and OpenAlex, and every flag
           shows its evidence. If an API fails, the result says “could not verify”, never “verified”.
         </SectionTitle>
-        <div className="grid gap-4 lg:grid-cols-[1fr_1.2fr]">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
           <div
             onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
             onDragLeave={() => setDrag(false)}
@@ -293,7 +294,7 @@ export function AuditTab({
               </>
             )}
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="mb-2 text-xs font-medium text-ink-2">Or pick a bundled sample (real papers)</div>
             <div className="space-y-1.5">
               {samples.map((d) => (
@@ -492,6 +493,7 @@ export function AuditTab({
                 {view === "overlap" && (
                   <div className="space-y-3 p-4">
                     <Callout tone="accent">These are <b>possible overlap</b> hotspots: paragraphs semantically very close to a cited or related abstract. They point to where a human should look. They are not a plagiarism finding.</Callout>
+                    {auditId && (report.overlaps.length > 0 || report.phrases.length > 0) && <OriginalityFixer auditId={auditId} count={report.overlaps.length} />}
                     {report.overlaps.length === 0 && <div className="py-6 text-center text-sm text-muted">No paragraph crossed the similarity threshold.</div>}
                     {report.overlaps.map((o, i) => (
                       <div key={i} id={`overlap-${i}`} className="rounded-xl border border-line p-4">

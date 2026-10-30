@@ -8,6 +8,7 @@ import type { Group, Mesh, MeshStandardMaterial } from "three";
 import { usePersistent } from "@/lib/api";
 import { sfx } from "@/lib/sfx";
 import { Glow, useSparks } from "./fx";
+import { Crystals, Jet, SynthSun, useContrail, WarpStreaks } from "./models";
 import { GameFrame, type Phase } from "./GameFrame";
 
 const POOL = 10;
@@ -20,6 +21,9 @@ function Sky({ st, phase, onHud, onDie }: { st: React.RefObject<State>; phase: P
   const rings = useRef<(Mesh | null)[]>([]);
   const hud = useRef(0);
   const [sparks, burst] = useSparks();
+  const jet = useRef<Group>(null);
+  const speed = useRef(20);
+  const [contrail, stepTrail] = useContrail([[1.33, 0.02, 0.62], [-1.33, 0.02, 0.62]]);
   useFrame((state, raw) => {
     const s = st.current;
     const dt = Math.min(raw, 0.05);
@@ -55,11 +59,14 @@ function Sky({ st, phase, onHud, onDie }: { st: React.RefObject<State>; phase: P
     }
     s.px += (s.tx - s.px) * Math.min(1, dt * 6);
     s.py += (s.ty - s.py) * Math.min(1, dt * 6);
+    speed.current = s.speed;
     if (plane.current) {
-      plane.current.position.set(s.px, s.py, 0);
-      plane.current.rotation.z = -(s.tx - s.px) * 0.4;
-      plane.current.rotation.x = (s.ty - s.py) * 0.3;
+      plane.current.position.set(s.px, s.py + Math.sin(s.t * 2.2) * 0.05, 0);
+      plane.current.rotation.z = -(s.tx - s.px) * 0.55 + Math.sin(s.t * 1.3) * 0.03;
+      plane.current.rotation.x = (s.ty - s.py) * 0.35;
+      plane.current.rotation.y = -(s.tx - s.px) * 0.12;
     }
+    stepTrail(jet.current, s.speed, dt);
     rings.current.forEach((m, i) => {
       if (!m) return;
       const r = s.rings[i];
@@ -84,16 +91,23 @@ function Sky({ st, phase, onHud, onDie }: { st: React.RefObject<State>; phase: P
       <directionalLight position={[2, 5, 4]} intensity={1.5} />
       <Stars radius={120} depth={60} count={3000} factor={4} fade speed={2} />
       <group ref={plane}>
-        <mesh rotation={[-Math.PI / 2, 0, 0]}><coneGeometry args={[0.35, 1.6, 3]} /><meshStandardMaterial color="#ffffff" flatShading /></mesh>
-        <mesh position={[0, 0, 0.25]} rotation={[0, 0, 0]}><boxGeometry args={[2, 0.04, 0.5]} /><meshStandardMaterial color="#ff9ecf" /></mesh>
-        <pointLight position={[0, 0, 1]} intensity={8} color="#ff9ecf" distance={4} />
-        <Glow color="#ff9ecf" size={2.2} opacity={0.55} />
+        <Jet ref={jet} />
+        <pointLight position={[0, 0.6, 1.4]} intensity={10} color="#ff9ecf" distance={5} />
       </group>
+      {contrail}
       {sparks}
+      <WarpStreaks speedRef={speed} />
+      <Crystals speedRef={speed} />
+      <mesh position={[0, -9, -40]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[220, 220, 44, 44]} />
+        <meshBasicMaterial color="#8f7bff" wireframe transparent opacity={0.18} />
+      </mesh>
+      <SynthSun position={[0, 4, -100]} size={26} />
       {Array.from({ length: POOL }, (_, i) => (
         <mesh key={i} ref={(m) => { rings.current[i] = m; }} visible={false}>
-          <torusGeometry args={[1, 0.08, 12, 48]} />
-          <meshStandardMaterial color="#4fe3ff" emissive="#007a99" emissiveIntensity={1} />
+          <torusGeometry args={[1, 0.09, 16, 64]} />
+          <meshStandardMaterial color="#4fe3ff" emissive="#007a99" emissiveIntensity={1.3} metalness={0.4} roughness={0.2} />
+          <Glow color="#4fe3ff" size={3.2} opacity={0.35} />
         </mesh>
       ))}
     </>
@@ -109,9 +123,9 @@ export function RingFlyer() {
   return (
     <GameFrame title="Ring Flyer" emoji="✈️" phase={phase} score={hud.score} best={best} lives={hud.lives} onStart={start}
       extra={hud.combo >= 5 ? <span className="rounded-xl border-2 border-white/30 bg-[#ff4fa3]/80 px-2 py-1 text-sm font-extrabold">x{Math.min(5, 1 + Math.floor(hud.combo / 5))} combo</span> : null}
-      how={<>Steer your paper plane with the mouse (or drag on touch) through the glowing rings. Gold rings are worth 5. Miss three and you crash.</>}>
+      how={<>Steer your jet with the mouse (or drag on touch) through the glowing rings. Gold rings are worth 5. Miss three and you crash.</>}>
       <div className="absolute inset-0 cursor-crosshair touch-none">
-        <Canvas camera={{ position: [0, 1, 7], fov: 65 }} dpr={[1, 1.75]}>
+        <Canvas camera={{ position: [0, 1.2, 6], fov: 62 }} dpr={[1, 1.75]}>
           <Sky st={st} phase={phase} onHud={(s) => setHud({ score: s.score, lives: s.lives, combo: s.combo })}
             onDie={() => { setPhase("over"); setBest((b) => Math.max(b, st.current.score)); setHud((h) => ({ ...h, lives: 0, score: st.current.score })); }} />
         </Canvas>

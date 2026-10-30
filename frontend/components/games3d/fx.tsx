@@ -1,5 +1,4 @@
 "use client";
-/* eslint-disable react-hooks/immutability -- particle buffers are mutated per frame inside useFrame (standard R3F) */
 
 import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";

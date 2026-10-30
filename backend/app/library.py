@@ -19,10 +19,13 @@ from backend.sources.http import SourceClient
 SELECT = openalex.SELECT + ",best_oa_location,open_access,concepts"
 
 
-async def trending(query: str, days: int = 365, limit: int = 12) -> list[dict]:
+PER_PAGE = 24
+
+
+async def trending(query: str, days: int = 365, limit: int = PER_PAGE, page: int = 1) -> list[dict]:
     since = (date.today() - timedelta(days=days)).isoformat()
     filt = f"from_publication_date:{since},has_abstract:true"
-    params = {"filter": filt, "sort": "cited_by_count:desc", "per-page": limit, "select": SELECT}
+    params = {"filter": filt, "sort": "cited_by_count:desc", "per-page": limit, "page": max(1, page), "select": SELECT}
     if query.strip():
         q = query.strip().replace(",", " ").replace('"', "")
         term = f'"{q}"' if " " in q else q   # quoted = phrase match, so "diffusion models" skips unrelated "diffusion"
@@ -39,8 +42,8 @@ async def trending(query: str, days: int = 365, limit: int = 12) -> list[dict]:
     return out
 
 
-async def latest(query: str, limit: int = 12) -> list[dict]:
-    f = await arxiv.search(query or "machine learning", 0, limit)
+async def latest(query: str, limit: int = PER_PAGE, page: int = 1) -> list[dict]:
+    f = await arxiv.search(query or "machine learning", (max(1, page) - 1) * limit, limit)
     out = []
     for p in arxiv.parse_feed(f.data):
         aid = p.id.split(":", 1)[1]
@@ -54,9 +57,36 @@ def _ol() -> SourceClient:
     return SourceClient("openalex", min_interval=0.3)   # reuse the cached HTTP layer for Open Library
 
 
-async def books(query: str, limit: int = 12) -> list[dict]:
+async def books(query: str, limit: int = PER_PAGE, page: int = 1) -> list[dict]:
+    out = await _openlibrary(query, limit, page)
+    out += await _gutenberg(query, page)
+    return out
+
+
+@lru_cache
+def _gut() -> SourceClient:
+    return SourceClient("openalex", min_interval=0.5, timeout=12)
+
+
+async def _gutenberg(query: str, page: int) -> list[dict]:
+    """Project Gutenberg public-domain e-books (via the Gutendex API). Slow at times: on failure, return nothing."""
+    try:
+        f = await _gut().get("https://gutendex.com/books", {"search": query or "science", "page": max(1, page)})
+    except Exception:
+        return []
+    out = []
+    for b in (f.data or {}).get("results", [])[:16]:
+        fm = b.get("formats") or {}
+        read = fm.get("text/html") or fm.get("text/html; charset=utf-8") or f"https://www.gutenberg.org/ebooks/{b['id']}"
+        out.append({"title": b.get("title"), "authors": [a.get("name", "") for a in (b.get("authors") or [])][:2],
+                    "year": None, "read_url": read, "openlibrary_url": f"https://www.gutenberg.org/ebooks/{b['id']}",
+                    "download_url": fm.get("application/epub+zip"), "cover": fm.get("image/jpeg"), "source": "Project Gutenberg"})
+    return out
+
+
+async def _openlibrary(query: str, limit: int, page: int) -> list[dict]:
     f = await _ol().get("https://openlibrary.org/search.json", {
-        "q": query or "research methods", "ebook_access": "public", "has_fulltext": "true", "limit": limit,
+        "q": query or "research methods", "ebook_access": "public", "has_fulltext": "true", "limit": limit, "page": max(1, page),
         "fields": "title,author_name,first_publish_year,ia,key,cover_i"})
     out = []
     for d in (f.data or {}).get("docs", []):
@@ -65,7 +95,8 @@ async def books(query: str, limit: int = 12) -> list[dict]:
             continue
         out.append({"title": d.get("title"), "authors": (d.get("author_name") or [])[:2], "year": d.get("first_publish_year"),
                     "read_url": f"https://archive.org/details/{ia}", "openlibrary_url": f"https://openlibrary.org{d.get('key')}",
-                    "cover": f"https://covers.openlibrary.org/b/id/{d['cover_i']}-M.jpg" if d.get("cover_i") else None})
+                    "cover": f"https://covers.openlibrary.org/b/id/{d['cover_i']}-M.jpg" if d.get("cover_i") else None,
+                    "source": "Open Library"})
     return out
 
 

@@ -16,6 +16,7 @@ from fastapi.responses import Response
 from backend.accounts import auth, billing
 from backend.accounts.plans import plan_of, public_pack, public_plans
 from backend.app import dashboard, export as exporter, library, pipeline, reports
+from backend.paper_studio import kit as kit_mod
 from backend.paper_studio import studio
 from backend.app.jobs import jobs
 from backend.autoclaw_bridge import runner as claw
@@ -396,6 +397,25 @@ def _md(text: str, name: str) -> PlainTextResponse:
                              headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
+@app.post("/api/citeguard/audits/{audit_id}/fix")
+async def audit_fix(audit_id: str, request: Request):
+    """Originality fixer: rewrite possible-overlap paragraphs in original words with a citation to the source."""
+    from backend.citeguard import fixer
+    user = me(request)
+    auth.check_access("audit", audit_id, user)
+    rep = get_store().get("audit", audit_id)
+    if not rep:
+        raise HTTPException(404, "audit not found")
+    if not rep.get("overlaps") and not rep.get("phrases"):
+        return {"paragraphs": [], "phrases": [], "note": "Nothing to fix: no overlap hotspots or tortured phrases were found."}
+    auth.consume(user, "fixes")
+    try:
+        return await fixer.fix(rep)
+    except llm.LLMError as e:
+        auth.refund(user, "fixes")
+        raise HTTPException(502, llm.scrub(f"AI error: {e}"))
+
+
 @app.get("/api/citeguard/audits/{audit_id}/report.md")
 async def audit_report_md(audit_id: str, request: Request):
     auth.check_access("audit", audit_id, me(request))
@@ -607,7 +627,7 @@ async def paper_studio_get(pid: str, request: Request):
     if not p:
         raise HTTPException(404, "paper not found")
     out = {k: v for k, v in p.items() if not k.startswith("_") and k != "versions"}
-    out["markdown"] = studio.repair_fences(out.get("markdown", ""))   # also fixes papers saved before the repair existed
+    out["markdown"] = studio.ensure_keywords(studio.repair_fences(out.get("markdown", "")), out.get("keywords") or [])   # also fixes papers saved before the repair existed
     out["history"] = [{"at": v["at"], "instruction": v["instruction"]} for v in p.get("versions") or []]
     out["revisable"] = bool(p.get("_refs"))
     return out
@@ -627,6 +647,19 @@ async def paper_studio_revise(pid: str, body: ReviseRequest, request: Request):
     llm.set_premium(auth.is_premium(user))
     return JobRef(job_id=jobs.submit("paper_revise", lambda ctx: studio.revise(pid, body.instruction.strip()[:2000], ctx),
                                      owner=user["uid"], on_error=lambda: auth.refund(user, "revisions")).job_id)
+
+
+@app.post("/api/paper-studio/{pid}/kit")
+async def paper_studio_kit(pid: str, body: kit_mod.KitRequest, request: Request):
+    user = me(request)
+    auth.check_access("paper_studio", pid, user)
+    auth.consume(user, "kits")
+    llm.set_premium(auth.is_premium(user))
+    try:
+        return await kit_mod.build(pid, body)
+    except (ValueError, llm.LLMError) as e:
+        auth.refund(user, "kits")
+        raise HTTPException(502, llm.scrub(f"Couldn't build the kit: {e}"))
 
 
 @app.post("/api/paper-studio/{pid}/undo")

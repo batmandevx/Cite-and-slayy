@@ -60,3 +60,30 @@ def test_sections_keep_one_top_heading():
     from backend.paper_studio.studio import normalize_section
     out = normalize_section("# Related Work\n\n# Sub topic\n\nx\n\n# A long sentence that is really a paragraph and ends with a full stop.\n\n# Conclusion\n", "Related Work")
     assert out.count("\n# ") == 1 and "## Sub topic" in out and "\nA long sentence" in out and "# Conclusion" in out
+
+
+def test_kit_checklist_and_reviewers_use_only_real_data():
+    from backend.paper_studio.kit import checklist, reviewer_candidates
+    md = ("# Abstract\n\n" + "word " * 160 + "\n\n**Keywords:** a, b, c\n\n# Method\n\nFigure: X\n```mermaid\nflowchart LR\n A --> B\n```\n\n"
+          "Table: T\n| a | b |\n|---|---|\n| 1 | to be measured |\n\n# Acknowledgment\n\nAI-assisted.\n")
+    c = {x["item"]: x for x in checklist({"markdown": md, "references": [{"doi": "x"}] * 16, "report": {}}, "ieee")}
+    assert c["Abstract length"]["status"] == "pass" and c["Keywords"]["status"] == "pass"
+    assert c["Experimental results"]["status"] == "warn" and c["Figure captions"]["status"] == "pass"
+    refs = [{"title": "P1", "authors": ["Ann Lee", "Bo Chen"], "cited_by": 9, "doi": "10.1/x"},
+            {"title": "P2", "authors": ["Ann Lee"], "cited_by": 3}]
+    names = [r["name"] for r in reviewer_candidates(refs)]
+    assert names == ["Ann Lee", "Bo Chen"]
+
+
+def test_diagram_validator_flags_broken_mermaid():
+    from backend.paper_studio.studio import mermaid_problems
+    assert not mermaid_problems("flowchart LR\n  A[Input data] --> B[Model]\n  B -->|scores| C{Decision}")
+    assert mermaid_problems("flowchart TD\nA[x (y)] --> B")
+    assert mermaid_problems("graph LR\nA-->B\nThis is prose")
+
+
+def test_wording_overlap_drops_after_paraphrase():
+    from backend.citeguard.fixer import wording_overlap
+    src = "noble metal nanoparticles remain stable inside biological environments"
+    assert wording_overlap("Noble metal nanoparticles remain stable inside biological environments.", src) == 1.0
+    assert wording_overlap("Gold and silver particles persist in cells without degrading.", src) == 0.0

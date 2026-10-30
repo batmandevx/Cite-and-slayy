@@ -2,12 +2,14 @@
 /* eslint-disable react-hooks/immutability -- game state lives in a ref and is mutated per frame inside useFrame (the standard R3F loop), never during render */
 
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Stars } from "@react-three/drei";
+import { Edges, Stars } from "@react-three/drei";
+import * as THREE from "three";
 import { useEffect, useRef, useState } from "react";
 import type { Group, Mesh } from "three";
 import { usePersistent } from "@/lib/api";
 import { sfx } from "@/lib/sfx";
 import { Glow, useSparks } from "./fx";
+import { NeonCity, SynthSun } from "./models";
 import { GameFrame, type Phase } from "./GameFrame";
 
 const LANES = [-2.2, 0, 2.2];
@@ -23,6 +25,8 @@ function World({ st, phase, onScore, onDie }: { st: React.RefObject<State>; phas
   const grid = useRef<Group>(null);
   const tick = useRef(0);
   const [sparks, burst] = useSparks();
+  const speedRef = useRef(14);
+  const trail = useRef<(Mesh | null)[]>([]);
   useFrame((state, raw) => {
     const s = st.current;
     const dt = Math.min(raw, 0.05);
@@ -50,6 +54,12 @@ function World({ st, phase, onScore, onDie }: { st: React.RefObject<State>; phas
       tick.current += dt;
       if (tick.current > 0.1) { tick.current = 0; onScore(Math.floor(s.dist / 4) + s.gems * 10); }
     }
+    speedRef.current = phase === "play" && !s.dead ? s.speed : 4;
+    trail.current.forEach((m, k) => {   // afterimage trail behind the orb
+      if (!m) return;
+      m.position.set(s.x + Math.sin(s.dist * 0.5 + k) * 0.03, s.y - 0.05, 0.45 + k * 0.42);
+      m.scale.setScalar(0.42 - k * 0.055);
+    });
     if (player.current) {
       player.current.position.set(s.x, s.y, 0);
       player.current.rotation.x -= dt * s.speed * 0.6;
@@ -77,6 +87,8 @@ function World({ st, phase, onScore, onDie }: { st: React.RefObject<State>; phas
       <pointLight position={[0, 6, 4]} intensity={60} color="#ff9ecf" />
       <directionalLight position={[3, 8, 5]} intensity={1.2} />
       <Stars radius={90} depth={40} count={1500} factor={3} fade speed={1} />
+      <SynthSun position={[0, 7, -88]} size={30} />
+      <NeonCity speedRef={speedRef} />
       <group ref={grid}>
         {Array.from({ length: 30 }, (_, i) => (
           <mesh key={i} position={[0, 0, -i * 4]} rotation={[-Math.PI / 2, 0, 0]}>
@@ -100,11 +112,17 @@ function World({ st, phase, onScore, onDie }: { st: React.RefObject<State>; phas
         <meshStandardMaterial color="#c6f24e" emissive="#7fb800" emissiveIntensity={0.6} flatShading />
         <Glow color="#c6f24e" size={2.6} opacity={0.7} />
       </mesh>
+      {Array.from({ length: 6 }, (_, k) => (
+        <mesh key={k} ref={(m) => { trail.current[k] = m; }}>
+          <icosahedronGeometry args={[1, 1]} />
+          <meshBasicMaterial color="#c6f24e" transparent opacity={0.28 - k * 0.04} blending={THREE.AdditiveBlending} depthWrite={false} />
+        </mesh>
+      ))}
       {sparks}
       {Array.from({ length: POOL }, (_, i) => (
         <group key={i} ref={(g) => { meshes.current[i] = g; }} visible={false}>
-          <mesh><boxGeometry args={[1.6, 1.8, 1]} /><meshStandardMaterial color="#ff4fa3" emissive="#a0004f" emissiveIntensity={0.5} /></mesh>
-          <mesh><boxGeometry args={[1.8, 0.7, 0.6]} /><meshStandardMaterial color="#4f7dff" emissive="#1c3cb8" emissiveIntensity={0.6} /></mesh>
+          <mesh><boxGeometry args={[1.6, 1.8, 1]} /><meshStandardMaterial color="#ff4fa3" emissive="#a0004f" emissiveIntensity={0.5} metalness={0.3} roughness={0.3} /><Edges color="#ffd6ec" threshold={15} /><Glow color="#ff4fa3" size={3.4} opacity={0.35} /></mesh>
+          <mesh><boxGeometry args={[1.8, 0.7, 0.6]} /><meshStandardMaterial color="#4f7dff" emissive="#1c3cb8" emissiveIntensity={0.6} metalness={0.3} roughness={0.3} /><Edges color="#cfe0ff" threshold={15} /><Glow color="#4f7dff" size={2.8} opacity={0.35} /></mesh>
           <mesh><octahedronGeometry args={[0.45]} /><meshStandardMaterial color="#ffd23f" emissive="#c79a00" emissiveIntensity={0.9} /><Glow color="#ffd23f" size={2} opacity={0.6} /></mesh>
         </group>
       ))}

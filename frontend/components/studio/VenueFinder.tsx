@@ -13,7 +13,7 @@ interface Venue {
   similar_papers: number; fit: number; examples: { title: string; year?: number; url?: string }[];
 }
 
-export function VenueFinder({ title: t0 = "", abstract: a0 = "", auto = false }: { title?: string; abstract?: string; auto?: boolean }) {
+export function VenueFinder({ title: t0 = "", abstract: a0 = "", auto = false, bare = false, onPick }: { title?: string; abstract?: string; auto?: boolean; bare?: boolean; onPick?: (v: { name: string; type: string }) => void }) {
   const [title, setTitle] = useState(t0);
   const [abstract, setAbstract] = useState(a0);
   const [kind, setKind] = useState<"any" | "journal" | "conference">("any");
@@ -29,13 +29,13 @@ export function VenueFinder({ title: t0 = "", abstract: a0 = "", auto = false }:
   };
   return (
     <Card className="overflow-hidden">
-      <div className="flex flex-wrap items-center gap-3 border-b-[2.5px] border-edge bg-blue px-5 py-4 text-white">
+      {!bare && <div className="flex flex-wrap items-center gap-3 border-b-[2.5px] border-edge bg-blue px-5 py-4 text-white">
         <Landmark className="size-7" />
         <div className="flex-1">
           <div className="font-display text-xl font-extrabold">Find the right journal or conference</div>
           <div className="text-xs opacity-85">Ranked by where the most similar recent papers were published (OpenAlex, last 6 years)</div>
         </div>
-      </div>
+      </div>}
       <div className="space-y-3 p-5">
         {!auto && (
           <>
@@ -84,6 +84,8 @@ export function VenueFinder({ title: t0 = "", abstract: a0 = "", auto = false }:
                   {v.homepage && <a href={v.homepage} target="_blank" rel="noreferrer" className="rounded-lg border-2 border-edge bg-surface-2 px-2 py-0.5 text-[10px] font-extrabold hover:bg-yellow hover:text-[#121212]">{v.type === "journal" ? "Author guidelines ↗" : "Website ↗"}</a>}
                   <a href={`http://www.wikicfp.com/cfp/servlet/tool.search?q=${encodeURIComponent(v.name)}&year=t`} target="_blank" rel="noreferrer"
                     className="rounded-lg border-2 border-edge bg-surface-2 px-2 py-0.5 text-[10px] font-extrabold hover:bg-pink hover:text-[#121212]">Call for papers ↗</a>
+                  {onPick && <button onClick={() => onPick({ name: v.name, type: v.type })}
+                    className="rounded-lg border-2 border-edge bg-yellow px-2 py-0.5 text-[10px] font-extrabold text-[#121212] hover:-translate-y-0.5">📦 Use for kit</button>}
                   {v.type !== "journal" && <a href="https://cmt3.research.microsoft.com/" target="_blank" rel="noreferrer"
                     className="rounded-lg border-2 border-edge bg-surface-2 px-2 py-0.5 text-[10px] font-extrabold hover:bg-blue hover:text-white">Microsoft CMT ↗</a>}
                 </div>

@@ -205,6 +205,64 @@ def _sanitize_mermaid(md: str) -> str:
     return re.sub(r"(```mermaid\n)(.*?)(\n```)", clean, md, flags=re.S)
 
 
+_NODE = (r"[A-Za-z][\w]*(?:\[\[[^\[\]]*\]\]|\[\([^()]*\)\]|\(\[[^\[\]]*\]\)|\(\([^()]*\)\)|\[[^\[\]()\"]*\]"
+         r"|\([^()\[\]]*\)|\{[^{}()]*\}|>[^\]]*\])?")
+_EDGE = r"\s*(?:-->|---|-\.->|==>|--[ox]|--\s+[^-|>]+\s+-->)(?:\|[^|]*\|)?\s*"
+_FLOW_LINE = re.compile(rf"^\s*{_NODE}(?:\s*&\s*{_NODE})*(?:{_EDGE}{_NODE}(?:\s*&\s*{_NODE})*)*\s*;?\s*$")
+_META_LINE = re.compile(r"^\s*(subgraph\b.*|end|classDef\b.*|class\s.*|style\s.*|linkStyle\s.*|%%.*|direction\s+\w+)\s*$")
+
+
+def mermaid_problems(code: str) -> list[str]:
+    """Lines that our flowchart subset can't parse (empty list = OK)."""
+    lines = [ln for ln in code.splitlines() if ln.strip()]
+    if not lines or not re.match(r"^\s*(flowchart|graph)\s+(LR|RL|TD|TB|BT)\s*$", lines[0]):
+        return ["first line must be 'flowchart LR' or 'flowchart TD'"]
+    bad = [ln.strip() for ln in lines[1:] if not (_FLOW_LINE.match(ln) or _META_LINE.match(ln))]
+    if not any(re.search(r"-->|---|==>|-\.->", ln) for ln in lines[1:]):
+        bad.append("no connections between nodes")
+    return bad
+
+
+class _Diagram(BaseModel):
+    code: str
+
+
+async def fix_diagrams(md: str) -> tuple[str, int, int]:
+    """Validate every Mermaid block; repair with the model once, else drop bad lines, else remove the figure.
+    Returns (markdown, repaired, removed)."""
+    repaired = removed = 0
+    blocks = list(re.finditer(r"(?:^Figure:[^\n]*\n)?```mermaid\n(.*?)\n```", md, re.S | re.M))
+    for m in reversed(blocks):
+        code = m.group(1)
+        probs = mermaid_problems(code)
+        if not probs:
+            continue
+        new = None
+        try:
+            out = await llm.complete_json(
+                "You fix Mermaid flowchart code. Use only: 'flowchart LR' or 'flowchart TD' on the first line; node ids are "
+                "letters/digits; labels in [ ] or { } with plain words (no brackets, quotes or parentheses inside); edges -->. "
+                "Keep the same meaning. Return only the diagram code, no fences.",
+                f"CODE:\n{code}\n\nPROBLEMS:\n- " + "\n- ".join(probs[:8]), _Diagram, effort="low", tier="fast")
+            cand = re.sub(r"^```(?:mermaid)?\n?|\n?```$", "", out.code.strip())
+            if not mermaid_problems(cand):
+                new = cand
+        except llm.LLMError:
+            new = None
+        if new is None:
+            keep = [ln for ln in code.splitlines() if ln.strip() and (ln is code.splitlines()[0] or _FLOW_LINE.match(ln) or _META_LINE.match(ln))]
+            cand = "\n".join(keep)
+            new = cand if not mermaid_problems(cand) else None
+        if new is None:
+            md = md[: m.start()] + md[m.end():]
+            removed += 1
+        else:
+            cap_end = m.group(0).find("```mermaid")
+            md = md[: m.start()] + m.group(0)[:cap_end] + f"```mermaid\n{new}\n```" + md[m.end():]
+            repaired += 1
+    return md, repaired, removed
+
+
 def _paragraphs(md: str) -> list[tuple[int, int, str]]:
     """Prose paragraphs (start, end, text) outside code fences, tables, headings, lists, math, figures."""
     out, pos, fence = [], 0, False
@@ -459,6 +517,7 @@ async def run(req: StudioRequest, ctx) -> str:
     await say("verifier", "run", "Checking citations, copying and claim support…", 0.74)
     body, bad_cites = _fix_citations(body, len(refs))
     body = _sanitize_mermaid(body)
+    body, diagrams_repaired, diagrams_removed = await fix_diagrams(body)
     abs_shingles = set().union(*(_shingles(p.abstract or "") for p in refs))
     paras = _paragraphs(body)
     flags: dict[int, list[str]] = {}
@@ -607,7 +666,7 @@ async def run(req: StudioRequest, ctx) -> str:
         "retracted_excluded": [{"title": p.title, "doi": p.doi} for p in dropped],
         "invalid_citations_removed": bad_cites, "claims_checked": len(items), "claims_unsupported": len(unsupported),
         "claims_supported": sum(j.label == "supported" for j in judged.values()),
-        "paragraphs_flagged": len(flags), "equations_repaired": math_fixed, "equations_still_invalid": len(bad_math) - math_fixed, "unmeasured_claims_found": unmeasured + len(abs_issues),
+        "paragraphs_flagged": len(flags), "diagrams_repaired": diagrams_repaired, "diagrams_removed": diagrams_removed, "equations_repaired": math_fixed, "equations_still_invalid": len(bad_math) - math_fixed, "unmeasured_claims_found": unmeasured + len(abs_issues),
         "unmeasured_claims_remaining": remaining, "paragraphs_revised": revised, "verbatim_paragraphs_after": copied_after,
         "tortured_phrases": [h.phrase for h in phrase_hits], "uncited_refs_dropped": len(refs) - len(cited_refs),
     }
@@ -673,6 +732,16 @@ class _Edit(BaseModel):
 class _EditPlan(BaseModel):
     edits: list[_Edit]
     reply: str
+
+
+def ensure_keywords(md: str, keywords: list[str]) -> str:
+    """Keep the **Keywords:** line right after the abstract (a rewritten abstract can drop it)."""
+    if "**Keywords:**" in md or not keywords:
+        return md
+    m = re.search(r"(?ms)^# Abstract\s*\n(.*?)(?=^# )", md)
+    if not m:
+        return md
+    return md[: m.end(1)].rstrip() + f"\n\n**Keywords:** {', '.join(keywords[:6])}\n\n" + md[m.end(1):]
 
 
 def repair_fences(md: str) -> str:
@@ -779,10 +848,12 @@ async def revise(pid: str, instruction: str, ctx) -> str:
         new_parts.append(replaced or part)
         new_parts += [t for e, t in results if e.heading == h and e.action == "add_after"]
     md = "".join(new_parts)
+    md = ensure_keywords(md, paper.get("keywords") or [])
 
     await say("verifier", "run", "Re-checking citations, numbers and equations…", 0.8)
     md, bad = _fix_citations(md, len(refs))
     md = _sanitize_mermaid(md)
+    md, _, _ = await fix_diagrams(md)
     allowed = _allowed_numbers(facts, *(p.abstract or "" for p in refs))
     issues = 0
     for st, en, t in reversed(_paragraphs(md)):

@@ -20,10 +20,10 @@ export function VenuesTab() {
   const [papers, setPapers] = useState<{ paper_id: string; title: string }[]>([]);
   const [pick, setPick] = useState<{ title: string; abstract: string; key: string } | null>(null);
   useEffect(() => { api.get<typeof papers>("/api/paper-studio").then(setPapers).catch(() => {}); }, []);
-  const usePaper = async (id: string) => {
+  const pickPaper = async (id: string) => {
     const p = await api.get<{ title: string; markdown: string }>(`/api/paper-studio/${id}`);
     const m = p.markdown.match(/# Abstract\s+([\s\S]*?)(?=\n# |\n\*\*Keywords)/);
-    setPick({ title: p.title, abstract: (m?.[1] ?? "").trim().slice(0, 2500), key: id + Date.now() });
+    setPick((old) => ({ title: p.title, abstract: (m?.[1] ?? "").trim().slice(0, 2500), key: `${id}-${(old ? Number(old.key.split("-").pop()) : 0) + 1}` }));
   };
   return (
     <div className="space-y-6">
@@ -42,14 +42,14 @@ export function VenuesTab() {
           <div className="mb-2 flex items-center gap-2 text-sm font-extrabold"><FileText className="size-4" />Match a paper you wrote here</div>
           <div className="flex flex-wrap gap-2">
             {papers.slice(0, 6).map((p) => (
-              <motion.button key={p.paper_id} whileHover={{ y: -2 }} onClick={() => usePaper(p.paper_id)}
+              <motion.button key={p.paper_id} whileHover={{ y: -2 }} onClick={() => pickPaper(p.paper_id)}
                 className="btn-brut max-w-xs truncate rounded-xl bg-surface px-3 py-1.5 text-left text-xs font-bold">{p.title}</motion.button>
             ))}
           </div>
         </Card>
       )}
 
-      <VenueFinder key={pick?.key ?? "blank"} title={pick?.title ?? ""} abstract={pick?.abstract ?? ""} />
+      <VenueFinder bare key={pick?.key ?? "blank"} title={pick?.title ?? ""} abstract={pick?.abstract ?? ""} />
 
       <div>
         <div className="mb-3 flex items-center gap-2 font-display text-xl font-extrabold"><Send className="size-5" />Submit & check venues</div>

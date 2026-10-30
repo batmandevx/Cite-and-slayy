@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { ArrowLeft, BookOpen, Wand2, Compass, FilePen, Gamepad2, Gavel, LayoutDashboard, NotebookPen, ShieldCheck, Zap } from "lucide-react";
+import { ArrowLeft, BookOpen, Landmark, Wand2, Wrench, Compass, FilePen, Gamepad2, Gavel, LayoutDashboard, NotebookPen, ShieldCheck, Zap } from "lucide-react";
 import Link from "next/link";
 import { AnimatePresence, motion, MotionConfig, useScroll, useSpring } from "motion/react";
 import { useEffect, useState } from "react";
@@ -15,6 +15,9 @@ import { LibraryTab } from "@/components/LibraryTab";
 import { NotesTab } from "@/components/notes/NotesTab";
 import { PaperStudioTab } from "@/components/PaperStudioTab";
 import { PinBoard } from "@/components/PinBoard";
+import { Sidebar, useRailWidth } from "@/components/Sidebar";
+import { ToolboxTab } from "@/components/ToolboxTab";
+import { VenuesTab } from "@/components/VenuesTab";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { AccountCard, UpgradeModal } from "@/components/billing/AccountWidgets";
 import { StudioWatcher } from "@/components/StudioWatcher";
@@ -28,18 +31,22 @@ import { VerdictTab } from "@/components/VerdictTab";
 import { API, api, usePersistent, writePersistent } from "@/lib/api";
 import type { Health } from "@/lib/types";
 
-type Tab = "home" | "studio" | "explore" | "draft" | "audit" | "verdict" | "notes" | "library" | "play";
-const VALID_TABS = new Set<string>(["home", "studio", "explore", "draft", "audit", "verdict", "notes", "library", "play"]);
+type Tab = "home" | "studio" | "venues" | "explore" | "draft" | "audit" | "verdict" | "notes" | "library" | "toolbox" | "play";
+const VALID_TABS = new Set<string>(["home", "studio", "venues", "explore", "draft", "audit", "verdict", "notes", "library", "toolbox", "play"]);
 const TABS: { id: Tab; n: number; label: string; q: string; icon: typeof Compass; color: string }[] = [
   { id: "explore", n: 1, label: "Explore gaps", q: "What should I research?", icon: Compass, color: "bg-lime" },
   { id: "draft", n: 2, label: "Draft", q: "AI drafts the paper", icon: FilePen, color: "bg-blue text-white" },
   { id: "audit", n: 3, label: "Audit", q: "Can I trust it?", icon: ShieldCheck, color: "bg-yellow" },
   { id: "verdict", n: 4, label: "Verdict", q: "Is it ready?", icon: Gavel, color: "bg-pink" },
 ];
-const WORK: { id: Tab; label: string; q: string; icon: typeof Compass; color: string }[] = [
-  { id: "studio", label: "Paper Studio", q: "Topic in, full paper out", icon: Wand2, color: "bg-pink" },
+const CREATE: { id: Tab; label: string; q: string; icon: typeof Compass; color: string; badge?: string }[] = [
+  { id: "studio", label: "Paper Studio", q: "Topic in, full paper out", icon: Wand2, color: "bg-pink", badge: "new" },
+  { id: "venues", label: "Find a venue", q: "Right journal or conference", icon: Landmark, color: "bg-blue text-white", badge: "new" },
+];
+const WORK: { id: Tab; label: string; q: string; icon: typeof Compass; color: string; badge?: string }[] = [
   { id: "notes", label: "Notes", q: "Pages, stickies, to-dos, export", icon: NotebookPen, color: "bg-yellow" },
   { id: "library", label: "Library", q: "Trending papers, books, ideas", icon: BookOpen, color: "bg-mint" },
+  { id: "toolbox", label: "Research toolbox", q: "40 trusted tools", icon: Wrench, color: "bg-lime" },
   { id: "play", label: "Arcade", q: "3D games & research games", icon: Gamepad2, color: "bg-orange" },
 ];
 
@@ -127,89 +134,22 @@ function Dashboard() {
   }, [setTab]);
 
   const current = TABS.find((t) => t.id === safeTab);
-  const work = WORK.find((t) => t.id === safeTab);
+  const work = [...CREATE, ...WORK].find((t) => t.id === safeTab);
+  const sbw = useRailWidth();
 
   return (
     <MotionConfig reducedMotion="user">
-      <div className="relative min-h-screen">
+      <div className="relative min-h-screen" style={{ ["--sbw" as string]: `${sbw}px` }}>
         <ScrollProgress />
 
         {/* ---------- sidebar (desktop) ---------- */}
-        <aside className="fixed inset-y-0 left-0 z-30 hidden w-[272px] flex-col border-r-[2.5px] border-edge bg-surface lg:flex">
-          <div className="border-b-[2.5px] border-edge px-5 py-5"><Logo /></div>
-          <nav className="flex-1 space-y-2.5 overflow-y-auto px-4 py-5">
-            <motion.button onClick={() => go("home")} whileTap={{ scale: 0.97 }}
-              className={clsx("flex w-full items-center gap-3 rounded-2xl border-[2.5px] px-3 py-2.5 text-left transition-all",
-                tab === "home" ? "border-edge bg-violet text-white shadow-[4px_4px_0_var(--shadow-c)]" : "border-transparent hover:border-edge hover:bg-surface-2")}>
-              <span className={clsx("grid size-9 shrink-0 place-items-center rounded-xl border-2 border-edge", tab === "home" ? "bg-surface text-ink" : "bg-surface-2")}>
-                <LayoutDashboard className="size-4" />
-              </span>
-              <span className="font-display text-[15px] font-extrabold">Home</span>
-            </motion.button>
-            <div className="px-1 pb-1 pt-3 font-display text-[11px] font-extrabold uppercase tracking-widest text-muted">The pipeline</div>
-            {TABS.map((t) => {
-              const active = tab === t.id;
-              return (
-                <motion.button key={t.id} onClick={() => go(t.id)} whileTap={{ scale: 0.97 }}
-                  className={clsx("group flex w-full items-center gap-3 rounded-2xl border-[2.5px] px-3 py-2.5 text-left transition-all",
-                    active ? clsx("border-edge shadow-[4px_4px_0_var(--shadow-c)]", t.color, !t.color.includes("text-white") && "text-[#121212]")
-                      : "border-transparent hover:border-edge hover:bg-surface-2")}>
-                  <span className={clsx("grid size-9 shrink-0 place-items-center rounded-xl border-2 border-edge font-display text-sm font-extrabold",
-                    active ? "bg-surface text-ink" : "bg-surface-2 text-ink")}>
-                    {active ? <t.icon className="size-4" /> : t.n}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block font-display text-[15px] font-extrabold leading-tight">{t.label}</span>
-                    <span className={clsx("block truncate text-xs", active ? "opacity-80" : "text-muted")}>{t.q}</span>
-                  </span>
-                </motion.button>
-              );
-            })}
-            <div className="px-1 pb-1 pt-3 font-display text-[11px] font-extrabold uppercase tracking-widest text-muted">Workspace</div>
-            {WORK.map((t) => {
-              const active = tab === t.id;
-              return (
-                <motion.button key={t.id} onClick={() => go(t.id)} whileTap={{ scale: 0.97 }} whileHover={!active ? { x: 3 } : {}}
-                  className={clsx("flex w-full items-center gap-3 rounded-2xl border-[2.5px] px-3 py-2 text-left transition-all",
-                    active ? clsx("border-edge text-[#121212] shadow-[4px_4px_0_var(--shadow-c)]", t.color) : "border-transparent hover:border-edge hover:bg-surface-2")}>
-                  <span className={clsx("grid size-9 shrink-0 place-items-center rounded-xl border-2 border-edge", active ? "bg-surface text-ink" : "bg-surface-2")}>
-                    <t.icon className="size-4" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block font-display text-[15px] font-extrabold leading-tight">{t.label}</span>
-                    <span className={clsx("block truncate text-xs", active ? "opacity-80" : "text-muted")}>{t.q}</span>
-                  </span>
-                </motion.button>
-              );
-            })}
-            <motion.button onClick={() => setSlayOpen(true)} whileHover={{ rotate: -1.5 }} whileTap={{ scale: 0.96 }}
-              className="btn-brut mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-pink px-4 py-3.5 font-display text-lg font-extrabold text-[#121212]">
-              <Zap className="size-5" /> Slay it
-              <kbd className="ml-1 rounded-md border-2 border-[#121212] bg-white/70 px-1.5 text-[11px]">S</kbd>
-            </motion.button>
-            <p className="px-1 text-center text-[11px] text-muted">Draft → audit → verdict in one click</p>
-            <motion.button onClick={() => setAuroraOpen(true)} whileTap={{ scale: 0.97 }}
-              className="btn-brut mt-3 flex w-full items-center gap-3 rounded-2xl bg-surface px-3 py-2.5 text-left">
-              <AuroraOrb size={34} />
-              <span>
-                <span className="block font-display text-[15px] font-extrabold leading-tight">Ask Azora AI</span>
-                <span className="block text-xs text-muted">agent · brainstorm &amp; run tools</span>
-              </span>
-              <kbd className="ml-auto rounded-md border-2 border-edge px-1.5 text-[11px]">A</kbd>
-            </motion.button>
-          </nav>
-          <div className="space-y-3 border-t-[2.5px] border-edge px-4 py-4">
-            <UpgradeNudge />
-            <AccountCard />
-            <StatusChips health={health} offline={offline} />
-            <div className="flex items-center justify-between">
-              <Link href="/" className="inline-flex items-center gap-1 text-xs font-bold text-ink-2 hover:text-ink">
-                <ArrowLeft className="size-3.5" /> Home
-              </Link>
-              <ThemeToggle />
-            </div>
-          </div>
-        </aside>
+        <Sidebar tab={safeTab} go={(id) => go(id as Tab)} onSlay={() => setSlayOpen(true)} onAzora={() => setAuroraOpen(true)}
+          groups={[
+            { id: "create", title: "Create & publish", items: CREATE },
+            { id: "pipeline", title: "The pipeline", items: TABS },
+            { id: "workspace", title: "Workspace", items: WORK },
+          ]}
+          footer={<><UpgradeNudge /><AccountCard /><StatusChips health={health} offline={offline} /></>} />
 
         {/* ---------- top bar (mobile) ---------- */}
         <header className="sticky top-0 z-30 flex items-center justify-between border-b-[2.5px] border-edge bg-surface px-4 py-3 lg:hidden">
@@ -223,7 +163,7 @@ function Dashboard() {
           </div>
         </header>
 
-        <main className="px-4 pb-28 pt-6 sm:px-6 lg:ml-[272px] lg:px-10 lg:pb-12 lg:pt-8">
+        <main className="px-4 pb-28 pt-6 transition-[margin] duration-300 sm:px-6 lg:ml-[var(--sbw)] lg:px-10 lg:pb-12 lg:pt-8">
           <div className="mx-auto max-w-[1280px]">
             {current && <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
@@ -239,7 +179,7 @@ function Dashboard() {
             {work && <div className="mb-6 flex items-center gap-3">
               <span className={clsx("grid size-11 place-items-center rounded-2xl border-[2.5px] border-edge text-[#121212] shadow-[3px_3px_0_var(--shadow-c)]", work.color)}><work.icon className="size-5" /></span>
               <div>
-                <div className="font-display text-xs font-extrabold uppercase tracking-widest text-muted">Workspace</div>
+                <div className="font-display text-xs font-extrabold uppercase tracking-widest text-muted">{CREATE.some((c) => c.id === work.id) ? "Create & publish" : "Workspace"}</div>
                 <div className="font-display text-xl font-extrabold">{work.label}</div>
               </div>
             </div>}
@@ -255,6 +195,8 @@ function Dashboard() {
                 {safeTab === "verdict" && <VerdictTab documentId={documentId} auditId={auditId} reviewId={reviewId} setReviewId={setReviewId}
                   health={health} goAudit={() => go("audit")} />}
                 {safeTab === "studio" && <PaperStudioTab onPlay={() => go("play")} onAudit={() => go("audit")} />}
+                {safeTab === "venues" && <VenuesTab />}
+                {safeTab === "toolbox" && <ToolboxTab />}
                 {safeTab === "notes" && <NotesTab />}
                 {safeTab === "library" && <LibraryTab />}
                 {safeTab === "play" && <PlayTab />}
@@ -271,7 +213,7 @@ function Dashboard() {
         <nav className="fixed inset-x-0 bottom-0 z-30 flex gap-1 overflow-x-auto border-t-[2.5px] border-edge bg-surface p-2 lg:hidden">
           <button onClick={() => go("home")} className={clsx("flex min-w-16 flex-1 flex-col items-center gap-0.5 rounded-xl border-2 py-1.5 text-[11px] font-bold",
             tab === "home" ? "border-edge bg-violet text-white" : "border-transparent text-ink-2")}><LayoutDashboard className="size-4" />Home</button>
-          {[...TABS, ...WORK].map((t) => (
+          {[...CREATE, ...TABS, ...WORK].map((t) => (
             <button key={t.id} onClick={() => go(t.id)}
               className={clsx("flex min-w-16 flex-1 flex-col items-center gap-0.5 rounded-xl border-2 py-1.5 text-[11px] font-bold",
                 tab === t.id ? clsx("border-edge", t.color, !t.color.includes("text-white") && "text-[#121212]") : "border-transparent text-ink-2")}>

@@ -2,7 +2,7 @@
 /* eslint-disable react-hooks/immutability -- game state lives in a ref and is mutated per frame inside useFrame (the standard R3F loop), never during render */
 
 import { Canvas, useFrame, type ThreeEvent } from "@react-three/fiber";
-import { Float } from "@react-three/drei";
+import { Float, Sparkles } from "@react-three/drei";
 import { useRef, useState } from "react";
 import type { Mesh, MeshPhysicalMaterial } from "three";
 import { usePersistent } from "@/lib/api";
@@ -82,6 +82,8 @@ function Bubbles({ st, phase, onHud, onEnd }: { st: React.RefObject<State>; phas
       <Float speed={1} floatIntensity={0.6}>
         <mesh position={[0, 0, -6]}><torusKnotGeometry args={[2.2, 0.5, 160, 16]} /><meshStandardMaterial color="#8f7bff" emissive="#3a1f9e" emissiveIntensity={0.5} wireframe /></mesh>
       </Float>
+      <Sparkles count={120} scale={[14, 10, 6]} size={3} speed={0.4} color="#c9b6ff" />
+      <Sparkles count={60} scale={[14, 10, 6]} size={5} speed={0.25} color="#ff9ecf" />
       {sparks}
       {Array.from({ length: POOL }, (_, i) => (
         <mesh key={i} ref={(m) => { meshes.current[i] = m; }} visible={false} onPointerDown={hit(i)}>

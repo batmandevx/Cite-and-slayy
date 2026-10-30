@@ -46,10 +46,10 @@ const GETS = [
   { e: "📄", t: "A complete paper", d: "Abstract to conclusion: introduction, related work, method, results, discussion.", c: "bg-yellow" },
   { e: "🔗", t: "Real, verified references", d: "Every citation is a real paper with a DOI or link, checked for retractions.", c: "bg-lime" },
   { e: "📊", t: "Figures from real data", d: "Trend charts and tables computed from scholarly databases, not made up.", c: "bg-surface" },
-  { e: "🧩", t: "Diagrams & equations", d: "Architecture diagram, workflow flowchart and numbered LaTeX equations.", c: "bg-blue/30" },
+  { e: "🧩", t: "Diagrams & equations", d: "Architecture diagram, workflow flowchart and numbered LaTeX equations.", c: "bg-blue text-white" },
   { e: "🖨️", t: "LaTeX, Word & PDF", d: "IEEE or Springer LaTeX (.zip with figures), Word with embedded figures, print-ready PDF.", c: "bg-pink" },
   { e: "🛡️", t: "Originality & citation report", d: "Copied-text and paraphrase checks against sources, claim support, tortured phrases.", c: "bg-mint" },
-  { e: "💬", t: "Revise by chat", d: "Just say what to change. Agents rewrite, then re-verify. Undo anytime.", c: "bg-violet/40" },
+  { e: "💬", t: "Revise by chat", d: "Just say what to change. Agents rewrite, then re-verify. Undo anytime.", c: "bg-violet text-white" },
   { e: "🎯", t: "Where to publish", d: "Matching journals and conferences with open-access, DOAJ, APC and h-index info.", c: "bg-orange" },
 ];
 
@@ -156,7 +156,7 @@ function LandingInner() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {GETS.map((g, i) => (
             <InView key={g.t} delay={i * 0.05} rotate={i % 2 ? 1 : -1}>
-              <motion.div whileHover={{ y: -6, rotate: i % 2 ? -1 : 1 }} className={clsx("card card-pop h-full p-5", g.c, !g.c.includes("surface") && "text-[#121212]")}>
+              <motion.div whileHover={{ y: -6, rotate: i % 2 ? -1 : 1 }} className={clsx("card card-pop h-full p-5", g.c, !g.c.includes("surface") && !g.c.includes("text-white") && "text-[#121212]")}>
                 <div className="text-3xl">{g.e}</div>
                 <div className="mt-2 font-display text-lg font-extrabold leading-tight">{g.t}</div>
                 <p className="mt-1 text-sm opacity-80">{g.d}</p>
