@@ -109,7 +109,7 @@ def test_razorpay_signatures_and_webhook_upgrade(prod):
 
 
 def test_paid_plans_route_to_premium_engine(prod, monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setenv("BEDROCK_REGION", "us-east-1")
     monkeypatch.setenv("LLM_PROVIDER", "gemini")
     monkeypatch.setenv("GEMINI_API_KEY", "g-test")
     get_settings.cache_clear()
@@ -117,7 +117,9 @@ def test_paid_plans_route_to_premium_engine(prod, monkeypatch):
     llm.set_premium(False)
     assert llm.chain()[0][0] == "gemini"
     llm.set_premium(True)
-    assert llm.chain()[0] == ("anthropic", "claude-opus-5-5") and llm.chain("fast")[0] == ("anthropic", "claude-haiku-5-5")
+    assert llm.chain()[0] == ("bedrock", "us.anthropic.claude-opus-4-6-v1")
+    assert llm.chain("fast")[0] == ("bedrock", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+    assert llm.premium_available() is True
     assert ("gemini", "gemini-2.5-flash") in llm.chain()   # standard engine stays as fallback
     llm.set_premium(False)
 

@@ -48,9 +48,16 @@ def set_premium(on: bool) -> None:
 _meter: ContextVar[str | None] = ContextVar("meter_uid", default=None)
 _last_usage: ContextVar[tuple[int, int] | None] = ContextVar("last_usage", default=None)
 
-# USD per 1M tokens (input, output). Claude: Anthropic list prices. Others: conservative placeholders; set the real
-# Bedrock/Gemini rates with PRICE_OVERRIDES='{"moonshotai.kimi-k2.5": [in, out]}' after checking the pricing pages.
-PRICES = {"claude-opus-5-5": (4.0, 20.0), "claude-sonnet-5-5": (2.0, 10.0), "claude-haiku-5-5": (0.10, 0.50)}
+# USD per 1M tokens (input, output). Claude runs exclusively on Amazon Bedrock; rates match Bedrock cross-region pricing.
+# Override any model rate via PRICE_OVERRIDES='{"moonshotai.kimi-k2.5": [in, out]}'.
+PRICES = {
+    "claude-opus-4-6-v1": (5.0, 25.0),
+    "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-haiku-4-5-20251001-v1:0": (1.0, 5.0),
+    "claude-opus-5-5": (4.0, 20.0),
+    "claude-sonnet-5-5": (2.0, 10.0),
+    "claude-haiku-5-5": (0.10, 0.50),
+}
 DEFAULT_PRICE = (1.0, 4.0)
 
 
@@ -62,7 +69,8 @@ def _price(model: str) -> tuple[float, float]:
     over = get_settings().price_overrides or {}
     if model in over:
         return tuple(over[model])  # type: ignore[return-value]
-    return PRICES.get(model.removeprefix("anthropic."), DEFAULT_PRICE if model else (0.0, 0.0))
+    bare = re.sub(r"^(?:(?:us|global|eu|ap)\.)?anthropic\.", "", model or "")
+    return PRICES.get(bare, DEFAULT_PRICE if model else (0.0, 0.0))
 
 
 def _note_usage(i: int, o: int) -> None:
@@ -87,7 +95,20 @@ def _charge(provider: str, model: str, system: str, prompt: str, text: str) -> N
 
 
 def premium_available() -> bool:
-    return bool(get_settings().anthropic_api_key)
+    return bool(getattr(get_settings(), "bedrock_region", None))
+
+
+def _bedrock_model_id(model: str, region: str | None) -> str:
+    """Normalize Claude model names into Bedrock cross-region inference profile IDs when needed."""
+    m = (model or "").strip()
+    if m.startswith(("us.", "global.", "eu.", "ap.")):
+        return m
+    prefix = "us." if (region or "us-east-1").startswith("us-") else "global."
+    if m.startswith("claude-"):
+        return f"{prefix}anthropic.{m}"
+    if m.startswith("anthropic.claude-"):
+        return f"{prefix}{m}"
+    return m
 
 
 def _ollama_model() -> str | None:
@@ -113,13 +134,17 @@ def _ollama_model() -> str | None:
 
 
 def _usable(provider: str) -> tuple[str, str] | None:
-    """(provider, model) if that provider is configured / reachable, else None."""
+    """(provider, model) if that provider is configured / reachable, else None.
+    Claude ('anthropic') is always served through Amazon Bedrock — never a standalone Anthropic API key."""
     s = get_settings()
-    keys = {"anthropic": s.anthropic_api_key, "openai": s.openai_api_key, "gemini": s.gemini_api_key}
+    bregion = getattr(s, "bedrock_region", None)
+    if provider == "anthropic":
+        return ("bedrock", _bedrock_model_id(s.default_model_for("anthropic"), bregion)) if bregion else None
+    keys = {"openai": s.openai_api_key, "gemini": s.gemini_api_key}
     if provider in keys:
         return (provider, s.default_model_for(provider)) if keys[provider] else None
     if provider == "bedrock":
-        return ("bedrock", s.default_model_for("bedrock")) if s.bedrock_region else None
+        return ("bedrock", s.default_model_for("bedrock")) if bregion else None
     if provider == "ollama":
         m = _ollama_model()
         return ("ollama", m) if m else None
@@ -128,18 +153,20 @@ def _usable(provider: str) -> tuple[str, str] | None:
 
 def chain(tier: Tier = "main") -> list[tuple[str, str]]:
     """Primary provider followed by usable fallbacks (LLM_FALLBACK, comma-separated), without duplicates.
-    tier="fast" swaps in each provider's cheaper model (e.g. Claude Haiku) for high-volume, simple tasks."""
+    tier="fast" swaps in each provider's cheaper model (e.g. Claude Haiku on Bedrock) for high-volume, simple tasks."""
     s = get_settings()
+    bregion = getattr(s, "bedrock_region", None)
     primary = resolve()
     out = [primary] if primary[0] != "none" else []
-    for p in [x.strip() for x in (s.llm_fallback or "").split(",") if x.strip()]:
+    for p in [x.strip() for x in (getattr(s, "llm_fallback", "") or "").split(",") if x.strip()]:
         u = _usable(p)
         if u and all(u[0] != q for q, _ in out):
             out.append(u)
     if tier == "fast":
-        out = [(p, m if p == "ollama" else s.fast_model_for(p)) for p, m in out]
-    if _premium.get() and s.anthropic_api_key:
-        prem = ("anthropic", s.premium_model if tier == "main" else s.premium_model_fast)
+        out = [(p, m if p == "ollama" else s.fast_model_for("anthropic" if "claude" in m and s.llm_provider == "anthropic" else p)) for p, m in out]
+    if _premium.get() and bregion:
+        prem_model = _bedrock_model_id(s.premium_model if tier == "main" else s.premium_model_fast, bregion)
+        prem = ("bedrock", prem_model)
         out = [prem] + [x for x in out if x != prem]   # standard engine stays as the fallback
     return out
 
@@ -147,15 +174,16 @@ def chain(tier: Tier = "main") -> list[tuple[str, str]]:
 def resolve() -> tuple[str, str]:
     """(provider, model) actually in use; provider 'none' if nothing is usable."""
     s = get_settings()
-    keys = {"anthropic": s.anthropic_api_key, "openai": s.openai_api_key, "gemini": s.gemini_api_key}
-    if s.llm_provider in (*keys, "bedrock", "ollama"):
+    if s.llm_provider in ("anthropic", "openai", "gemini", "bedrock", "ollama"):
         return _usable(s.llm_provider) or ("none", "")
     if s.llm_provider == "auto":
-        # Local first: free and private. Cloud keys are only a fallback when Ollama isn't running.
+        # Local first: free and private. Cloud/Bedrock are fallbacks when Ollama isn't running.
         m = _ollama_model()
         if m:
             return "ollama", m
-        for p, k in keys.items():
+        if getattr(s, "bedrock_region", None):
+            return "bedrock", s.default_model_for("bedrock")
+        for p, k in (("openai", s.openai_api_key), ("gemini", s.gemini_api_key)):
             if k:
                 return p, s.default_model_for(p)
     return "none", ""
@@ -243,36 +271,8 @@ def _extract_json(text: str) -> Any:
 # ---------- providers ----------
 
 async def _anthropic(system: str, prompt: str, schema: dict | None, effort: Effort, max_tokens: int, model: str) -> str:
-    import anthropic
-
-    s = get_settings()
-    client = anthropic.AsyncAnthropic(api_key=s.anthropic_api_key)
-    output_config: dict[str, Any] = {"effort": effort}
-    if schema:
-        output_config["format"] = {"type": "json_schema", "schema": schema}
-    try:
-        resp = await client.beta.messages.create(
-            model=model,
-            max_tokens=max(max_tokens, 16000),   # thinking is always on and counts toward max_tokens
-            system=system,
-            messages=[{"role": "user", "content": prompt}],
-            output_config=output_config,
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-        )
-    except anthropic.RateLimitError as e:
-        raise LLMError(f"anthropic rate limited: {e}") from e
-    except anthropic.APIStatusError as e:
-        raise LLMError(f"anthropic HTTP {e.status_code}: {e.message}") from e
-    except anthropic.APIConnectionError as e:
-        raise LLMError(f"anthropic connection error: {e}") from e
-    if getattr(resp, "usage", None):
-        _note_usage(resp.usage.input_tokens or 0, resp.usage.output_tokens or 0)
-    if resp.stop_reason == "refusal":
-        raise LLMError("model declined the request")
-    if resp.stop_reason == "max_tokens":
-        raise LLMError("response truncated at max_tokens")
-    return "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+    """Claude runs exclusively via Amazon Bedrock — delegate any legacy 'anthropic' call directly to _bedrock."""
+    return await _bedrock(system, prompt, schema, effort, max_tokens, model)
 
 
 async def _openai(system: str, prompt: str, schema: dict | None, effort: Effort, max_tokens: int, model: str) -> str:
@@ -335,19 +335,22 @@ def _bedrock_runtime(region: str | None):
 
 
 def _converse_sync(system: str, prompt: str, schema: dict | None, max_tokens: int, model: str) -> tuple[str, tuple[int, int] | None]:
-    """Any non-Claude Bedrock model (Kimi, GLM, DeepSeek, Qwen, ...) via the Converse API."""
+    """Amazon Bedrock Converse API — powers Claude (cross-region inference profiles) as well as Kimi, GLM, DeepSeek, Qwen."""
     import botocore.exceptions
 
+    region = get_settings().bedrock_region
+    mid = _bedrock_model_id(model, region)
+    token_cap = 16000 if "claude" in mid else 8192
     if schema:
         system += ("\nRespond with a single JSON object (no code fences, no prose) matching this JSON schema:\n"
                    + json.dumps(schema))
-    client = _bedrock_runtime(get_settings().bedrock_region)
+    client = _bedrock_runtime(region)
     try:
         r = client.converse(
-            modelId=model,
+            modelId=mid,
             system=[{"text": system}],
             messages=[{"role": "user", "content": [{"text": prompt}]}],
-            inferenceConfig={"maxTokens": min(max_tokens, 8192)},   # no temperature: some models (Kimi K3) reject it
+            inferenceConfig={"maxTokens": min(max_tokens, token_cap)},   # no temperature: some models (Kimi) reject it
         )
     except botocore.exceptions.ClientError as e:
         err = e.response.get("Error", {})
@@ -365,42 +368,12 @@ def _converse_sync(system: str, prompt: str, schema: dict | None, max_tokens: in
 
 
 async def _bedrock(system: str, prompt: str, schema: dict | None, effort: Effort, max_tokens: int, model: str) -> str:
-    """Amazon Bedrock. Claude models (`anthropic.*`) use the Messages API on bedrock-mantle; every other model
-    (Kimi, GLM, DeepSeek, Qwen, ...) uses the Converse API. Credentials come from the standard AWS chain - on EC2
-    that is the instance role, so no keys live on the server. Errors raise LLMError so LLM_FALLBACK can take over."""
-    if not model.startswith("anthropic."):
-        text, usage = await asyncio.to_thread(_converse_sync, system, prompt, schema, max_tokens, model)
-        if usage:
-            _note_usage(*usage)
-        return text
-    import anthropic
-    from anthropic import AsyncAnthropicBedrockMantle
-
-    client = AsyncAnthropicBedrockMantle(aws_region=get_settings().bedrock_region)
-    output_config: dict[str, Any] = {"effort": effort}
-    if schema:
-        output_config["format"] = {"type": "json_schema", "schema": schema}
-    try:
-        resp = await client.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            system=system,
-            messages=[{"role": "user", "content": prompt}],
-            output_config=output_config,
-        )
-    except anthropic.RateLimitError as e:
-        raise LLMError(f"bedrock rate limited: {e}") from e
-    except anthropic.APIStatusError as e:
-        raise LLMError(f"bedrock HTTP {e.status_code}: {e.message}") from e
-    except anthropic.APIConnectionError as e:
-        raise LLMError(f"bedrock connection error: {e}") from e
-    except anthropic.AnthropicError as e:   # e.g. no AWS credentials found
-        raise LLMError(f"bedrock client error: {e}") from e
-    if resp.stop_reason == "refusal":
-        raise LLMError("model declined the request")
-    if resp.stop_reason == "max_tokens":
-        raise LLMError("response truncated at max_tokens")
-    return "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+    """Amazon Bedrock via the unified Converse API (Claude Opus/Sonnet/Haiku inference profiles + Kimi/GLM/DeepSeek/Qwen).
+    Credentials come from the standard AWS chain — on EC2 that is the instance IAM role, so no Anthropic or AWS keys live on the server."""
+    text, usage = await asyncio.to_thread(_converse_sync, system, prompt, schema, max_tokens, model)
+    if usage:
+        _note_usage(*usage)
+    return text
 
 
 _ollama_lock: asyncio.Semaphore | None = None

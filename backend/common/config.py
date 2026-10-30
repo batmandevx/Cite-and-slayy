@@ -14,15 +14,15 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ROOT / ".env", extra="ignore")
 
     # LLM
-    # auto = a running local Ollama model first (free), else the first cloud key (anthropic, openai, gemini), else none
+    # auto = a running local Ollama model first (free), else Amazon Bedrock if BEDROCK_REGION is set, else cloud keys
     llm_provider: Literal["auto", "anthropic", "openai", "gemini", "bedrock", "ollama", "none"] = "auto"
     llm_fallback: str = ""            # e.g. "gemini" or "gemini,ollama": tried in order when the primary fails
     llm_model: str | None = None        # "main" tier: reviewer jury, research questions (needs judgment)
     llm_model_fast: str | None = None   # "fast" tier: high-volume claim checks and cluster labels
-    anthropic_api_key: str | None = None
+    anthropic_api_key: str | None = None  # unused: Claude runs exclusively via Amazon Bedrock (bedrock_region)
     openai_api_key: str | None = None
     gemini_api_key: str | None = None
-    bedrock_region: str | None = None  # Amazon Bedrock (Kimi, GLM, Claude, ...); credentials from the AWS chain (EC2 role)
+    bedrock_region: str | None = None  # Amazon Bedrock (Claude, Kimi, ...); credentials from the AWS chain (EC2 role)
     ollama_url: str = "http://localhost:11434"
     ollama_model: str | None = None   # None = first chat model installed locally
 
@@ -61,8 +61,8 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     mail_from: str | None = None
     dev_show_magic_link: bool = False  # local testing only: return the login link in the API response
-    premium_model: str = "claude-opus-5-5"        # Pro/Max engine for papers and reviews (Anthropic API key needed)
-    premium_model_fast: str = "claude-haiku-5-5"
+    premium_model: str = "us.anthropic.claude-opus-4-6-v1"            # Pro/Max engine via Amazon Bedrock (no Anthropic API key needed)
+    premium_model_fast: str = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
     price_overrides: dict[str, list[float]] | None = None   # USD per 1M tokens per model id, e.g. Bedrock rates
     usd_inr: float = 88.0               # conversion for budgets; update to the current rate
     razorpay_key_id: str | None = None
@@ -74,18 +74,18 @@ class Settings(BaseSettings):
         if self.llm_model_fast and provider == self.llm_provider:
             return self.llm_model_fast
         return {
-            "anthropic": "claude-haiku-5-5",
-            "bedrock": "moonshotai.kimi-k2.5",   # Claude option for bulk work: anthropic.claude-haiku-5-5
+            "anthropic": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+            "bedrock": "moonshotai.kimi-k2.5",   # Claude option for bulk work: us.anthropic.claude-haiku-4-5-20251001-v1:0
         }.get(provider) or self.default_model_for(provider)
 
     def default_model_for(self, provider: str) -> str:
         if self.llm_model and provider == self.llm_provider:
             return self.llm_model
         return {
-            "anthropic": "claude-opus-5-5",
+            "anthropic": "us.anthropic.claude-sonnet-4-6",
             "openai": "gpt-4.1-mini",
             "gemini": "gemini-2.5-flash",
-            "bedrock": "moonshotai.kimi-k2.5",   # fast, cheap, no extra Bedrock agreements; Claude: anthropic.claude-sonnet-5-5
+            "bedrock": "moonshotai.kimi-k2.5",   # fast, cheap, no extra Bedrock agreements; Claude: us.anthropic.claude-sonnet-4-6
             "ollama": self.ollama_model or "",
             "none": "none",
         }.get(provider, "")
