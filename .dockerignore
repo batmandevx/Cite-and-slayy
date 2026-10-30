@@ -1,0 +1,17 @@
+.venv
+**/node_modules
+**/.next
+var
+data-volume
+_other_agent
+.git
+.env
+.env.*
+.env.server
+frontend/.env*
+deploy/Caddyfile.generated
+.aws-deploy.env
+*.pem
+**/__pycache__
+.pytest_cache
+*.egg-info

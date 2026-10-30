@@ -1,0 +1,29 @@
+# secrets & local state
+.env
+.env.*
+!.env.example
+var/
+*.sqlite3
+
+# python
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+
+# frontend
+frontend/node_modules/
+frontend/.next/
+frontend/.env*.local
+
+# archived output of a parallel agent run (kept locally for reference)
+_other_agent/
+
+.DS_Store
+
+# deployment state & secrets
+.aws-deploy.env
+.env.server
+data-volume/
+deploy/Caddyfile.generated
+*.pem

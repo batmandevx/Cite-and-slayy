@@ -1,0 +1,6 @@
+{
+  "topic": "Gradient-spectral rank allocation for LoRA fine-tuning under a fixed parameter budget",
+  "filename": "GARD_autoresearchclaw_showcase.pdf",
+  "seconds_per_stage": 0.35,
+  "provenance": "Real AutoResearchClaw output: 'GARD: Gradient-Spectral Rank Allocation for LoRA Fine-Tuning', Paper V of the AutoResearchClaw public showcase (https://github.com/aiming-lab/AutoResearchClaw/blob/main/docs/showcase/papers/paper_V_gard_lora.pdf, MIT license). The stage timeline shown is a demo replay, not a live run."
+}

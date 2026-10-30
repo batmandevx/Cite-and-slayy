@@ -1,0 +1,43 @@
+[project]
+name = "cite-and-slayy"
+version = "0.1.0"
+description = "Cite and Slayy: a decision layer for research (Gap Radar, CiteGuard, Reviewer Jury)"
+requires-python = ">=3.11,<3.13"
+license = { text = "MIT" }
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.7",
+  "pydantic-settings>=2.3",
+  "python-multipart>=0.0.9",
+  "httpx>=0.27",
+  "pymupdf>=1.24",
+  "rapidfuzz>=3.9",
+  "numpy>=1.26",
+  "scikit-learn>=1.4",
+  "sentence-transformers>=3.0",
+  "anthropic[bedrock]>=0.70",
+  "openai>=1.40",
+  "google-genai>=1.0",
+  "python-docx>=1.1",
+  "matplotlib>=3.9",
+  "google-auth>=2.30",
+  "requests>=2.31",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=1.0"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+markers = ["live: hits real external APIs (network required)"]
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
