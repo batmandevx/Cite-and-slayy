@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { Crown, KeyRound, LogOut, Settings, X, Zap } from "lucide-react";
+import { Crown, KeyRound, Lock, LogOut, Settings, X, Zap } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { api, toast } from "@/lib/api";
@@ -60,6 +60,26 @@ function usePlanChooser() {
   };
 }
 
+const PITCH: Record<string, { title: string; sub: string }> = {
+  exports: { title: "Your paper is ready. Take it with you.", sub: "Download submission-ready Word, LaTeX (.zip with figures) and print-perfect PDF in IEEE, Springer or plain layouts, or open it straight in Overleaf." },
+  decks: { title: "Present it tomorrow.", sub: "Turn any paper into a 16-slide talk with native charts, an architecture diagram, speaker notes and six designer themes." },
+  vision: { title: "Show Azora AI what you see.", sub: "Upload figures, whiteboard photos, screenshots or charts and get them read, explained and cited in context." },
+  kits: { title: "Submit with confidence.", sub: "Cover letter, highlights, graphical-abstract brief, reviewer suggestions and a venue checklist, generated from your paper." },
+  integrity_scans: { title: "Know before the editor does.", sub: "Line-highlighted AI and similarity reports for your own manuscript, with the sources that triggered each line." },
+  humanize_fixes: { title: "Polish every flagged line.", sub: "Rewrite the passages your report flags, with a before and after score for each pass." },
+  reviews: { title: "Get the verdict before peer review.", sub: "Four expert reviewer personas read your paper and give you a decision, scores and a fix list." },
+  latex: { title: "Write like it's Overleaf.", sub: "See your page compile to IEEE, Springer or plain LaTeX live as you type, then open it in Overleaf with one click." },
+  default: { title: "Do your best research, faster.", sub: "Full papers on the Pro engine, downloads in every format, slides, reports and an AI lab that reads images." },
+};
+const UNLOCKS: [string, string][] = [
+  ["📄", "Publish-ready papers on the Pro engine with verified references"],
+  ["⬇️", "Word, LaTeX .zip, PDF and one-click Overleaf"],
+  ["🎤", "Presentation decks with charts, diagrams and 6 themes"],
+  ["🔍", "AI & plagiarism reports with highlighted lines"],
+  ["🧑‍⚖️", "Reviewer verdicts, submission kits and AI revisions"],
+  ["🖼️", "Azora AI with image upload, voice and higher daily limits"],
+];
+
 export function UpgradeModal() {
   const { upgrade, closeUpgrade, me } = useAuth();
   const choose = usePlanChooser();
@@ -72,19 +92,71 @@ export function UpgradeModal() {
           <motion.div initial={{ y: 40, scale: 0.95 }} animate={{ y: 0, scale: 1 }} exit={{ y: 40, scale: 0.95 }} onClick={(e) => e.stopPropagation()}
             className="card relative my-8 w-full max-w-5xl p-6 md:p-8">
             <button onClick={closeUpgrade} className="absolute right-4 top-4 rounded-lg p-1 hover:bg-surface-2"><X className="size-5" /></button>
-            <div className="mb-6 text-center">
-              <div className="text-5xl">🚀</div>
-              <h2 className="mt-2 font-display text-3xl font-extrabold">{typeof upgrade === "object" ? "You've hit your plan limit" : "Upgrade your plan"}</h2>
-              <p className="mx-auto mt-1 max-w-xl text-sm text-ink-2">
-                {typeof upgrade === "object" ? upgrade.message : "Get full papers on the Pro engine, more revisions, verdicts and audits."}
-              </p>
-            </div>
+            {(() => {
+              const r = typeof upgrade === "object" ? upgrade : null;
+              const pitch = (r && PITCH[r.feature]) || PITCH.default;
+              const locked = r?.code === "paid_only";
+              return (
+                <div className="mb-6 grid items-center gap-6 md:grid-cols-[1.1fr_1fr]">
+                  <div>
+                    <span className="inline-flex items-center gap-1.5 rounded-full border-2 border-edge bg-yellow px-3 py-0.5 text-[11px] font-extrabold uppercase tracking-wider text-[#121212]">
+                      <Lock className="size-3" />{locked ? "Pro feature" : r ? "Limit reached" : "Upgrade"}</span>
+                    <h2 className="mt-3 font-display text-3xl font-extrabold leading-tight md:text-4xl">{pitch.title}</h2>
+                    <p className="mt-2 text-sm text-ink-2">{r && !locked ? r.message : pitch.sub}</p>
+                  </div>
+                  <ul className="space-y-2 rounded-2xl border-[2.5px] border-edge bg-surface-2 p-4 text-sm">
+                    {UNLOCKS.map(([icon, t], i) => (
+                      <motion.li key={t} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.05 * i }} className="flex items-start gap-2.5">
+                        <span className="text-base leading-5">{icon}</span><span>{t}</span>
+                      </motion.li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })()}
             <Pricing current={me?.plan} onChoose={async (p) => { const ok = await choose(p); if (ok) closeUpgrade(); return ok; }}
               onBuyPack={async () => { const ok = await buyPack(); if (ok) closeUpgrade(); return ok; }} />
           </motion.div>
         </motion.div>
       )}
     </AnimatePresence>
+  );
+}
+
+function SecurityPanel() {
+  const [open, setOpen] = useState(false);
+  const [cur, setCur] = useState("");
+  const [nw, setNw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.post("/api/account/password", { current: cur, new: nw });
+      setCur(""); setNw(""); setOpen(false);
+      toast({ title: "Password changed", body: "Other devices have been signed out.", tone: "good" });
+    } catch (e) { toast({ title: "Couldn't change password", body: (e as Error).message, tone: "crit" }); }
+    finally { setBusy(false); }
+  };
+  const everywhere = async () => {
+    if (!confirm("Sign out of every device, including this one?")) return;
+    await api.post("/api/account/logout-all");
+    window.location.href = "/app";
+  };
+  return (
+    <div className="mt-4 rounded-2xl border-2 border-edge p-3">
+      <div className="flex items-center gap-2 text-sm font-extrabold">🔐 Security
+        <button onClick={() => setOpen(!open)} className="ml-auto text-xs font-bold text-pink hover:underline">{open ? "Close" : "Change password"}</button></div>
+      {open && (
+        <div className="mt-2 space-y-2">
+          <input type="password" value={cur} onChange={(e) => setCur(e.target.value)} placeholder="Current password (leave empty if you never set one)" autoComplete="current-password"
+            className="w-full rounded-xl border-2 border-edge bg-surface px-2.5 py-1.5 text-xs outline-none" />
+          <input type="password" value={nw} onChange={(e) => setNw(e.target.value)} placeholder="New password (8+ letters & numbers)" autoComplete="new-password"
+            className="w-full rounded-xl border-2 border-edge bg-surface px-2.5 py-1.5 text-xs outline-none" />
+          <Button variant="primary" className="!px-3 !py-1 text-xs" loading={busy} disabled={nw.length < 8} onClick={save}>Save password</Button>
+        </div>
+      )}
+      <button onClick={everywhere} className="mt-2 text-[11px] font-bold text-muted hover:text-crit-ink">Sign out of all devices</button>
+    </div>
   );
 }
 
@@ -168,6 +240,7 @@ export function AccountCard({ compact }: { compact?: boolean }) {
                   )}
                 </div>
               )}
+              {config?.auth_required && <SecurityPanel />}
               <div className="mt-5 flex flex-wrap gap-2">
                 {!me.is_owner && me.plan !== "free" && !me.cancel_at_period_end && <Button className="!py-1.5 text-xs" onClick={cancel}>Cancel subscription</Button>}
                 {config?.auth_required && <Button variant="ghost" className="ml-auto !py-1.5 text-xs" onClick={logout}><LogOut className="size-3.5" />Sign out</Button>}

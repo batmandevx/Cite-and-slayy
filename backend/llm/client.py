@@ -460,3 +460,56 @@ async def complete_json(system: str, prompt: str, model: type[T], *, effort: Eff
         except (ValueError, ValidationError) as e:
             last = e
     raise LLMError(f"invalid structured output: {last}")
+
+
+# ---------- vision ----------
+
+_IMG_FORMATS = {"image/png": "png", "image/jpeg": "jpeg", "image/jpg": "jpeg", "image/webp": "webp", "image/gif": "gif"}
+
+
+def _vision_converse_sync(prompt: str, images: list[tuple[str, bytes]], model: str) -> str:
+    import botocore.exceptions
+    region = get_settings().bedrock_region
+    content = [{"image": {"format": _IMG_FORMATS[m], "source": {"bytes": b}}} for m, b in images] + [{"text": prompt}]
+    try:
+        r = _bedrock_runtime(region).converse(modelId=_bedrock_model_id(model, region), messages=[{"role": "user", "content": content}],
+                                              inferenceConfig={"maxTokens": 1500})
+    except botocore.exceptions.ClientError as e:
+        err = e.response.get("Error", {})
+        raise LLMError(f"bedrock {err.get('Code')}: {err.get('Message', '')[:160]}") from e
+    except botocore.exceptions.BotoCoreError as e:
+        raise LLMError(f"bedrock client error: {e}") from e
+    return "".join(c.get("text", "") for c in r["output"]["message"]["content"])
+
+
+async def _vision_gemini(prompt: str, images: list[tuple[str, bytes]]) -> str:
+    from google import genai
+    from google.genai import types
+    s = get_settings()
+    client = genai.Client(api_key=s.gemini_api_key)
+    parts = [types.Part.from_bytes(data=b, mime_type=m) for m, b in images] + [prompt]
+    resp = await client.aio.models.generate_content(model=s.default_model_for("gemini"), contents=parts)
+    return resp.text or ""
+
+
+async def describe_images(images: list[tuple[str, bytes]], question: str) -> str:
+    """Describe uploaded images for the agent. Tries vision-capable Bedrock models, then Gemini."""
+    s = get_settings()
+    prompt = ("Describe these image(s) precisely for a research assistant: transcribe any visible text, equations, table values, "
+              "axis labels and figure captions; describe diagrams and charts structurally. Do not guess values you cannot read.\n\n"
+              f"User's question about them: {question[:1500]}")
+    errors = []
+    candidates = []
+    if s.bedrock_region:
+        candidates += [m for m in (s.premium_model, "moonshotai.kimi-k2.5") if m]
+    for model in candidates:
+        try:
+            return await asyncio.to_thread(_vision_converse_sync, prompt, images, model)
+        except LLMError as e:
+            errors.append(f"{model}: {e}")
+    if s.gemini_api_key:
+        try:
+            return await _vision_gemini(prompt, images)
+        except Exception as e:  # noqa: BLE001 - report and fall through
+            errors.append(f"gemini: {e}")
+    raise LLMError("no vision model available: " + "; ".join(errors))

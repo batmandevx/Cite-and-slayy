@@ -2,7 +2,7 @@
 
 import clsx from "clsx";
 import {
-  ArrowRight, ArrowUp, BookOpenCheck, BrainCircuit, Building2, Check, ChevronDown, Copy, FilePlus2, FlaskConical,
+  ArrowRight, ArrowUp, BookOpenCheck, BrainCircuit, Building2, Check, ChevronDown, Copy, FilePlus2, FlaskConical, ImagePlus, Mic, MicOff, Volume2, VolumeX, ScanEye,
   Gavel, History, Lightbulb, ListChecks, ListTodo, Loader2, Maximize2, Minimize2, NotebookPen, Pin, Plus, Radar,
   Search, ShieldAlert, ShieldCheck, Sparkles, TestTube2, X,
 } from "lucide-react";
@@ -12,6 +12,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, toast, usePersistent, writePersistent, jobEvents } from "@/lib/api";
 import { AuroraOrb } from "./AuroraOrb";
+import { usePaid } from "../auth/AuthProvider";
 
 export interface AppLink {
   tab: string;
@@ -47,6 +48,8 @@ interface ToolCall {
 interface Msg {
   role: "user" | "assistant";
   content: string;
+  images?: number;
+  previews?: string[];
   tools?: ToolCall[];
   thoughts?: string[];
   at?: string;
@@ -74,7 +77,37 @@ const TOOL_META: Record<string, { label: string; icon: typeof Search; color: str
   save_note: { label: "Saved Workspace Page", icon: NotebookPen, color: "bg-yellow" },
   pin_stickies: { label: "Pinned Sticky Cards", icon: Pin, color: "bg-pink" },
   add_todos: { label: "Added Research Tasks", icon: ListTodo, color: "bg-lime" },
+  read_images: { label: "Reading your image", icon: ScanEye, color: "bg-blue text-white" },
 };
+
+/** Shrink an image file to a JPEG data URL (long edge ≤ 1600 px) so uploads stay small. */
+async function toDataUrl(f: File): Promise<string> {
+  const url = URL.createObjectURL(f);
+  try {
+    const img = await new Promise<HTMLImageElement>((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    c.getContext("2d")!.drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL("image/jpeg", 0.88);
+  } finally { URL.revokeObjectURL(url); }
+}
+
+/** Markdown → plain speakable text. */
+function speakable(md: string): string {
+  return md.replace(/```[\s\S]*?```/g, " (code block) ").replace(/`([^`]+)`/g, "$1").replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/^#+\s*/gm, "").replace(/[*_~>|]/g, "").replace(/^\s*[-+]\s+/gm, "")
+    .replace(/\$\$?[^$]+\$\$?/g, " (equation) ").replace(/\n{2,}/g, ". ").replace(/\s+/g, " ").trim();
+}
+
+type SR = { lang: string; interimResults: boolean; continuous: boolean; start(): void; stop(): void;
+  onresult: ((e: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void) | null;
+  onend: (() => void) | null; onerror: ((e: { error: string }) => void) | null };
+function getSR(): (new () => SR) | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as { SpeechRecognition?: new () => SR; webkitSpeechRecognition?: new () => SR };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
 
 const QUICK_LABS: { label: string; icon: typeof Lightbulb; color: string; prompt: string; autoSend?: boolean }[] = [
   {
@@ -365,6 +398,15 @@ export function AuroraChat({
   const [liveThoughts, setLiveThoughts] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [input, setInput] = useState("");
+  const [images, setImages] = useState<string[]>([]);
+  const { paid, gate } = usePaid();
+  const [dragging, setDragging] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [speakingIdx, setSpeakingIdx] = useState<number | null>(null);
+  const [autoSpeak, setAutoSpeak] = usePersistent<boolean>("auroraAutoSpeak", false);
+  const recog = useRef<SR | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const baseInput = useRef("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [chats, setChats] = useState<ChatSummary[]>([]);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
@@ -422,19 +464,71 @@ export function AuroraChat({
     }).catch(() => {});
   };
 
+  const addFiles = async (files: FileList | File[]) => {
+    if (!Array.from(files).some((f) => f.type.startsWith("image/")) || !gate("vision")) return;
+    const list = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    if (!list.length) return;
+    if (images.length + list.length > 3) toast({ title: "Up to 3 images per message", tone: "accent" });
+    try {
+      const urls = await Promise.all(list.slice(0, 3 - images.length).map(toDataUrl));
+      setImages((xs) => [...xs, ...urls].slice(0, 3));
+    } catch { toast({ title: "Couldn't read that image", tone: "crit" }); }
+  };
+
+  const toggleMic = () => {
+    if (listening) { recog.current?.stop(); return; }
+    const Ctor = getSR();
+    if (!Ctor) { toast({ title: "Voice input isn't supported in this browser", body: "Try Chrome, Edge or Safari.", tone: "accent" }); return; }
+    const r = new Ctor();
+    r.lang = navigator.language || "en-US"; r.interimResults = true; r.continuous = true;
+    baseInput.current = input ? input.replace(/\s*$/, " ") : "";
+    let finalText = "";
+    r.onresult = (e) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i];
+        if (res.isFinal) finalText += res[0].transcript; else interim += res[0].transcript;
+      }
+      setInput(baseInput.current + finalText + interim);
+    };
+    r.onerror = (e) => { if (e.error !== "no-speech" && e.error !== "aborted") toast({ title: "Microphone error", body: e.error === "not-allowed" ? "Allow microphone access for this site." : e.error, tone: "crit" }); };
+    r.onend = () => { setListening(false); recog.current = null; };
+    recog.current = r;
+    r.start();
+    setListening(true);
+  };
+
+  const speak = (md: string, idx: number) => {
+    const synth = typeof window !== "undefined" ? window.speechSynthesis : undefined;
+    if (!synth) { toast({ title: "Read-aloud isn't supported in this browser", tone: "accent" }); return; }
+    if (speakingIdx === idx) { synth.cancel(); setSpeakingIdx(null); return; }
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(speakable(md).slice(0, 6000));
+    u.lang = navigator.language || "en-US"; u.rate = 1.02;
+    u.onend = () => setSpeakingIdx((v) => (v === idx ? null : v));
+    u.onerror = () => setSpeakingIdx(null);
+    setSpeakingIdx(idx);
+    synth.speak(u);
+  };
+
+  useEffect(() => () => { recog.current?.stop(); if (typeof window !== "undefined") window.speechSynthesis?.cancel(); }, []);
+
   const send = async (text: string) => {
     const msg = text.trim();
-    if (!msg || busy) return;
+    if ((!msg && !images.length) || busy) return;
+    recog.current?.stop();
+    const imgs = images;
     es.current?.close();
     setInput("");
+    setImages([]);
     setBusy(true);
     setLive([]);
     setLiveThoughts([]);
     setHistoryOpen(false);
-    setMessages((m) => [...m, { role: "user", content: msg }]);
+    setMessages((m) => [...m, { role: "user", content: msg, images: imgs.length, previews: imgs }]);
 
     try {
-      const r = await api.post<{ job_id: string; chat_id: string }>("/api/agent/chat", { message: msg, chat_id: chatId });
+      const r = await api.post<{ job_id: string; chat_id: string }>("/api/agent/chat", { message: msg, chat_id: chatId, images: imgs });
       setChatId(r.chat_id);
       let finished = false;
       const src = jobEvents(r.job_id);
@@ -447,7 +541,10 @@ export function AuroraChat({
         if (errBody) toast({ title: "Azora AI hit an error", body: errBody, tone: "crit" });
         try {
           const c = await api.get<{ messages: Msg[] }>(`/api/agent/chats/${r.chat_id}`);
-          setMessages(c.messages);
+          // keep this session's image thumbnails on the matching user turn (the server stores only a count)
+          setMessages((prev) => c.messages.map((x, i) => (x.role === "user" && prev[i]?.previews ? { ...x, previews: prev[i].previews } : x)));
+          const last = c.messages[c.messages.length - 1];
+          if (autoSpeak && !errBody && last?.role === "assistant") speak(last.content, c.messages.length - 1);
         } catch {}
         setLive([]);
         setLiveThoughts([]);
@@ -684,7 +781,14 @@ export function AuroraChat({
                       )}
                     >
                       {m.role === "user" ? (
-                        <p className="whitespace-pre-wrap text-sm font-medium">{m.content}</p>
+                        <>
+                          {m.previews && m.previews.length > 0 ? (
+                            <div className="mb-1.5 flex flex-wrap gap-1.5">{m.previews.map((u, k) => (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img key={k} src={u} alt={`Attachment ${k + 1}`} className="h-20 rounded-lg border-2 border-edge object-cover" />))}</div>
+                          ) : m.images ? <p className="mb-1 inline-flex items-center gap-1 text-[11px] font-bold opacity-80"><ImagePlus className="size-3" />{m.images} image{m.images > 1 ? "s" : ""} attached</p> : null}
+                          {m.content && <p className="whitespace-pre-wrap text-sm font-medium">{m.content}</p>}
+                        </>
                       ) : (
                         <>
                           <div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown></div>
@@ -702,6 +806,13 @@ export function AuroraChat({
                               className="inline-flex items-center gap-1 rounded-lg border border-edge/40 bg-yellow px-2 py-0.5 font-semibold text-[#121212] hover:bg-yellow"
                             >
                               {savedIdx === i ? <><Check className="size-3" />Saved to Pages</> : <><FilePlus2 className="size-3" />Save to Notes</>}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => speak(m.content, i)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-edge/40 bg-surface-2 px-2 py-0.5 font-semibold text-ink-2 hover:border-edge hover:text-ink"
+                            >
+                              {speakingIdx === i ? <><VolumeX className="size-3" />Stop</> : <><Volume2 className="size-3" />Listen</>}
                             </button>
                           </div>
                         </>
@@ -747,7 +858,26 @@ export function AuroraChat({
             )}
 
             {/* Composer */}
-            <form onSubmit={(e) => { e.preventDefault(); send(input); }} className="border-t-[2.5px] border-edge bg-surface p-3">
+            <form onSubmit={(e) => { e.preventDefault(); send(input); }}
+              onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)}
+              onDrop={(e) => { e.preventDefault(); setDragging(false); addFiles(e.dataTransfer.files); }}
+              className={clsx("border-t-[2.5px] border-edge bg-surface p-3", dragging && "bg-pink/10")}>
+              <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden
+                onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }} />
+              <AnimatePresence>
+                {images.length > 0 && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="mb-2 flex gap-2">
+                    {images.map((u, k) => (
+                      <motion.div key={u.slice(-40) + k} initial={{ scale: 0.6 }} animate={{ scale: 1 }} className="relative">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={u} alt={`Attachment ${k + 1}`} className="size-16 rounded-xl border-2 border-edge object-cover" />
+                        <button type="button" onClick={() => setImages((xs) => xs.filter((_, j) => j !== k))} aria-label="Remove image"
+                          className="absolute -right-1.5 -top-1.5 grid size-5 place-items-center rounded-full border-2 border-edge bg-crit text-white"><X className="size-3" /></button>
+                      </motion.div>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
               <div className="flex items-end gap-2 rounded-2xl border-[2.5px] border-edge bg-bg p-2 shadow-[3px_3px_0_var(--shadow-c)] focus-within:shadow-[4px_4px_0_var(--accent)]">
                 <textarea
                   ref={inputRef}
@@ -755,21 +885,33 @@ export function AuroraChat({
                   onChange={(e) => setInput(e.target.value)}
                   rows={1}
                   onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
-                  placeholder="Brainstorm, test a claim/DOI, compare trends, or save an experiment plan…"
+                  onPaste={(e) => { const fs = Array.from(e.clipboardData.files); if (fs.length) { e.preventDefault(); addFiles(fs); } }}
+                  placeholder={listening ? "Listening… speak now" : "Ask, paste or drop an image, or tap the mic…"}
                   className="max-h-36 min-h-[40px] flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-muted"
                 />
+                <button type="button" onClick={() => fileRef.current?.click()} disabled={busy || images.length >= 3} title={paid ? "Attach image (or paste / drop)" : "Image upload is a Pro feature"}
+                  className="relative grid size-10 shrink-0 place-items-center rounded-xl border-2 border-edge bg-surface-2 hover:bg-yellow hover:text-[#121212] disabled:opacity-40">
+                  <ImagePlus className="size-4" />{!paid && <span className="absolute -right-1 -top-1 size-2.5 rounded-full border border-edge bg-yellow" />}</button>
+                <button type="button" onClick={toggleMic} disabled={busy} title={listening ? "Stop dictation" : "Dictate (speech to text)"}
+                  className={clsx("relative grid size-10 shrink-0 place-items-center rounded-xl border-2 border-edge disabled:opacity-40",
+                    listening ? "bg-crit text-white" : "bg-surface-2 hover:bg-lime hover:text-[#121212]")}>
+                  {listening && <motion.span className="absolute inset-0 rounded-xl border-2 border-crit" animate={{ scale: [1, 1.35], opacity: [0.8, 0] }} transition={{ repeat: Infinity, duration: 1.1 }} />}
+                  {listening ? <MicOff className="size-4" /> : <Mic className="size-4" />}</button>
                 <motion.button
                   whileTap={{ scale: 0.9 }}
                   type="submit"
-                  disabled={busy || !input.trim()}
+                  disabled={busy || (!input.trim() && !images.length)}
                   className="grid size-10 shrink-0 place-items-center rounded-xl border-2 border-edge bg-pink text-[#121212] disabled:opacity-40"
                 >
                   {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-5" />}
                 </motion.button>
               </div>
-              <p className="mt-1.5 text-center text-[10.5px] text-muted">
-                Azora AI executes 15 real scholarly &amp; workspace tools — never fabricates papers or citations.
-              </p>
+              <div className="mt-1.5 flex items-center justify-center gap-3 text-[10.5px] text-muted">
+                <span>Azora AI runs real scholarly &amp; workspace tools and reads images. It never fabricates papers or citations.</span>
+                <button type="button" onClick={() => { setAutoSpeak(!autoSpeak); if (autoSpeak) window.speechSynthesis?.cancel(); }}
+                  className={clsx("inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 font-bold", autoSpeak ? "border-edge bg-lime text-[#121212]" : "border-line")}>
+                  {autoSpeak ? <Volume2 className="size-3" /> : <VolumeX className="size-3" />}Auto-read</button>
+              </div>
             </form>
           </motion.aside>
         </>

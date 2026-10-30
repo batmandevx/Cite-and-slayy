@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { API, api, toast } from "@/lib/api";
+import { api, apiFetch, toast } from "@/lib/api";
 
 // ---------- shared workspace sync ----------
 export function useWorkspace<T>(kind: "pages" | "stickies" | "todos" | "pins") {
@@ -22,7 +22,7 @@ export function useWorkspace<T>(kind: "pages" | "stickies" | "todos" | "pins") {
       const next = fn(xs ?? []);
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => {
-        fetch(`${API}/api/workspace/${kind}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: next }) })
+        apiFetch(`/api/workspace/${kind}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: next }) })
           .catch(() => toast({ title: "Couldn't save", body: "Check the backend connection.", tone: "crit" }));
       }, 500);
       return next;

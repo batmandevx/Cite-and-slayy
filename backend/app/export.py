@@ -133,13 +133,17 @@ def tex_inline(s: str) -> str:
             t = re.sub(r"\*\*(.+?)\*\*", r"\\textbf{\1}", t)
             t = re.sub(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?!\w)", r"\\emph{\1}", t)
             t = re.sub(r"\[(.+?)\]\((https?://[^)]+)\)", r"\1\\footnote{\\url{\2}}", t)
+            t = re.sub(r"\+\+(.+?)\+\+", r"\\underline{\1}", t)
+            t = re.sub(r"==(.+?)==", r"\\colorbox{yellow}{\1}", t)
+            t = re.sub(r"(?:\\textasciitilde\{\}){2}(.+?)(?:\\textasciitilde\{\}){2}", r"\1", t)
+            t = re.sub(r"\\textasciicircum\{\}(\S+?)\\textasciicircum\{\}", r"\\textsuperscript{\1}", t)
             out.append(t)
     return "".join(out)
 
 
 PREAMBLES = {
     "ieee": r"""\documentclass[journal]{IEEEtran}
-\usepackage{amsmath,amssymb,amsthm,graphicx,url,array,booktabs,hyperref}
+\usepackage{amsmath,amssymb,amsthm,graphicx,url,array,booktabs,hyperref,xcolor}
 \hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
 \newtheorem{theorem}{Theorem}
 \newtheorem{lemma}{Lemma}
@@ -151,7 +155,7 @@ PREAMBLES = {
 \maketitle
 """,
     "springer": r"""\documentclass[runningheads]{llncs}
-\usepackage{amsmath,amssymb,graphicx,url,array,booktabs,hyperref}
+\usepackage{amsmath,amssymb,graphicx,url,array,booktabs,hyperref,xcolor}
 \hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
 \begin{document}
 \title{%(title)s}
@@ -160,7 +164,7 @@ PREAMBLES = {
 \maketitle
 """,
     "plain": r"""\documentclass[11pt]{article}
-\usepackage{amsmath,amssymb,amsthm,graphicx,url,array,booktabs,geometry,hyperref}
+\usepackage{amsmath,amssymb,amsthm,graphicx,url,array,booktabs,geometry,hyperref,xcolor}
 \geometry{margin=1in}
 \hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
 \newtheorem{theorem}{Theorem}
@@ -283,10 +287,18 @@ def to_latex(md: str, title: str, template: Template = "ieee", author: str = "Au
 # ---------- Word ----------
 
 def _runs(par, text: str):
-    for part in re.split(r"(\*\*.+?\*\*|\*[^*]+\*|`[^`]+`|\$[^$]+\$)", text):
+    for part in re.split(r"(\*\*.+?\*\*|\+\+.+?\+\+|==.+?==|~~.+?~~|\^\S+?\^|\*[^*]+\*|`[^`]+`|\$[^$]+\$)", text):
         if not part:
             continue
-        if part.startswith("**"):
+        if part.startswith("++") and len(part) > 4:
+            par.add_run(part[2:-2]).underline = True
+        elif part.startswith("==") and len(part) > 4:
+            r = par.add_run(part[2:-2]); r.font.highlight_color = 7   # WD_COLOR_INDEX.YELLOW
+        elif part.startswith("~~") and len(part) > 4:
+            par.add_run(part[2:-2]).font.strike = True
+        elif part.startswith("^") and len(part) > 2:
+            par.add_run(part[1:-1]).font.superscript = True
+        elif part.startswith("**"):
             par.add_run(part[2:-2]).bold = True
         elif part.startswith("`") or part.startswith("$"):
             r = par.add_run(part.strip("`$")); r.font.name = "Consolas"

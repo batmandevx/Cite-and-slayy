@@ -84,11 +84,23 @@ def _clip(obj: Any, limit: int = 3500) -> str:
     return s if len(s) <= limit else s[:limit] + "…(truncated)"
 
 
-async def run_turn(chat_id: str, user_message: str, ctx) -> str:
+async def run_turn(chat_id: str, user_message: str, ctx, images: list[tuple[str, bytes]] | None = None) -> str:
     store = get_store()
     chat = store.get("agent_chat", chat_id) or {"chat_id": chat_id, "messages": [], "created_at": now().isoformat()}
-    chat["messages"].append({"role": "user", "content": user_message, "at": now().isoformat()})
+    chat["messages"].append({"role": "user", "content": user_message, "images": len(images or []), "at": now().isoformat()})
     store.put("agent_chat", chat_id, chat)
+    if images:
+        await ctx.update("tool_start", json.dumps({"id": "vision", "name": "read_images", "args": {"images": len(images)}, "slow": False}), None)
+        try:
+            seen = await llm.describe_images(images, user_message)
+            user_message = (f"{user_message}\n\n[The user attached {len(images)} image(s). A vision model read them as follows; "
+                            f"treat this as the image content]\n{seen[:6000]}")
+            await ctx.update("tool_done", json.dumps({"id": "vision", "name": "read_images", "status": "done",
+                                                      "summary": f"Read {len(images)} image(s): {seen[:140]}…"}), None)
+        except llm.LLMError as e:
+            await ctx.update("tool_done", json.dumps({"id": "vision", "name": "read_images", "status": "error",
+                                                      "summary": llm.scrub(str(e))[:160]}), None)
+            user_message += "\n\n[The user attached image(s), but they could not be read. Say so and ask them to describe it.]"
 
     async def event(kind: str, **payload):
         await ctx.update(kind, json.dumps(payload, default=str), None)

@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { ArrowLeft, BookOpen, Landmark, ScanSearch, Wand2, Wrench, Compass, FilePen, Gamepad2, Gavel, LayoutDashboard, NotebookPen, ShieldCheck, Zap } from "lucide-react";
+import { ArrowLeft, BookOpen, IndianRupee, Landmark, ScanSearch, Wand2, Wrench, Compass, FilePen, Gamepad2, Gavel, LayoutDashboard, NotebookPen, ShieldCheck, Zap } from "lucide-react";
 import Link from "next/link";
 import { AnimatePresence, motion, MotionConfig, useScroll, useSpring } from "motion/react";
 import { useEffect, useState } from "react";
@@ -17,9 +17,10 @@ import { PaperStudioTab } from "@/components/PaperStudioTab";
 import { PinBoard } from "@/components/PinBoard";
 import { Sidebar, useRailWidth } from "@/components/Sidebar";
 import { ToolboxTab } from "@/components/ToolboxTab";
+import { AdminPaymentsTab } from "@/components/AdminPaymentsTab";
 import { TurnitinTab } from "@/components/TurnitinTab";
 import { VenuesTab } from "@/components/VenuesTab";
-import { useAuth } from "@/components/auth/AuthProvider";
+import { useAuth, usePaid } from "@/components/auth/AuthProvider";
 import { AccountCard, UpgradeModal } from "@/components/billing/AccountWidgets";
 import { StudioWatcher } from "@/components/StudioWatcher";
 import { PlayTab } from "@/components/PlayTab";
@@ -29,11 +30,15 @@ import { Toaster } from "@/components/Toaster";
 import { ThemeProvider, ThemeToggle } from "@/components/theme";
 import { Badge } from "@/components/ui";
 import { VerdictTab } from "@/components/VerdictTab";
+import { LockedTab } from "@/components/billing/ProLock";
 import { API, api, usePersistent, writePersistent } from "@/lib/api";
 import type { Health } from "@/lib/types";
 
-type Tab = "home" | "studio" | "turnitin" | "venues" | "explore" | "draft" | "audit" | "verdict" | "notes" | "library" | "toolbox" | "play";
-const VALID_TABS = new Set<string>(["home", "studio", "turnitin", "venues", "explore", "draft", "audit", "verdict", "notes", "library", "toolbox", "play"]);
+type Tab = "home" | "studio" | "turnitin" | "venues" | "explore" | "draft" | "audit" | "verdict" | "notes" | "library" | "toolbox" | "play" | "admin";
+const VALID_TABS = new Set<string>(["home", "studio", "turnitin", "venues", "explore", "draft", "audit", "verdict", "notes", "library", "toolbox", "play", "admin"]);
+const ADMIN: { id: Tab; label: string; q: string; icon: typeof Compass; color: string; badge?: string }[] = [
+  { id: "admin", label: "Payments", q: "Approve UPI payments", icon: IndianRupee, color: "bg-yellow" },
+];
 const TABS: { id: Tab; n: number; label: string; q: string; icon: typeof Compass; color: string }[] = [
   { id: "explore", n: 1, label: "Explore gaps", q: "What should I research?", icon: Compass, color: "bg-lime" },
   { id: "draft", n: 2, label: "Draft", q: "AI drafts the paper", icon: FilePen, color: "bg-blue text-white" },
@@ -82,7 +87,11 @@ function StatusChips({ health, offline }: { health: Health | null; offline: bool
 
 function Dashboard() {
   const [tab, setTab] = usePersistent<Tab>("tab", "home");
-  const { me } = useAuth();
+  const { me, config: authCfg } = useAuth();
+  const authCfgRequired = !!authCfg?.auth_required;
+  const { paid } = usePaid();
+  const PRO_TABS = new Set<Tab>(["explore", "draft", "audit", "verdict", "venues", "turnitin"]);
+  const proBadges = <T extends { id: Tab; badge?: string }>(xs: T[]): T[] => (paid ? xs : xs.map((x) => (PRO_TABS.has(x.id) ? { ...x, badge: "🔒 pro" } : x)));
   const [savedName] = usePersistent<string>("displayName", "");
   const name = savedName || me?.name?.split(" ")[0] || "Ayush";
   const [auroraOpen, setAuroraOpen] = useState(() => new URLSearchParams(window.location.search).get("aurora") === "1");
@@ -139,7 +148,7 @@ function Dashboard() {
   }, [setTab]);
 
   const current = TABS.find((t) => t.id === safeTab);
-  const work = [...CREATE, ...WORK].find((t) => t.id === safeTab);
+  const work = [...CREATE, ...WORK, ...ADMIN].find((t) => t.id === safeTab);
   const sbw = useRailWidth();
 
   return (
@@ -150,9 +159,10 @@ function Dashboard() {
         {/* ---------- sidebar (desktop) ---------- */}
         <Sidebar tab={safeTab} go={(id) => go(id as Tab)} onSlay={() => setSlayOpen(true)} onAzora={() => setAuroraOpen(true)}
           groups={[
-            { id: "create", title: "Create & publish", items: CREATE },
-            { id: "pipeline", title: "The pipeline", items: TABS },
+            { id: "create", title: "Create & publish", items: proBadges(CREATE) },
+            { id: "pipeline", title: "The pipeline", items: proBadges(TABS) },
             { id: "workspace", title: "Workspace", items: WORK },
+            ...(me?.is_owner && authCfgRequired ? [{ id: "owner", title: "Owner", items: ADMIN }] : []),
           ]}
           footer={<><UpgradeNudge /><AccountCard /><StatusChips health={health} offline={offline} /></>} />
 
@@ -192,14 +202,14 @@ function Dashboard() {
               <motion.div key={safeTab} initial={{ opacity: 0, y: 22, rotate: -0.4 }} animate={{ opacity: 1, y: 0, rotate: 0 }}
                 exit={{ opacity: 0, y: -12 }} transition={{ type: "spring", stiffness: 260, damping: 26 }}>
                 {safeTab === "home" && <HomeTab onOpen={open} onSlay={() => setSlayOpen(true)} onAurora={() => setAuroraOpen(true)} />}
-                {safeTab === "explore" && <ExploreTab runId={gapRun} setRunId={setGapRun} onSendTopic={(q) => { setTopic(q); go("draft"); }} />}
-                {safeTab === "draft" && <DraftTab topic={topic} setTopic={setTopic} health={health}
-                  onAudit={(id) => { setDocumentId(id); setAuditId(null); setReviewId(null); go("audit"); }} />}
-                {safeTab === "audit" && <AuditTab documentId={documentId} setDocumentId={(id) => { setDocumentId(id); if (id !== documentId) { setAuditId(null); setReviewId(null); } }} auditId={auditId} setAuditId={setAuditId}
+                {safeTab === "explore" && <LockedTab feature="scans" title="Find the gap nobody has filled yet" perks={["Cluster thousands of real papers into a live map of your field", "See rising, saturated and under-explored topics with growth numbers", "Turn any gap into grounded research questions in one click"]}><ExploreTab runId={gapRun} setRunId={setGapRun} onSendTopic={(q) => { setTopic(q); go("draft"); }} /></LockedTab>}
+                {safeTab === "draft" && <LockedTab feature="drafts" title="Let the research agents draft it" perks={["Multi-agent drafting from real literature and real data", "Figures, tables and a full reference list", "Send it straight to audit and review"]}><DraftTab topic={topic} setTopic={setTopic} health={health}
+                  onAudit={(id) => { setDocumentId(id); setAuditId(null); setReviewId(null); go("audit"); }} /></LockedTab>}
+                {safeTab === "audit" && <LockedTab feature="audits" title="Catch citation problems before reviewers do" perks={["Every reference checked against OpenAlex and Crossref", "Retracted papers and mismatched claims flagged", "One-click fixes for overlap hotspots"]}><AuditTab documentId={documentId} setDocumentId={(id) => { setDocumentId(id); if (id !== documentId) { setAuditId(null); setReviewId(null); } }} auditId={auditId} setAuditId={setAuditId}
                   onVerdict={() => go("verdict")}
-                  onOriginality={(docId) => { setTurnitinTarget({ documentId: docId, paperId: null }); go("turnitin"); }} />}
-                {safeTab === "verdict" && <VerdictTab documentId={documentId} auditId={auditId} reviewId={reviewId} setReviewId={setReviewId}
-                  health={health} goAudit={() => go("audit")} />}
+                  onOriginality={(docId) => { setTurnitinTarget({ documentId: docId, paperId: null }); go("turnitin"); }} /></LockedTab>}
+                {safeTab === "verdict" && <LockedTab feature="reviews" title="Get the verdict before peer review" perks={["Four expert reviewer personas score your paper", "Accept / revise / reject call with reasons", "A prioritised fix list you can act on today"]}><VerdictTab documentId={documentId} auditId={auditId} reviewId={reviewId} setReviewId={setReviewId}
+                  health={health} goAudit={() => go("audit")} /></LockedTab>}
                 {safeTab === "studio" && (
                   <PaperStudioTab
                     onPlay={() => go("play")}
@@ -215,8 +225,9 @@ function Dashboard() {
                     onOpenStudio={(pid) => { setStudioPaper(pid); go("studio"); }}
                   />
                 )}
-                {safeTab === "venues" && <VenuesTab />}
+                {safeTab === "venues" && <LockedTab feature="venues" title="Find the right journal or conference" perks={["Ranked venues matched to your title and abstract", "Scope fit, open-access options and Microsoft CMT conferences", "Feeds straight into your submission kit"]}><VenuesTab /></LockedTab>}
                 {safeTab === "toolbox" && <ToolboxTab />}
+                {safeTab === "admin" && me?.is_owner && <AdminPaymentsTab />}
                 {safeTab === "notes" && <NotesTab />}
                 {safeTab === "library" && <LibraryTab />}
                 {safeTab === "play" && <PlayTab />}

@@ -38,10 +38,13 @@ def test_api_requires_login(prod):
 
 def test_session_cookie_is_tamper_proof(prod):
     from backend.accounts import auth
+    from backend.cache.store import get_store
+    get_store().put("user", "abc", {"uid": "abc", "email": "abc@x.org", "sess_ver": 0})
     tok = auth.session_token("abc")
     assert auth.uid_from_token(tok) == "abc"
-    uid, exp, sig = tok.split(".")
-    assert auth.uid_from_token(f"zzz.{exp}.{sig}") is None
+    uid, ver, exp, sig = tok.split(".")
+    assert auth.uid_from_token(f"zzz.{ver}.{exp}.{sig}") is None
+    assert auth.uid_from_token(f"abc.{ver}.{int(exp) + 5}.{sig}") is None
 
 
 def test_magic_link_is_single_use_and_user_starts_free(prod):
@@ -178,3 +181,131 @@ def test_paid_only_originality_gate_and_dev_owner_bypass(prod, monkeypatch):
     me_unlocked = free_c.get("/api/auth/me").json()
     assert me_unlocked["is_owner"] is True and me_unlocked["is_paid"] is True
 
+
+
+def test_upi_claim_needs_login_and_owner_approval(prod, monkeypatch):
+    monkeypatch.setenv("OWNER_EMAILS", "boss@x.org")
+    get_settings.cache_clear()
+    anon = TestClient(prod)
+    assert anon.post("/api/billing/upi-claim", json={"item": "pro", "utr": "123456789012"}).status_code == 401
+    cust = login(prod, "cust@x.org")
+    r = cust.post("/api/billing/upi-claim", json={"item": "pro", "utr": "123456789012"})
+    assert r.status_code == 200 and r.json()["status"] == "pending_verification"
+    assert cust.post("/api/billing/upi-claim", json={"item": "pro", "utr": "123456789012"}).status_code == 409   # UTR reuse
+    assert cust.get("/api/admin/upi-claims").status_code == 403
+    boss = login(prod, "boss@x.org")
+    claims = boss.get("/api/admin/upi-claims").json()
+    assert len(claims) == 1
+    assert boss.post(f"/api/admin/upi-claims/{claims[0]['claim_id']}/approve", json={}).status_code == 200
+    me = cust.get("/api/auth/me").json()
+    assert me["plan"] == "pro" and me["renews_at"]
+
+
+def test_manual_plan_lapses_after_expiry(prod):
+    from backend.accounts.plans import plan_of
+    assert plan_of({"plan": "pro", "plan_expires": "2020-01-01T00:00:00+00:00"})["name"] == "Free"
+    assert plan_of({"plan": "pro", "plan_expires": "2999-01-01T00:00:00+00:00"})["name"] == "Pro"
+
+
+
+def test_password_signup_login_and_protections(prod):
+    c = TestClient(prod)
+    assert c.post("/api/auth/register", json={"email": "pw@x.org", "password": "short"}).status_code == 400
+    assert c.post("/api/auth/register", json={"email": "pw@x.org", "password": "password1"}).status_code == 400
+    r = c.post("/api/auth/register", json={"email": "PW@x.org", "password": "Research2026", "name": "Pat"})
+    assert r.status_code == 200 and c.get("/api/auth/me").json()["email"] == "pw@x.org"
+    assert TestClient(prod).post("/api/auth/register", json={"email": "pw@x.org", "password": "Another123"}).status_code == 409
+    other = TestClient(prod)
+    assert other.post("/api/auth/login", json={"email": "pw@x.org", "password": "Wrong12345"}).status_code == 401
+    assert other.post("/api/auth/login", json={"email": "pw@x.org", "password": "Research2026"}).status_code == 200
+    # changing the password keeps this browser signed in and revokes the other session
+    assert c.post("/api/account/password", json={"current": "Research2026", "new": "Brand2027new"}).status_code == 200
+    assert c.get("/api/auth/me").status_code == 200 and other.get("/api/auth/me").status_code == 401
+    from backend.accounts import auth
+    from backend.cache.store import get_store
+    stored = auth.get_user(get_store().get("user_email", "pw@x.org")["uid"])["password_hash"]
+    assert stored.startswith("scrypt$") and "Brand2027new" not in stored
+
+
+def test_login_is_rate_limited(prod):
+    c = TestClient(prod)
+    c.post("/api/auth/register", json={"email": "rl@x.org", "password": "Research2026"})
+    codes = [TestClient(prod).post("/api/auth/login", json={"email": "rl@x.org", "password": "Nope12345"}).status_code for _ in range(7)]
+    assert codes[:6] == [401] * 6 and codes[6] == 429
+
+
+def test_password_account_with_owner_email_is_not_owner(prod, monkeypatch):
+    monkeypatch.setenv("OWNER_EMAILS", "chief@x.org")
+    get_settings.cache_clear()
+    c = TestClient(prod)
+    c.post("/api/auth/register", json={"email": "chief@x.org", "password": "Research2026"})
+    me = c.get("/api/auth/me").json()
+    assert me["is_owner"] is False and me["plan"] == "free"
+    assert TestClient(prod).post("/api/auth/register", json={"email": "cust@x.org", "password": "Research2026"}).status_code in (200, 409)
+
+
+def test_free_plan_cannot_download_or_use_paid_tools(prod):
+    import base64
+    free = login(prod, "freebie@x.org")
+    doc = {"title": "T", "markdown": "# Intro\n\nHello ++world++ ==hi==.", "template": "ieee"}
+    for path in ("/api/export/docx", "/api/export/latex", "/api/export/latex-zip"):
+        r = free.post(path, json=doc)
+        assert r.status_code == 402 and r.json()["detail"]["code"] == "paid_only"
+    png = "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 20).decode()
+    r = free.post("/api/agent/chat", json={"message": "what is this?", "images": [png]})
+    assert r.status_code == 402 and r.json()["detail"]["feature"] == "vision"
+    from backend.accounts import auth
+    from backend.cache.store import get_store
+    uid = get_store().get("user_email", "freebie@x.org")["uid"]
+    u = auth.get_user(uid); u["plan"] = "pro"; get_store().put("user", uid, u)
+    r = free.post("/api/export/latex", json=doc)
+    assert r.status_code == 200 and "\\underline{world}" in r.text and "\\colorbox{yellow}{hi}" in r.text
+
+
+def test_note_images_are_private_and_exported(prod):
+    import io
+    from PIL import Image
+    buf = io.BytesIO(); Image.new("RGB", (4, 4), "red").save(buf, "PNG")
+    a, b = login(prod, "imga@x.org"), login(prod, "imgb@x.org")
+    r = a.post("/api/workspace/images", files={"file": ("x.png", buf.getvalue(), "image/png")})
+    assert r.status_code == 200
+    url = r.json()["url"]
+    assert a.get(url).status_code == 200 and a.get(url).content.startswith(b"\x89PNG")
+    assert b.get(url).status_code == 404
+    assert a.post("/api/workspace/images", files={"file": ("x.svg", b"<svg/>", "image/svg+xml")}).status_code == 400
+
+
+def test_deck_template_catalog(prod):
+    c = login(prod, "decks@x.org")
+    d = c.get("/api/deck-templates?category=thesis-defense").json()
+    assert d["total"] > 10 and all(t["category"] == "thesis-defense" for t in d["items"])
+    assert "CC BY 4.0" in d["credit"] and all(t["pptx_url"].startswith("https://cdn.ppttemplate.ai/") for t in d["items"])
+
+
+def test_free_plan_sees_only_paper_preview(prod):
+    from backend.cache.store import get_store
+    c = login(prod, "peek@x.org")
+    uid = get_store().get("user_email", "peek@x.org")["uid"]
+    md = "# Abstract\n\n" + "a " * 300 + "\n\n# Introduction\n\n" + "b " * 400 + "\n\n# Method\n\n" + "c " * 900 + "\n\n# Conclusion\n\n" + "d " * 600
+    refs = [{"n": i, "title": f"R{i}", "year": 2020} for i in range(1, 21)]
+    get_store().put("paper_studio", "feedbeef01", {"paper_id": "feedbeef01", "title": "T", "markdown": md, "references": refs, "keywords": []})
+    get_store().set_owner("paper_studio", "feedbeef01", uid)
+    p = c.get("/api/paper-studio/feedbeef01").json()
+    assert p["locked"] and "# Method" not in p["markdown"] and len(p["references"]) == 6 and p["references_total"] == 20
+    u = get_store().get("user", uid); u["plan"] = "max"; get_store().put("user", uid, u)
+    p = c.get("/api/paper-studio/feedbeef01").json()
+    assert not p.get("locked") and "# Conclusion" in p["markdown"] and len(p["references"]) == 20
+
+
+def test_free_plan_is_a_teaser(prod):
+    c = login(prod, "teaser@x.org")
+    me = c.get("/api/auth/me").json()
+    assert me["limits"]["chats_day"] == 3 and me["limits"]["audits"] == 0 and me["limits"]["papers"] == 1
+    for path, body in [("/api/venues/find", {"title": "Graph neural networks for traffic"}),
+                       ("/api/gap-radar/runs", {"query": "graph neural networks"}),
+                       ("/api/paper-studio/x/revise", {"instruction": "shorter"})]:
+        r = c.post(path, json=body)
+        assert r.status_code in (402, 404, 422), (path, r.status_code)
+        if r.status_code == 402:
+            assert r.json()["detail"]["code"] == "paid_only"
+    assert c.post("/api/venues/find", json={"title": "x"}).status_code == 402

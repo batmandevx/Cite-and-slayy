@@ -40,14 +40,15 @@ def is_owner(user: dict | None) -> bool:
         return False
     if not get_settings().auth_required or user.get("uid") == "local" or user.get("is_owner"):
         return True
-    return (user.get("email") or "").strip().lower() in owner_emails()
+    verified = user.get("email_verified", user.get("provider") in ("google", "email"))
+    return bool(verified) and (user.get("email") or "").strip().lower() in owner_emails()
 
 
 def is_paid(user: dict | None) -> bool:
     """True for Dev Owner, Pro, Max, or any user with an active Paper Pack."""
     if not user:
         return False
-    return is_owner(user) or user.get("plan") in ("pro", "max") or bool(bonus(user))
+    return is_owner(user) or plan_of(user)["engine"] == "premium" or bool(bonus(user))
 
 
 def require_paid(user: dict, feature: str) -> None:
@@ -88,18 +89,120 @@ def _sign(msg: str) -> str:
 
 
 def session_token(uid: str) -> str:
+    """`uid.version.expiry.hmac`. Bumping the user's session version (password change, sign out everywhere) revokes all."""
     exp = int(time.time()) + SESSION_DAYS * 86400
-    return f"{uid}.{exp}.{_sign(f'{uid}.{exp}')}"
+    ver = int((get_user(uid) or {}).get("sess_ver", 0))
+    return f"{uid}.{ver}.{exp}.{_sign(f'{uid}.{ver}.{exp}')}"
 
 
 def uid_from_token(tok: str | None) -> str | None:
     try:
-        uid, exp, sig = (tok or "").split(".")
+        uid, ver, exp, sig = (tok or "").split(".")
+        if int(exp) < time.time() or not hmac.compare_digest(sig, _sign(f"{uid}.{ver}.{exp}")):
+            return None
     except ValueError:
         return None
-    if int(exp) < time.time() or not hmac.compare_digest(sig, _sign(f"{uid}.{exp}")):
+    user = get_user(uid)
+    if not user or int(user.get("sess_ver", 0)) != int(ver) or user.get("disabled"):
         return None
     return uid
+
+
+# ---------- email + password ----------
+
+_COMMON = {"password", "password1", "12345678", "123456789", "qwerty123", "iloveyou", "11111111", "abc12345", "letmein1", "welcome1"}
+
+
+def password_problem(pw: str, email: str = "") -> str | None:
+    if len(pw) < 8:
+        return "Use at least 8 characters."
+    if len(pw) > 128:
+        return "Use at most 128 characters."
+    if not (any(c.isalpha() for c in pw) and any(c.isdigit() for c in pw)):
+        return "Use both letters and numbers."
+    if pw.lower() in _COMMON or (email and pw.lower() == email.split("@")[0].lower()):
+        return "That password is too easy to guess."
+    return None
+
+
+def hash_password(pw: str) -> str:
+    salt = secrets.token_bytes(16)
+    dk = hashlib.scrypt(pw.encode(), salt=salt, n=2 ** 14, r=8, p=1, dklen=32)
+    return "scrypt$16384$8$1$" + salt.hex() + "$" + dk.hex()
+
+
+def verify_password(pw: str, stored: str | None) -> bool:
+    try:
+        _, n, r, p, salt, dk = (stored or "").split("$")
+        got = hashlib.scrypt(pw.encode(), salt=bytes.fromhex(salt), n=int(n), r=int(r), p=int(p), dklen=len(dk) // 2)
+        return hmac.compare_digest(got.hex(), dk)
+    except (ValueError, TypeError):
+        hashlib.scrypt(b"x", salt=b"0" * 16, n=2 ** 14, r=8, p=1, dklen=32)   # equal work for unknown users
+        return False
+
+
+def _limit(key: str, max_hits: int, window: int) -> None:
+    store = get_store()
+    hits = [t for t in (store.get("rate", key) or {}).get("ts", []) if t > time.time() - window]
+    if len(hits) >= max_hits:
+        raise HTTPException(429, f"Too many attempts. Try again in {max(1, window // 60)} minutes.")
+    store.put("rate", key, {"ts": hits + [time.time()]})
+
+
+def _clear_limit(key: str) -> None:
+    get_store().put("rate", key, {"ts": []})
+
+
+def register(email: str, name: str, password: str, ip: str) -> dict:
+    email = (email or "").strip().lower()
+    if "@" not in email or "." not in email.split("@")[-1] or len(email) > 200:
+        raise HTTPException(400, "Enter a valid email address.")
+    if (prob := password_problem(password, email)):
+        raise HTTPException(400, prob)
+    _limit(f"register-ip:{ip}", 10, 3600)
+    store = get_store()
+    if store.get("user_email", email):
+        # never attach a password to an existing account (prevents takeover of Google / email-link accounts)
+        raise HTTPException(409, "An account with this email already exists. Sign in instead.")
+    user = {"uid": uuid.uuid4().hex[:16], "email": email, "name": (name or "").strip()[:80] or email.split("@")[0], "picture": None,
+            "plan": "free", "is_owner": False, "provider": "password", "email_verified": False,
+            "password_hash": hash_password(password), "sess_ver": 0, "created_at": now().isoformat(), "last_login": now().isoformat()}
+    store.put("user_email", email, {"uid": user["uid"]})
+    store.put("user", user["uid"], user)
+    return user
+
+
+def login_password(email: str, password: str, ip: str) -> dict:
+    email = (email or "").strip().lower()
+    _limit(f"login-ip:{ip}", 30, 900)
+    _limit(f"login-email:{email}", 6, 900)
+    idx = get_store().get("user_email", email)
+    user = get_user(idx["uid"]) if idx else None
+    if not user or not verify_password(password, user.get("password_hash")) or user.get("disabled"):
+        if user and not user.get("password_hash"):
+            raise HTTPException(401, "This account uses Google or an email link. Use that to sign in.")
+        raise HTTPException(401, "Email or password is incorrect.")
+    _clear_limit(f"login-email:{email}")
+    user["last_login"] = now().isoformat()
+    get_store().put("user", user["uid"], user)
+    return user
+
+
+def change_password(user: dict, current: str, new: str) -> dict:
+    if user.get("password_hash") and not verify_password(current, user["password_hash"]):
+        raise HTTPException(401, "Current password is incorrect.")
+    if (prob := password_problem(new, user.get("email", ""))):
+        raise HTTPException(400, prob)
+    user["password_hash"] = hash_password(new)
+    user["sess_ver"] = int(user.get("sess_ver", 0)) + 1      # sign out every other session
+    get_store().put("user", user["uid"], user)
+    return user
+
+
+def revoke_sessions(user: dict) -> dict:
+    user["sess_ver"] = int(user.get("sess_ver", 0)) + 1
+    get_store().put("user", user["uid"], user)
+    return user
 
 
 def set_session(resp: Response, uid: str) -> None:
@@ -121,10 +224,12 @@ def upsert_user(email: str, name: str | None = None, picture: str | None = None,
     if not user:
         is_own = email in owner_emails()
         user = {"uid": uuid.uuid4().hex[:16], "email": email, "name": name or email.split("@")[0], "picture": picture,
-                "plan": "max" if is_own else "free", "is_owner": is_own, "provider": provider, "created_at": now().isoformat()}
+                "plan": "max" if is_own else "free", "is_owner": is_own, "provider": provider, "email_verified": True,
+                "sess_ver": 0, "created_at": now().isoformat()}
         store.put("user_email", email, {"uid": user["uid"]})
     else:
         user.update({k: v for k, v in {"name": name, "picture": picture}.items() if v})
+        user["email_verified"] = True            # Google / email link prove ownership of the address
         if email in owner_emails():
             user["is_owner"] = True
             user["plan"] = "max"

@@ -361,7 +361,7 @@ async def write_paper(topic: str, angle: str = "", template: str = "ieee", emit=
     set_premium(is_premium(user))
     req = studio.StudioRequest(topic=str(topic)[:300], angle=str(angle or "")[:1500],
                                template=template if template in ("ieee", "springer", "plain") else "ieee",
-                               author=user.get("name") or "", max_refs=30 if user.get("plan") == "max" else 20)
+                               author=user.get("name") or "", max_refs=40 if user.get("plan") == "max" else 32)
     pid = await studio.run(req, _StudioCtx(emit))
     _own("paper_studio", pid)
     p = get_store().get("paper_studio", pid) or {}

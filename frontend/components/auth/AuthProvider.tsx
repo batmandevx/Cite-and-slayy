@@ -65,3 +65,23 @@ export function useAuth() {
   if (!c) throw new Error("useAuth outside AuthProvider");
   return c;
 }
+
+const PAID_LABEL: Record<string, string> = {
+  exports: "Word, LaTeX & PDF downloads", decks: "presentation slides", vision: "image understanding in Azora AI", kits: "submission kits",
+  integrity_scans: "AI & plagiarism reports", humanize_fixes: "AI & plagiarism reducer", reviews: "reviewer verdicts", fixes: "originality fixes",
+  drafts: "drafting runs", latex: "the live LaTeX / Overleaf view",
+};
+
+/** Paid features: `paid` is true for Pro, Max, Paper Pack and the owner (and everyone when login is off). `gate()` opens the upgrade screen. */
+export function usePaid() {
+  const { me, config, openUpgrade } = useAuth();
+  const paid = !config?.auth_required || Boolean(me?.is_paid || me?.is_owner);
+  const gate = (feature: string): boolean => {
+    if (paid) return true;
+    const label = PAID_LABEL[feature] ?? feature;
+    openUpgrade({ code: "paid_only", feature, label, limit: 0, plan: me?.plan ?? "free",
+      message: `${label[0].toUpperCase() + label.slice(1)} ${label.endsWith("s") && !label.endsWith("ss") ? "are" : "is"} included with Pro, Max and the Paper Pack.` });
+    return false;
+  };
+  return { paid, gate };
+}

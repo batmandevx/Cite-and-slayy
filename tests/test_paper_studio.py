@@ -222,3 +222,37 @@ def test_turnitin_scanner_verbatim_and_ai_stylometric_signals():
     assert scored["ai_pct"] > 30
     assert scored["cliche_count"] >= 3
 
+
+
+def test_tables_with_unmeasured_numbers_are_removed_but_plans_kept():
+    from backend.paper_studio.studio import strip_unmeasured_tables
+    md = ("Table: Posterior evolution in a synthetic scenario\n\n| t | a | b |\n|---|---|---|\n| 25 | 8.47 | 0.236 |\n| 50 | 2.31 | 1.203 |\n\n"
+          "Table: Planned benchmark comparison\n| Method | AUC |\n|---|---|\n| Ours | to be measured |\n\n"
+          "Table: Summary of mathematical notation\n| Symbol | Meaning |\n|---|---|\n| x | 12.5 |\n")
+    out, n = strip_unmeasured_tables(md, allowed={"12"})
+    assert n == 1 and "synthetic" not in out and "Planned benchmark" in out and "notation" in out
+
+
+def test_deck_data_comes_from_the_paper():
+    from backend.paper_studio.deck import extract_data
+    md = ("# Proposed Method\n\nFigure: Architecture of the proposed framework\n```mermaid\nflowchart LR\n  subgraph S\n  A[Input<br>data] --> B{Gate}\n  B --> C[Model]\n  end\n```\n\n"
+          "Table: Annual OpenAlex publication counts matching each phrase\n| Year | foo |\n|---|---|\n| 2023 | 5 |\n| 2024 | 9 |\n")
+    d = extract_data({"markdown": md, "references": [{"n": 1, "title": "T", "year": 2024, "cited_by": 7}], "words": 10})
+    assert [n["label"] for n in d["architecture"]["nodes"]] == ["Input data", "Gate", "Model"]
+    assert d["architecture"]["nodes"][1]["decision"] and d["trend"]["series"][0]["values"] == [5, 9]
+    assert d["stats"]["references"] == 1 and d["ref_years"] == {"labels": ["2024"], "values": [1]}
+
+
+def test_palette_from_template_cover_is_readable():
+    import io
+    from PIL import Image, ImageDraw
+    from backend.paper_studio.palette import _contrast, palette_from_image
+    im = Image.new("RGB", (400, 225), (248, 243, 238))
+    d = ImageDraw.Draw(im)
+    d.rectangle((0, 0, 120, 225), fill=(21, 13, 44))        # navy band
+    d.ellipse((200, 40, 330, 170), fill=(226, 54, 33))      # red accent
+    buf = io.BytesIO(); im.save(buf, "JPEG")
+    p = palette_from_image(buf.getvalue())
+    rgb = lambda h: tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+    assert p["ink"].startswith(("1", "0", "2")) and rgb(p["accent"])[0] > 180
+    assert _contrast(rgb(p["accent"]), (255, 255, 255)) >= 3.2 and _contrast(rgb(p["ink"]), (255, 255, 255)) >= 10

@@ -3,12 +3,13 @@
 import clsx from "clsx";
 import {
   BadgeCheck, BookMarked, CheckCircle2, Download, ExternalLink, FileText, FileType2, Gamepad2, Loader2, NotebookPen,
-  FileUp, Lightbulb, Printer, RotateCcw, ShieldCheck, Sparkles, Wand2,
+  FileUp, Lightbulb, Presentation, Printer, RotateCcw, ShieldCheck, Sparkles, Wand2,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, toast, usePersistent, apiFetch, jobEvents } from "@/lib/api";
 import { exportPaper, printPdf } from "@/lib/paperExport";
+import { downloadDeck, type DeckTheme } from "@/lib/deck";
 import type { Job, JobEvent } from "@/lib/types";
 import { Confetti } from "./Confetti";
 import { StudioDemoPapers } from "./DemoPapersShowcase";
@@ -17,12 +18,15 @@ import { ReviseChat } from "./studio/ReviseChat";
 import { SubmissionKit, type Kit } from "./studio/SubmissionKit";
 import { VenueFinder } from "./studio/VenueFinder";
 import { Button, Card, Select } from "./ui";
+import { usePaid } from "./auth/AuthProvider";
+import { ProChip, UnlockPanel } from "./billing/ProLock";
+import { DeckThemePicker } from "./studio/DeckThemePicker";
 
 interface StudioPaper {
   paper_id: string; title: string; topic: string; markdown: string; highlights: string[]; summary: string; keywords: string[];
   research_question: string; contributions: string[]; words: number; template: string; author: string; affiliation: string;
   references: { n: number; title: string; year?: number; doi?: string; url?: string; venue?: string; cited_by?: number }[];
-  history?: { at: string; instruction: string }[]; revisable?: boolean; seeded?: string[]; last_change?: string; kit?: Kit | null;
+  history?: { at: string; instruction: string }[]; revisable?: boolean; seeded?: string[]; last_change?: string; kit?: Kit | null; locked?: boolean; locked_sections?: number; references_total?: number;
   report: {
     references: number; candidates: number; retraction_checked: number; retracted_excluded: { title: string; doi?: string }[];
     invalid_citations_removed: number; claims_checked: number; claims_supported: number; claims_unsupported: number;
@@ -292,6 +296,8 @@ export function PaperStudioTab({
   const [party, setParty] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const preview = useRef<HTMLDivElement>(null);
+  const { paid, gate } = usePaid();
+  const [deckTheme, setDeckTheme] = usePersistent<string | DeckTheme>("deckTheme", "aurora");
 
   const job = useStudioJob((pid) => { setPaperId(pid); setParty((n) => n + 1); toast({ title: "Your paper is ready 🎉", tone: "good" }); });
   useEffect(() => { api.get<typeof history>("/api/paper-studio").then(setHistory).catch(() => {}); }, [paperId]);
@@ -305,7 +311,10 @@ export function PaperStudioTab({
   const shown = paperId ? paper : null;
 
   const doc = () => ({ title: shown!.title, markdown: shown!.markdown, template, author, affiliation: affil });
-  const run = async (label: string, fn: () => Promise<void> | void) => { setBusy(label); try { await fn(); } finally { setBusy(null); } };
+  const run = async (label: string, fn: () => Promise<void> | void, feature?: string) => {
+    if (feature && !gate(feature)) return;
+    setBusy(label); try { await fn(); } finally { setBusy(null); }
+  };
   const toNotes = async () => {
     if (!shown) return;
     const cur = await api.get<{ items: unknown[] }>("/api/workspace/pages");
@@ -402,10 +411,19 @@ export function PaperStudioTab({
                 </div>
               </div>
               <div className="flex flex-wrap gap-2 px-5 py-3">
-                <Button variant="primary" loading={busy === "pdf"} onClick={() => preview.current && printPdf(shown.title, [author, affil].filter(Boolean).join(" · "), preview.current.innerHTML, template)}><Printer className="size-4" />PDF</Button>
-                <Button loading={busy === "docx"} onClick={() => run("docx", () => exportPaper("docx", doc()))}><FileType2 className="size-4" />Word</Button>
-                <Button loading={busy === "zip"} onClick={() => run("zip", () => exportPaper("latex-zip", doc()))}><Download className="size-4" />LaTeX (.zip)</Button>
-                <Button variant="lime" onClick={() => run("notes", toNotes)}><NotebookPen className="size-4" />Edit in Notes</Button>
+                <Button variant="primary" loading={busy === "pdf"} onClick={() => run("pdf", () => { if (preview.current) printPdf(shown.title, [author, affil].filter(Boolean).join(" · "), preview.current.innerHTML, template); }, "exports")}><Printer className="size-4" />PDF{!paid && <ProChip />}</Button>
+                <Button loading={busy === "docx"} onClick={() => run("docx", () => exportPaper("docx", doc()), "exports")}><FileType2 className="size-4" />Word{!paid && <ProChip />}</Button>
+                <Button loading={busy === "zip"} onClick={() => run("zip", () => exportPaper("latex-zip", doc()), "exports")}><Download className="size-4" />LaTeX (.zip){!paid && <ProChip />}</Button>
+                <div className="inline-flex items-stretch">
+                  <Button variant="lime" className="rounded-r-none" loading={busy === "deck"} onClick={() => run("deck", async () => {
+                    try {
+                      await downloadDeck(shown.paper_id, author, affil, apiFetch, shown.title.replace(/[^a-z0-9]+/gi, "-").slice(0, 50), deckTheme);
+                      toast({ title: "Presentation downloaded 🎤", body: "16 slides with native charts, diagrams and speaker notes.", tone: "good" });
+                    } catch (e) { toast({ title: "Couldn't build the presentation", body: (e as Error).message, tone: "crit" }); }
+                  }, "decks")}><Presentation className="size-4" />Slides (.pptx){!paid && <ProChip />}</Button>
+                  <DeckThemePicker value={deckTheme} onChange={setDeckTheme} />
+                </div>
+                <Button variant="lime" onClick={() => run("notes", toNotes, "exports")}><NotebookPen className="size-4" />Edit in Notes{!paid && <ProChip />}</Button>
                 {onOriginality && <Button variant="blue" onClick={() => onOriginality(shown.paper_id)}><Sparkles className="size-4" />AI &amp; Plag Report</Button>}
                 <Button variant="blue" onClick={onAudit}><ShieldCheck className="size-4" />Audit a PDF</Button>
                 <Button variant="ghost" className="ml-auto" onClick={() => setPaperId(null)}><RotateCcw className="size-4" />New paper</Button>
@@ -438,6 +456,16 @@ export function PaperStudioTab({
                   <p className="mb-6 text-center font-serif italic text-[#555]">{[author, affil].filter(Boolean).join(" · ")}</p>
                   <RichMarkdown>{shown.markdown}</RichMarkdown>
                 </div>
+                {shown.locked && (
+                  <div className="relative -mt-40 bg-[linear-gradient(to_bottom,transparent,white_35%)] px-4 pb-8 pt-40">
+                    <UnlockPanel feature="exports" className="mx-auto max-w-xl text-ink"
+                      title={`${shown.locked_sections ?? "The remaining"} more section${shown.locked_sections === 1 ? "" : "s"} of your paper are ready`}
+                      perks={[`Read all ${shown.words.toLocaleString()} words and all ${shown.references_total ?? shown.references.length} verified references`,
+                        "Download Word, LaTeX (.zip with figures) and PDF, or open in Overleaf",
+                        "Turn it into a 16-slide presentation in 6 designer themes",
+                        "Revise it by chat, run AI & plagiarism reports, get a submission kit"]} />
+                  </div>
+                )}
               </Card>
               <Card className="h-fit p-4 xl:sticky xl:top-6">
                 <div className="mb-2 flex items-center gap-2 font-display font-extrabold"><BookMarked className="size-4" />References</div>

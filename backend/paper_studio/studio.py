@@ -49,7 +49,7 @@ from backend.paper_studio import figures
 from backend.sources import openalex
 from backend.sources.http import SourceError
 
-N_REFS = 26
+N_REFS = 32
 FIG_URL = "/api/paper-studio/{pid}/fig/{name}.png"
 
 DESIGN_SECTIONS = {
@@ -341,6 +341,29 @@ async def ensure_workflow_diagram(md: str) -> str:
     return md[: m.end(1)].rstrip() + "\n" + block + md[m.end(1):]
 
 
+_TABLE_OK = re.compile(r"notation|complexity|position|planned|ablation|per year|publication count|key works|representative|"
+                       r"failure|mitigation|hypothes|assumption|dataset|baseline|metric|qualitative|comparison of|symbol", re.I)
+
+
+def strip_unmeasured_tables(md: str, allowed: set[str]) -> tuple[str, int]:
+    """Remove tables that report numbers nobody measured (e.g. 'results' of an experiment that was never run).
+    Planned-evaluation, notation, complexity, positioning and bibliometric tables are kept."""
+    removed = 0
+    pat = re.compile(r"(?m)^Table:[^\n]*\n(?:[ \t]*\n)?(?:[ \t]*\|.*\|[ \t]*\n?)+")
+    for m in reversed(list(pat.finditer(md))):
+        block = m.group(0)
+        caption = block.split("\n", 1)[0]
+        if _TABLE_OK.search(caption) or "to be measured" in block.lower():
+            continue
+        cells = [c.strip() for ln in block.splitlines()[1:] if ln.strip().startswith("|") for c in ln.strip().strip("|").split("|")]
+        nums = [n.replace(",", "") for c in cells for n in re.findall(r"(?<![\w$\\])\d+(?:[.,]\d+)?", re.sub(r"\$[^$]*\$", "", c))]
+        bad = [n for n in nums if n not in allowed and not (len(n) == 4 and n.startswith(("19", "20"))) and not (n.isdigit() and int(n) <= 10)]
+        if len(bad) >= 3:
+            md = md[: m.start()] + md[m.end():]
+            removed += 1
+    return md, removed
+
+
 def _paragraphs(md: str) -> list[tuple[int, int, str]]:
     """Prose paragraphs (start, end, text) outside code fences, tables, headings, lists, math, figures, blockquotes."""
     out, pos, fence = [], 0, False
@@ -468,7 +491,7 @@ async def run(req: StudioRequest, ctx) -> str:
     for q in queries:
         await say("scout", "run", f"Searching OpenAlex: “{q}”", 0.05)
         try:
-            f = await openalex.related_works(q, per_page=30)
+            f = await openalex.related_works(q, per_page=45)
         except SourceError:
             continue
         for w in (f.data or {}).get("results", []):
@@ -603,10 +626,28 @@ async def run(req: StudioRequest, ctx) -> str:
             "You are a senior IEEE Transactions / IEEE Access author drafting one section of a flagship research monograph.\n" + RULES,
             f"{core}\n\nREFERENCES:\n{_ref_listing(refs, ids or None)}\n\nSECTION: # {heading}\n"
             f"ARCHITECT BRIEF: {b.brief if b else ''}\nSECTION REQUIREMENTS: {task}\n"
-            "Target length: 650–950 words of substantive, non-repetitive technical prose, equations, and structured tables/diagrams.",
-            effort="medium", max_tokens=6500)
+            "Target length: 1,200–1,600 words of substantive, non-repetitive technical prose, equations, and structured "
+            "tables/diagrams. Depth over breadth: explain mechanisms, give worked examples, and discuss edge cases.",
+            effort="medium", max_tokens=8000)
         text = text.strip()
         text = re.sub(r"^```(?:markdown)?\n|\n```$", "", text)
+        if len(text.split()) < 1000 and key != "analysis":   # models undershoot length targets: one deepening pass
+            await say(f"writer:{key}", "run", f"Deepening {heading} ({len(text.split())} words)…")
+            try:
+                deeper = await llm.complete(
+                    "You are a senior IEEE journal author deepening one section of a research monograph.\n" + RULES,
+                    f"{core}\n\nREFERENCES:\n{_ref_listing(refs, ids or None)}\n\nCURRENT SECTION:\n{text}\n\n"
+                    "Rewrite this section to about 1,400 words. Keep EVERY existing table, equation, diagram, token line ([[...]]), "
+                    "algorithm block and citation. Add depth: intuition behind each equation, a worked example, edge cases, "
+                    "design trade-offs and links to the cited work. No new numbers, results or references. "
+                    "Return the complete section starting with its level-1 heading.",
+                    effort="medium", max_tokens=8000)
+                deeper = re.sub(r"^```(?:markdown)?\n|\n```$", "", deeper.strip())
+                kept = all(t in deeper for t in re.findall(r"\[\[[A-Z]+:[a-z]+\]\]", text)) and deeper.count("```mermaid") >= text.count("```mermaid")
+                if len(deeper.split()) > len(text.split()) * 1.15 and kept:
+                    text = deeper
+            except llm.LLMError:
+                pass
         if not text.lstrip().startswith("# "):
             text = f"# {heading}\n\n{text}"
         text = normalize_section(text, heading)
@@ -670,6 +711,9 @@ async def run(req: StudioRequest, ctx) -> str:
         except llm.LLMError:
             judged = {}
     allowed = _allowed_numbers(facts_txt, *(p.abstract or "" for p in refs))
+    body, fabricated_tables = strip_unmeasured_tables(body, allowed)
+    if fabricated_tables:
+        await say("verifier", "run", f"Removed {fabricated_tables} table(s) with numbers that were never measured")
     design = {k for k, (st, _, _) in enumerate(paras) if _section_of(body, st) in DESIGN_SECTIONS}
     unmeasured = 0
     for k, (_, _, t) in enumerate(paras):
@@ -805,7 +849,7 @@ async def run(req: StudioRequest, ctx) -> str:
         "paragraphs_flagged": len(flags), "diagrams_repaired": diagrams_repaired, "diagrams_removed": diagrams_removed,
         "equations_repaired": math_fixed, "equations_still_invalid": max(0, len(bad_math) - math_fixed),
         "unmeasured_claims_found": unmeasured + len(abs_issues),
-        "unmeasured_claims_remaining": remaining, "paragraphs_revised": revised, "verbatim_paragraphs_after": copied_after,
+        "unmeasured_claims_remaining": remaining, "paragraphs_revised": revised, "verbatim_paragraphs_after": copied_after, "unmeasured_tables_removed": fabricated_tables,
         "tortured_phrases": [h.phrase for h in phrase_hits], "uncited_refs_dropped": len(refs) - len(cited_refs),
     }
     result = {
@@ -1027,6 +1071,7 @@ async def revise(pid: str, instruction: str, ctx) -> str:
     md = _sanitize_mermaid(md)
     md, _, _ = await fix_diagrams(md)
     allowed = _allowed_numbers(facts, *(p.abstract or "" for p in refs))
+    md, _ = strip_unmeasured_tables(md, allowed)
     issues = 0
     for st, en, t in reversed(_paragraphs(md)):
         if _section_of(md, st) in (DESIGN_SECTIONS | {"References"}):

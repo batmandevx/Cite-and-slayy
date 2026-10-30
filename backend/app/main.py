@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import re
+import uuid
 from typing import Literal
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
@@ -15,7 +16,7 @@ from backend.agent import aurora
 from fastapi.responses import Response
 
 from backend.accounts import auth, billing
-from backend.accounts.plans import plan_of, public_pack, public_plans
+from backend.accounts.plans import PLANS as PLANS_, plan_of, public_pack, public_plans
 from backend.app import dashboard, demo_papers, export as exporter, library, pipeline, reports
 from backend.paper_studio import kit as kit_mod
 from backend.paper_studio import studio
@@ -40,7 +41,7 @@ app.add_middleware(CORSMiddleware, allow_origins=get_settings().cors_origins.spl
                    allow_methods=["*"], allow_headers=["*"], allow_credentials=True)
 
 # Endpoints anyone may call without signing in (landing page, sign-in itself, payment-provider webhooks, demo showcase PDFs).
-PUBLIC = ("/api/health", "/api/stats", "/api/auth/", "/api/billing/plans", "/api/billing/upi-claim", "/api/billing/webhook", "/api/demo-papers")
+PUBLIC = ("/api/health", "/api/stats", "/api/auth/", "/api/billing/plans", "/api/billing/webhook", "/api/demo-papers")
 
 
 @app.middleware("http")
@@ -69,7 +70,7 @@ def me(request: Request) -> dict:
 @app.get("/api/auth/config")
 async def auth_config():
     s = get_settings()
-    return {"auth_required": s.auth_required, "google_client_id": s.google_client_id,
+    return {"auth_required": s.auth_required, "google_client_id": s.google_client_id, "password_login": True,
             "email_login": auth.email_login_enabled(), "payments": billing.enabled()}
 
 
@@ -115,6 +116,62 @@ async def auth_email_verify(token: str):
     return resp
 
 
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    name: str = ""
+
+
+def _ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    return (fwd.split(",")[0].strip() or (request.client.host if request.client else "unknown"))[:64]
+
+
+def _session_response(user: dict) -> JSONResponse:
+    resp = JSONResponse({"ok": True, "uid": user["uid"], "name": user.get("name")})
+    auth.set_session(resp, user["uid"])
+    return resp
+
+
+@app.post("/api/auth/register")
+async def auth_register(body: RegisterRequest, request: Request):
+    import asyncio as _asyncio
+    user = await _asyncio.to_thread(auth.register, body.email, body.name, body.password, _ip(request))
+    return _session_response(user)
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/api/auth/login")
+async def auth_login(body: LoginRequest, request: Request):
+    import asyncio as _asyncio
+    user = await _asyncio.to_thread(auth.login_password, body.email, body.password, _ip(request))
+    return _session_response(user)
+
+
+class PasswordChange(BaseModel):
+    current: str = ""
+    new: str
+
+
+@app.post("/api/account/password")
+async def account_password(body: PasswordChange, request: Request):
+    import asyncio as _asyncio
+    user = await _asyncio.to_thread(auth.change_password, me(request), body.current, body.new)
+    return _session_response(user)     # this browser stays signed in; every other session is revoked
+
+
+@app.post("/api/account/logout-all")
+async def account_logout_all(request: Request):
+    auth.revoke_sessions(me(request))
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(auth.COOKIE, path="/")
+    return resp
+
+
 @app.post("/api/auth/logout")
 async def auth_logout():
     resp = JSONResponse({"ok": True})
@@ -135,13 +192,13 @@ async def auth_me(request: Request):
         "email": user["email"],
         "name": user.get("name"),
         "picture": user.get("picture"),
-        "plan": "max" if owner else user.get("plan", "free"),
+        "plan": "max" if owner else next((k for k, v in PLANS_.items() if v is plan), "free"),
         "plan_name": "Dev Owner · Unlimited" if owner else plan["name"],
         "is_owner": owner,
         "is_paid": paid,
         "limits": plan["limits"],
         "usage": auth.usage(user),
-        "renews_at": user.get("renews_at"),
+        "renews_at": user.get("renews_at") or user.get("plan_expires"),
         "cancel_at_period_end": user.get("cancel_at_period_end", False),
         "engine": "Azora Pro engine" if (owner or plan["engine"] == "premium") else "Azora standard engine",
         "ai_budget_used": 0.0 if owner else min(
@@ -158,7 +215,13 @@ class OwnerUnlockRequest(BaseModel):
 
 @app.post("/api/auth/owner-unlock")
 async def auth_owner_unlock(body: OwnerUnlockRequest, request: Request):
+    import time as _time
     user = me(request)
+    rl_key = f"owner-unlock:{user['uid']}"
+    tries = [t for t in (get_store().get("rate", rl_key) or {}).get("ts", []) if t > _time.time() - 900]
+    if len(tries) >= 5:
+        raise HTTPException(429, "Too many attempts. Try again in 15 minutes.")
+    get_store().put("rate", rl_key, {"ts": tries + [_time.time()]})
     if not auth.unlock_owner(user, body.key):
         raise HTTPException(403, "Invalid Dev Owner access key")
     return {"ok": True, "is_owner": True, "plan": "max", "plan_name": "Dev Owner · Unlimited"}
@@ -195,8 +258,17 @@ async def billing_upi_claim(body: UpiClaimRequest, request: Request):
     if len(utr) < 6 or len(utr) > 40:
         raise HTTPException(400, "Enter a valid UPI UTR / reference number (6–40 characters)")
     info = PAPER_PACK if item == "pack" else PLANS[item]
-    user = auth.current_user(request)
-    email = (body.email.strip()[:160] or (user or {}).get("email") or "").strip()
+    user = me(request)                       # a claim must belong to a signed-in account so it can be activated
+    store = get_store()
+    if store.get("upi_utr", utr.upper()):
+        raise HTTPException(409, "This UTR has already been submitted. If that wasn't you, contact support.")
+    import time as _time
+    rl_key = f"upi-claim:{user['uid']}"
+    recent = [t for t in (store.get("rate", rl_key) or {}).get("ts", []) if t > _time.time() - 86400]
+    if len(recent) >= 5:
+        raise HTTPException(429, "Too many payment claims today. Contact support if you need help.")
+    store.put("rate", rl_key, {"ts": recent + [_time.time()]})
+    email = (body.email.strip()[:160] or user.get("email") or "").strip()
     cid = _uuid.uuid4().hex[:10]
     rec = {
         "claim_id": cid,
@@ -210,8 +282,64 @@ async def billing_upi_claim(body: UpiClaimRequest, request: Request):
         "status": "pending_verification",
         "created_at": store_now().isoformat(),
     }
-    get_store().put("upi_claim", cid, rec)
+    store.put("upi_claim", cid, rec)
+    store.put("upi_utr", utr.upper(), {"claim_id": cid})
     return {"ok": True, **rec}
+
+
+# ---------- owner: review UPI payment claims ----------
+
+def _owner(request: Request) -> dict:
+    user = me(request)
+    if not auth.is_owner(user):
+        raise HTTPException(403, "Owner only")
+    return user
+
+
+@app.get("/api/admin/upi-claims")
+async def admin_upi_claims(request: Request, status: str = "pending_verification"):
+    _owner(request)
+    rows = get_store().list("upi_claim", 500)
+    return [r for r in rows if status == "all" or r.get("status") == status]
+
+
+class ClaimDecision(BaseModel):
+    note: str = ""
+
+
+@app.post("/api/admin/upi-claims/{cid}/{decision}")
+async def admin_upi_decide(cid: str, decision: str, body: ClaimDecision, request: Request):
+    from datetime import timedelta
+    from backend.cache.store import now as store_now
+    _owner(request)
+    if decision not in ("approve", "reject"):
+        raise HTTPException(400, "decision must be approve or reject")
+    store = get_store()
+    rec = store.get("upi_claim", cid)
+    if not rec:
+        raise HTTPException(404, "claim not found")
+    if rec.get("status") != "pending_verification":
+        raise HTTPException(409, f"claim already {rec.get('status')}")
+    user = auth.get_user(rec["uid"]) if rec.get("uid") else None
+    if decision == "approve":
+        if not user:
+            raise HTTPException(400, "claim has no account attached; ask the customer to sign in and resubmit")
+        if rec["item"] == "pack":
+            auth.grant_pack(user, f"upi-{cid}")
+        else:
+            base = store_now()
+            try:   # extend from the current expiry if they renew early on the same plan
+                from datetime import datetime
+                cur = datetime.fromisoformat(user["plan_expires"]) if user.get("plan_expires") and user.get("plan") == rec["item"] else None
+                if cur and cur > base:
+                    base = cur
+            except ValueError:
+                pass
+            user.update(plan=rec["item"], plan_expires=(base + timedelta(days=30)).isoformat(), plan_source="upi")
+            store.put("user", user["uid"], user)
+    rec.update(status="approved" if decision == "approve" else "rejected", decided_at=store_now().isoformat(), note=body.note[:300])
+    store.put("upi_claim", cid, rec)
+    return rec
 
 
 class SubscribeRequest(BaseModel):
@@ -423,6 +551,7 @@ async def document_file(document_id: str, request: Request):
 @app.post("/api/gap-radar/runs", response_model=JobRef)
 async def gap_run(req: GapRadarRequest, request: Request):
     user = me(request)
+    auth.require_paid(user, "scans")
     auth.consume(user, "scans")
     return JobRef(job_id=jobs.submit("gap_radar", lambda ctx: gap.run(req, ctx), owner=user["uid"],
                                      on_error=lambda: auth.refund(user, "scans")).job_id)
@@ -456,6 +585,7 @@ async def gap_questions(run_id: str, cluster_id: int, request: Request):
 @app.post("/api/autoclaw/runs", response_model=JobRef)
 async def autoclaw_run(req: AutoClawRequest, request: Request):
     user = me(request)
+    auth.require_paid(user, "drafts")
     auth.consume(user, "drafts")
     return JobRef(job_id=jobs.submit("autoclaw", lambda ctx: claw.run(req, ctx), owner=user["uid"],
                                      on_error=lambda: auth.refund(user, "drafts")).job_id)
@@ -483,6 +613,7 @@ async def audit(req: AuditRequest, request: Request):
         docs.info(req.document_id)
     except docs.DocumentError as e:
         raise HTTPException(404, str(e))
+    auth.require_paid(user, "audits")
     auth.consume(user, "audits")
     return JobRef(job_id=jobs.submit("citeguard", lambda ctx: run_audit(req, ctx), owner=user["uid"],
                                      on_error=lambda: auth.refund(user, "audits")).job_id)
@@ -517,6 +648,7 @@ async def audit_fix(audit_id: str, request: Request):
         raise HTTPException(404, "audit not found")
     if not rep.get("overlaps") and not rep.get("phrases"):
         return {"paragraphs": [], "phrases": [], "note": "Nothing to fix: no overlap hotspots or tortured phrases were found."}
+    auth.require_paid(user, "fixes")
     auth.consume(user, "fixes")
     try:
         return await fixer.fix(rep)
@@ -542,6 +674,7 @@ async def jury(req: JuryRequest, request: Request):
         docs.info(req.document_id)
     except docs.DocumentError as e:
         raise HTTPException(404, str(e))
+    auth.require_paid(user, "reviews")
     auth.consume(user, "reviews")
     llm.set_premium(auth.is_premium(user))   # inherited by the job's task
     return JobRef(job_id=jobs.submit("jury", lambda ctx: run_jury(req, ctx), owner=user["uid"],
@@ -630,6 +763,34 @@ async def assist(req: AssistRequest, request: Request):
         raise HTTPException(502, llm.scrub(f"AI error: {e}"))
 
 
+_NOTE_IMG = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+
+
+@app.post("/api/workspace/images")
+async def workspace_image_upload(request: Request, file: UploadFile = File(...)):
+    """Images inserted into a notes page; the page stores only the short URL."""
+    user = me(request)
+    if (file.content_type or "") not in _NOTE_IMG:
+        raise HTTPException(400, "Images must be PNG, JPEG, WebP or GIF.")
+    raw = await file.read(5 * 1024 * 1024 + 1)
+    if len(raw) > 5 * 1024 * 1024:
+        raise HTTPException(413, "Images must be under 5 MB.")
+    auth._limit(f"noteimg:{user['uid']}", 120, 86400)
+    iid = uuid.uuid4().hex[:16]
+    get_store().put("note_img", iid, {"mime": file.content_type, "b64": base64.b64encode(raw).decode()})
+    auth.own("note_img", iid, user)
+    return {"url": f"/api/workspace/images/{iid}"}
+
+
+@app.get("/api/workspace/images/{iid}")
+async def workspace_image_get(iid: str, request: Request):
+    auth.check_access("note_img", iid, me(request))
+    obj = get_store().get("note_img", iid)
+    if not obj:
+        raise HTTPException(404, "not found")
+    return Response(base64.b64decode(obj["b64"]), media_type=obj["mime"], headers={"cache-control": "private, max-age=86400"})
+
+
 @app.get("/api/workspace/{kind}")
 async def workspace_get(kind: str, request: Request):
     if kind not in WORKSPACE_KINDS:
@@ -660,6 +821,7 @@ class ExportRequest(BaseModel):
 
 
 _FIG_SRC = re.compile(r"/api/paper-studio/([0-9a-f]+)/fig/([a-z]+)\.png")
+_NOTE_SRC = re.compile(r"/api/workspace/images/([0-9a-f]{16})")
 
 
 def _assets(req: ExportRequest, user: dict) -> exporter.Assets:
@@ -670,6 +832,12 @@ def _assets(req: ExportRequest, user: dict) -> exporter.Assets:
         png = studio.figure_png(m.group(1), m.group(2))
         if png:
             a.images[m.group(0)] = png
+    for m in _NOTE_SRC.finditer(req.markdown):
+        if get_settings().auth_required and get_store().owner_of("note_img", m.group(1)) not in (None, user["uid"]):
+            continue
+        obj = get_store().get("note_img", m.group(1))
+        if obj and obj.get("mime") == "image/png":
+            a.images[m.group(0)] = base64.b64decode(obj["b64"])
     for d in req.diagrams[:30]:
         png = None
         if d and d.startswith("data:image/png;base64,"):
@@ -682,7 +850,8 @@ def _assets(req: ExportRequest, user: dict) -> exporter.Assets:
 
 
 @app.post("/api/export/latex")
-async def export_latex(req: ExportRequest):
+async def export_latex(req: ExportRequest, request: Request):
+    auth.require_paid(me(request), "exports")
     tpl = req.template if req.template in ("ieee", "springer", "plain") else "plain"
     tex = exporter.to_latex(req.markdown, req.title, tpl, req.author, req.affiliation)
     return Response(tex, media_type="application/x-tex",
@@ -691,6 +860,7 @@ async def export_latex(req: ExportRequest):
 
 @app.post("/api/export/docx")
 async def export_docx(req: ExportRequest, request: Request):
+    auth.require_paid(me(request), "exports")
     tpl = req.template if req.template in ("ieee", "springer", "plain") else "plain"
     data = exporter.to_docx(req.markdown, req.title, tpl, req.author, req.affiliation, _assets(req, me(request)))
     return Response(data, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -699,10 +869,57 @@ async def export_docx(req: ExportRequest, request: Request):
 
 @app.post("/api/export/latex-zip")
 async def export_latex_zip(req: ExportRequest, request: Request):
+    auth.require_paid(me(request), "exports")
     tpl = req.template if req.template in ("ieee", "springer", "plain") else "plain"
     data = exporter.latex_zip(req.markdown, req.title, tpl, req.author, req.affiliation, _assets(req, me(request)))
     return Response(data, media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="{_slug(req.title)}-{tpl}-latex.zip"'})
+
+
+# ---------- presentation templates (CC BY 4.0 catalog by ppttemplate.ai) ----------
+
+_PPT_TEMPLATES: list[dict] | None = None
+
+
+@app.get("/api/deck-templates")
+async def deck_templates(request: Request, category: str = "", q: str = "", limit: int = 48):
+    me(request)
+    global _PPT_TEMPLATES
+    if _PPT_TEMPLATES is None:
+        import json as _json
+        from pathlib import Path as _P
+        _PPT_TEMPLATES = _json.loads((_P(studio.__file__).parent / "ppt_templates.json").read_text())
+    items = _PPT_TEMPLATES
+    if category:
+        items = [t for t in items if t["category"] == category]
+    if q.strip():
+        words = q.lower().split()
+        items = [t for t in items if all(w in (t["title"] + " " + " ".join(t["tags"])).lower() for w in words)]
+    cats: dict[str, str] = {}
+    for t in _PPT_TEMPLATES:
+        cats.setdefault(t["category"], t["category_name"])
+    return {"items": items[: max(1, min(limit, 120))], "total": len(items), "categories": cats,
+            "credit": "Templates by ppttemplate.ai (CC BY 4.0)", "license_url": "https://creativecommons.org/licenses/by/4.0/"}
+
+
+@app.get("/api/deck-templates/{slug}/palette")
+async def deck_template_palette(slug: str, request: Request):
+    """Slide colours taken from a catalog design (its files are flat slide images, so colours are what transfers)."""
+    from backend.paper_studio import palette as pal
+    me(request)
+    await deck_templates(request, limit=1)          # loads the catalog
+    tpl = next((t for t in _PPT_TEMPLATES or [] if t["slug"] == slug), None)
+    if not tpl:
+        raise HTTPException(404, "template not found")
+    cached = get_store().get("tpl_palette", slug)
+    if cached:
+        return cached
+    try:
+        out = await pal.palette_for(tpl)
+    except Exception as e:  # network / image errors
+        raise HTTPException(502, f"Couldn't read that design right now ({type(e).__name__}).")
+    get_store().put("tpl_palette", slug, out)
+    return out
 
 
 # ---------- Paper Studio ----------
@@ -718,7 +935,7 @@ async def paper_studio_start(req: studio.StudioRequest, request: Request):
         auth.check_access("document", d, user)
     auth.consume(user, "papers")
     llm.set_premium(auth.is_premium(user))
-    req.max_refs = 34 if user.get("plan") == "max" or user.get("_used_pack") else 26
+    req.max_refs = 40 if user.get("plan") == "max" or user.get("_used_pack") or auth.is_owner(user) else 32
     return JobRef(job_id=jobs.submit("paper_studio", lambda ctx: studio.run(req, ctx), owner=user["uid"],
                                      on_error=lambda: auth.refund(user, "papers")).job_id)
 
@@ -731,15 +948,34 @@ async def paper_studio_list(request: Request):
 
 @app.get("/api/paper-studio/{pid}")
 async def paper_studio_get(pid: str, request: Request):
-    auth.check_access("paper_studio", pid, me(request))
+    user = me(request)
+    auth.check_access("paper_studio", pid, user)
     p = get_store().get("paper_studio", pid)
     if not p:
         raise HTTPException(404, "paper not found")
     out = {k: v for k, v in p.items() if not k.startswith("_") and k != "versions"}
-    out["markdown"] = studio.ensure_keywords(studio.repair_fences(out.get("markdown", "")), out.get("keywords") or [])   # also fixes papers saved before the repair existed
+    out["markdown"] = studio.ensure_keywords(studio.repair_fences(out.get("markdown", "")), out.get("keywords") or [])
+    if p.get("_facts") is not None:   # papers saved before the table guard existed get it on read
+        allowed = studio._allowed_numbers(p.get("_facts", ""), *((r.get("abstract") or "") for r in p.get("_refs") or []))
+        out["markdown"], _ = studio.strip_unmeasured_tables(out["markdown"], allowed)   # also fixes papers saved before the repair existed
     out["history"] = [{"at": v["at"], "instruction": v["instruction"]} for v in p.get("versions") or []]
     out["revisable"] = bool(p.get("_refs"))
+    if not auth.is_paid(user):
+        out.update(_preview_only(out["markdown"]), references=(out.get("references") or [])[:6], kit=None,
+                   references_total=len(out.get("references") or []))
     return out
+
+
+def _preview_only(md: str, share: float = 0.35) -> dict:
+    """Free plan: the opening sections only (cut at a section boundary); the full paper unlocks with a paid plan."""
+    parts = re.split(r"(?m)^(?=# )", md)
+    keep, total = [], len(md)
+    for part in parts:
+        if keep and sum(map(len, keep)) + len(part) > total * share and len(keep) >= 2:
+            break
+        keep.append(part)
+    shown = "".join(keep).rstrip()
+    return {"markdown": shown, "locked": shown != md.rstrip(), "locked_sections": len(parts) - len(keep)}
 
 
 class ReviseRequest(BaseModel):
@@ -752,6 +988,7 @@ async def paper_studio_revise(pid: str, body: ReviseRequest, request: Request):
     auth.check_access("paper_studio", pid, user)
     if not body.instruction.strip():
         raise HTTPException(400, "Tell me what to change")
+    auth.require_paid(user, "revisions")
     auth.consume(user, "revisions")
     llm.set_premium(auth.is_premium(user))
     return JobRef(job_id=jobs.submit("paper_revise", lambda ctx: studio.revise(pid, body.instruction.strip()[:2000], ctx),
@@ -762,6 +999,7 @@ async def paper_studio_revise(pid: str, body: ReviseRequest, request: Request):
 async def paper_studio_kit(pid: str, body: kit_mod.KitRequest, request: Request):
     user = me(request)
     auth.check_access("paper_studio", pid, user)
+    auth.require_paid(user, "kits")
     auth.consume(user, "kits")
     llm.set_premium(auth.is_premium(user))
     try:
@@ -769,6 +1007,29 @@ async def paper_studio_kit(pid: str, body: kit_mod.KitRequest, request: Request)
     except (ValueError, llm.LLMError) as e:
         auth.refund(user, "kits")
         raise HTTPException(502, llm.scrub(f"Couldn't build the kit: {e}"))
+
+
+class DeckRequest(BaseModel):
+    author: str = ""
+    affiliation: str = ""
+
+
+@app.post("/api/paper-studio/{pid}/deck")
+async def paper_studio_deck(pid: str, body: DeckRequest, request: Request):
+    """Slide content + real chart data for a presentation deck (the browser builds the .pptx)."""
+    from backend.paper_studio import deck as deck_mod
+    user = me(request)
+    auth.check_access("paper_studio", pid, user)
+    if not get_store().get("paper_studio", pid):
+        raise HTTPException(404, "paper not found")
+    auth.require_paid(user, "decks")
+    auth.consume(user, "decks")
+    llm.set_premium(auth.is_premium(user))
+    try:
+        return await deck_mod.build(pid, body.author, body.affiliation)
+    except (ValueError, llm.LLMError) as e:
+        auth.refund(user, "decks")
+        raise HTTPException(502, llm.scrub(f"Couldn't prepare the presentation: {e}"))
 
 
 @app.post("/api/paper-studio/{pid}/undo")
@@ -792,6 +1053,7 @@ class ReplaceMarkdownRequest(BaseModel):
 @app.post("/api/paper-studio/{pid}/replace-markdown")
 async def paper_studio_replace_markdown(pid: str, body: ReplaceMarkdownRequest, request: Request):
     user = me(request)
+    auth.require_paid(user, "humanize_fixes")
     auth.check_access("paper_studio", pid, user)
     p = get_store().get("paper_studio", pid)
     if not p:
@@ -821,7 +1083,7 @@ class VenueRequest(BaseModel):
 @app.post("/api/venues/find")
 async def venues_find(body: VenueRequest, request: Request):
     from backend.app import venue_finder
-    me(request)  # verify session if AUTH_REQUIRED=true; OpenAlex venue lookup uses 0 LLM tokens
+    auth.require_paid(me(request), "venues")
     return await venue_finder.find(body.title.strip()[:400], body.abstract.strip()[:3000], body.kind, body.oa_only)
 
 
@@ -1000,21 +1262,42 @@ async def game_tortured(n: int = 8):
 class ChatRequest(BaseModel):
     message: str
     chat_id: str | None = None
+    images: list[str] = []     # up to 3 data URLs (png / jpeg / webp / gif), each under 5 MB
+
+
+def _decode_images(urls: list[str]) -> list[tuple[str, bytes]]:
+    out = []
+    for u in urls[:3]:
+        m = re.match(r"^data:(image/(?:png|jpeg|jpg|webp|gif));base64,(.+)$", u or "", re.S)
+        if not m:
+            raise HTTPException(400, "Images must be PNG, JPEG, WebP or GIF.")
+        try:
+            raw = base64.b64decode(m.group(2), validate=True)
+        except ValueError as e:
+            raise HTTPException(400, "Couldn't read that image.") from e
+        if len(raw) > 5 * 1024 * 1024:
+            raise HTTPException(413, "Each image must be under 5 MB.")
+        out.append((m.group(1).replace("jpg", "jpeg"), raw))
+    return out
 
 
 @app.post("/api/agent/chat")
 async def agent_chat(req: ChatRequest, request: Request):
     import uuid
     user = me(request)
-    if not req.message.strip():
+    if not req.message.strip() and not req.images:
         raise HTTPException(400, "empty message")
+    if req.images:
+        auth.require_paid(user, "vision")
+    images = _decode_images(req.images)
     if req.chat_id:
         auth.check_access("agent_chat", req.chat_id, user)
     auth.consume(user, "chats_day")
     chat_id = req.chat_id or uuid.uuid4().hex[:12]
     auth.own("agent_chat", chat_id, user)
     aurora_ctx_user.set(user)
-    job = jobs.submit("agent", lambda ctx: aurora.run_turn(chat_id, req.message.strip()[:4000], ctx), owner=user["uid"])
+    msg = req.message.strip()[:4000] or "What can you tell me about this image?"
+    job = jobs.submit("agent", lambda ctx: aurora.run_turn(chat_id, msg, ctx, images=images), owner=user["uid"])
     return {"job_id": job.job_id, "chat_id": chat_id}
 
 
@@ -1044,6 +1327,7 @@ async def run_pipeline(req: pipeline.PipelineRequest, request: Request):
             docs.info(req.document_id)
         except docs.DocumentError as e:
             raise HTTPException(404, str(e))
+    auth.require_paid(user, "reviews")
     feats = (["drafts"] if not req.document_id else []) + ["audits", "reviews"]
     for i, f in enumerate(feats):
         try:

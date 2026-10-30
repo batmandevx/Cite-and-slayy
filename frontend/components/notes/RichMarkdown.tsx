@@ -47,10 +47,32 @@ function Mermaid({ code }: { code: string }) {
   return <div className="my-3 flex justify-center overflow-x-auto rounded-xl border-2 border-edge bg-surface p-3" dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
+type MdNode = { type: string; value?: string; children?: MdNode[]; data?: Record<string, unknown> };
+const INLINE = /(\+\+[^+\n]+?\+\+|==[^=\n]+?==|\^[^\s^]+?\^)/;
+const TAG: Record<string, string> = { "+": "u", "=": "mark", "^": "sup" };
+
+/** Word-style inline marks: ++underline++, ==highlight==, x^2^ superscript (outside code). */
+function remarkMarks() {
+  const walk = (n: MdNode) => {
+    if (!n.children || n.type === "inlineCode" || n.type === "code") return;
+    n.children = n.children.flatMap((c) => {
+      if (c.type !== "text" || !c.value || !INLINE.test(c.value)) { walk(c); return [c]; }
+      return c.value.split(INLINE).filter(Boolean).map((part) => {
+        const k = part[0];
+        const w = k === "^" ? 1 : 2;
+        if (INLINE.test(part) && part.length > w * 2 && part.endsWith(part.slice(0, w)))
+          return { type: "emphasis", data: { hName: TAG[k] }, children: [{ type: "text", value: part.slice(w, -w) }] } as MdNode;
+        return { type: "text", value: part } as MdNode;
+      });
+    });
+  };
+  return (tree: MdNode) => walk(tree);
+}
+
 export function RichMarkdown({ children }: { children: string }) {
   return (
     <div className="md">
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath, remarkMarks]} rehypePlugins={[rehypeKatex]}
         components={{
           img(props) {
             const src = typeof props.src === "string" && props.src.startsWith("/api/") ? `${API}${props.src}` : props.src;

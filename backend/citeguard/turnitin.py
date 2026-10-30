@@ -783,3 +783,4 @@ async def reduce(
         "changes": changes,
         "after_scan": {k: v for k, v in after_report.items() if not k.startswith("_")},
     }
+
