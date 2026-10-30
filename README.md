@@ -377,11 +377,11 @@ you around the app and announces when the paper is ready.
 - **Sign-in:** Google (ID token verified server-side with `google-auth`) or emailed magic links. Sessions are HMAC-signed cookies.
   With `AUTH_REQUIRED=true`, every `/api` call needs a user, and papers, documents, audits, verdicts, chats, notes and pins are
   private to their owner (`owners` table, `backend/accounts/auth.py`).
-- **Plans** (`backend/accounts/plans.py`): Free ₹0, Pro ₹2,499/month, Max ₹5,999/month, GST-inclusive. Pro and Max run papers,
+- **Plans** (`backend/accounts/plans.py`): Free ₹0, Pro ₹6,999/month, Max ₹12,999/month, GST-inclusive. Pro and Max run papers,
   revisions and verdicts on the Pro engine (`PREMIUM_MODEL`, Anthropic API) with the standard engine as fallback.
 - **Margins are enforced, not hoped for.** Every model call records its real token usage and cost against the user, and each
-  plan has a monthly AI budget (Pro ₹700, Max ₹1,800) alongside its count limits. After GST and the gateway fee, at least
-  ~64–66% of each subscription is left for AWS and profit, even at full use. Failed jobs refund their quota automatically.
+  plan has a monthly AI budget (Pro ₹900, Max ₹4,000) alongside its count limits. After GST and the gateway fee, at least
+  ~63–84% of each subscription is left for AWS and profit, even at full use. Failed jobs refund their quota automatically.
 - **Payments:** Razorpay Subscriptions. Plans are created by API on first use, Checkout authorises the mandate, the payment
   signature is verified server-side, and `subscription.*` webhooks (HMAC-verified, exempt from the site password) keep each user's
   plan in sync. Upgrading cancels the previous subscription; cancelling keeps access until the period ends.

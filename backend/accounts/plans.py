@@ -5,10 +5,10 @@ Every plan also has a hard monthly AI budget (`ai_budget_inr`), charged from the
 more expensive than estimated:
 
     plan  price  net after GST (18%) & gateway (~2.4%)  max AI spend  min contribution to AWS + profit
-    Pro   2,499  ~2,059                                  500           ~1,559 (76%)
-    Max   5,999  ~4,942                                  1,800         ~3,142 (64%)
+    Pro   6,999  ~5,766                                  900           ~4,866 (84%)
+    Max  12,999  ~10,709                                 4,000         ~6,709 (63%)
 
-Fixed AWS cost (one t3.large + disk + IP, roughly ₹7–8k/month; check the AWS bill) is covered by about 6 Pro subscribers.
+Fixed AWS cost (one t3.large + disk + IP, roughly ₹7–8k/month; check the AWS bill) is covered by about 2 Pro subscribers.
 """
 from __future__ import annotations
 
@@ -21,14 +21,14 @@ PLANS: dict[str, dict] = {
                   "Notes, library & arcade"],
     },
     "pro": {
-        "name": "Pro", "price_inr": 2499, "engine": "premium", "ai_budget_inr": 500,
+        "name": "Pro", "price_inr": 6999, "engine": "premium", "ai_budget_inr": 900,
         "limits": {"papers": 4, "revisions": 10, "kits": 3, "reviews": 2, "audits": 8, "fixes": 3, "scans": 8, "drafts": 2,
                    "chats_day": 50, "assists_day": 100},
         "perks": ["4 papers / month on the Pro engine", "8 originality & citation reports", "3 originality fixes (rewrite + cite)",
                   "10 AI revisions · 3 submission kits", "2 reviewer verdicts · journal finder"],
     },
     "max": {
-        "name": "Max", "price_inr": 5999, "engine": "premium", "ai_budget_inr": 1800,
+        "name": "Max", "price_inr": 12999, "engine": "premium", "ai_budget_inr": 4000,
         "limits": {"papers": 25, "revisions": 100, "kits": 40, "reviews": 15, "audits": 150, "fixes": 60, "scans": 80, "drafts": 25,
                    "chats_day": 300, "assists_day": 600},
         "perks": ["25 papers / month on the Pro engine, 30 references each", "150 originality & citation reports",

@@ -39,7 +39,7 @@ app.add_middleware(CORSMiddleware, allow_origins=get_settings().cors_origins.spl
                    allow_methods=["*"], allow_headers=["*"], allow_credentials=True)
 
 # Endpoints anyone may call without signing in (landing page, sign-in itself, payment-provider webhooks).
-PUBLIC = ("/api/health", "/api/stats", "/api/auth/", "/api/billing/plans", "/api/billing/webhook")
+PUBLIC = ("/api/health", "/api/stats", "/api/auth/", "/api/billing/plans", "/api/billing/upi-claim", "/api/billing/webhook")
 
 
 @app.middleware("http")
@@ -139,7 +139,50 @@ async def auth_me(request: Request):
 
 @app.get("/api/billing/plans")
 async def billing_plans():
-    return {"plans": public_plans(), "pack": public_pack(), "payments": billing.enabled(), "currency": "INR"}
+    return {
+        "plans": public_plans(),
+        "pack": public_pack(),
+        "payments": billing.enabled(),
+        "upi_id": "8374579275@superyes",
+        "currency": "INR",
+    }
+
+
+class UpiClaimRequest(BaseModel):
+    item: str
+    utr: str
+    email: str = ""
+
+
+@app.post("/api/billing/upi-claim")
+async def billing_upi_claim(body: UpiClaimRequest, request: Request):
+    import uuid as _uuid
+    from backend.accounts.plans import PAPER_PACK, PLANS
+    from backend.cache.store import now as store_now
+    item = body.item.strip().lower()
+    if item not in ("pro", "max", "pack"):
+        raise HTTPException(400, "Unknown plan or pack")
+    utr = "".join(ch for ch in body.utr.strip() if ch.isalnum() or ch in ("-", "_"))
+    if len(utr) < 6 or len(utr) > 40:
+        raise HTTPException(400, "Enter a valid UPI UTR / reference number (6–40 characters)")
+    info = PAPER_PACK if item == "pack" else PLANS[item]
+    user = auth.current_user(request)
+    email = (body.email.strip()[:160] or (user or {}).get("email") or "").strip()
+    cid = _uuid.uuid4().hex[:10]
+    rec = {
+        "claim_id": cid,
+        "item": item,
+        "item_name": info["name"],
+        "amount_inr": info["price_inr"],
+        "upi_id": "8374579275@superyes",
+        "utr": utr,
+        "email": email,
+        "uid": (user or {}).get("uid"),
+        "status": "pending_verification",
+        "created_at": store_now().isoformat(),
+    }
+    get_store().put("upi_claim", cid, rec)
+    return {"ok": True, **rec}
 
 
 class SubscribeRequest(BaseModel):

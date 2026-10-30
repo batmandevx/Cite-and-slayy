@@ -96,3 +96,23 @@ async def test_source_client_redacts_default_params_from_public_url_and_hits_leg
     assert "secret@example.com" not in fetched.url
     assert "search=lora" in fetched.url
 
+
+def test_billing_plans_and_upi_claim_persists():
+    r = client.get("/api/billing/plans")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["upi_id"] == "8374579275@superyes"
+
+    bad = client.post("/api/billing/upi-claim", json={"item": "pro", "utr": "123"})
+    assert bad.status_code == 400
+
+    ok = client.post("/api/billing/upi-claim", json={"item": "pro", "utr": "430498765432", "email": "researcher@example.org"})
+    assert ok.status_code == 200
+    claim = ok.json()
+    assert claim["ok"] is True
+    assert claim["amount_inr"] == 6999
+    assert claim["upi_id"] == "8374579275@superyes"
+    stored = get_store().get("upi_claim", claim["claim_id"])
+    assert stored is not None and stored["utr"] == "430498765432"
+
+

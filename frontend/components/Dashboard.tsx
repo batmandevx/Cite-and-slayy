@@ -51,12 +51,12 @@ const WORK: { id: Tab; label: string; q: string; icon: typeof Compass; color: st
 ];
 
 function UpgradeNudge() {
-  const { me, config, openUpgrade } = useAuth();
-  if (!config?.auth_required || !me || me.plan !== "free") return null;
+  const { me, openUpgrade } = useAuth();
+  if (me && me.plan !== "free") return null;
   return (
     <motion.button onClick={() => openUpgrade()} whileHover={{ y: -2 }} whileTap={{ scale: 0.97 }}
       className="btn-brut flex w-full items-center gap-2 rounded-2xl bg-[linear-gradient(120deg,var(--pink),var(--yellow))] px-3 py-2 text-left text-[#121212]">
-      <Zap className="size-4" /><span className="flex-1 text-sm font-extrabold">Go Pro</span><span className="text-[11px] font-bold">₹2,499/mo</span>
+      <Zap className="size-4" /><span className="flex-1 text-sm font-extrabold">Go Pro</span><span className="text-[11px] font-bold">₹6,999/mo</span>
     </motion.button>
   );
 }
