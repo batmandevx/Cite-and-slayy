@@ -61,6 +61,22 @@ PRICES = {
 DEFAULT_PRICE = (1.0, 4.0)
 
 
+_last_stop: ContextVar[str] = ContextVar("llm_last_stop", default="")
+
+
+async def complete_long(system: str, prompt: str, max_tokens: int = 32000) -> tuple[str, str]:
+    """Long-output call for the AutoResearchClaw bridge: the premium Bedrock model, up to 32k output tokens and a
+    10-minute read timeout. A cut-off reply is returned with finish_reason "length" instead of raising."""
+    provider, model = chain("main")[0]
+    if provider != "bedrock":
+        return await complete(system, prompt, max_tokens=min(max_tokens, 16000)), "stop"
+    text, usage = await asyncio.to_thread(_converse_sync, system, prompt, None, max_tokens, model, True)
+    if usage:
+        _note_usage(*usage)
+    _charge(provider, model, system, prompt, text)
+    return text, ("length" if _last_stop.get() == "max_tokens" else "stop")
+
+
 def set_meter(uid: str | None) -> None:
     _meter.set(uid)
 
@@ -319,32 +335,33 @@ async def _gemini(system: str, prompt: str, schema: dict | None, effort: Effort,
 _runtime_clients: dict[str, Any] = {}
 
 
-def _bedrock_runtime(region: str | None):
+def _bedrock_runtime(region: str | None, long: bool = False):
     """One reused client per region with explicit timeouts: boto3's defaults (60 s read timeout + silent retries)
     turned one stalled 11-second call into a 15-minute wait during testing."""
     import boto3
     from botocore.config import Config
 
-    key = region or ""
+    key = (region or "") + (":long" if long else "")
     if key not in _runtime_clients:
         _runtime_clients[key] = boto3.client(
             "bedrock-runtime", region_name=region,
-            config=Config(connect_timeout=10, read_timeout=180, retries={"max_attempts": 2, "mode": "standard"},
+            config=Config(connect_timeout=10, read_timeout=600 if long else 180, retries={"max_attempts": 2, "mode": "standard"},
                           max_pool_connections=16))
     return _runtime_clients[key]
 
 
-def _converse_sync(system: str, prompt: str, schema: dict | None, max_tokens: int, model: str) -> tuple[str, tuple[int, int] | None]:
+def _converse_sync(system: str, prompt: str, schema: dict | None, max_tokens: int, model: str,
+                   long: bool = False) -> tuple[str, tuple[int, int] | None]:
     """Amazon Bedrock Converse API — powers Claude (cross-region inference profiles) as well as Kimi, GLM, DeepSeek, Qwen."""
     import botocore.exceptions
 
     region = get_settings().bedrock_region
     mid = _bedrock_model_id(model, region)
-    token_cap = 16000 if "claude" in mid else 8192
+    token_cap = (32000 if long else 16000) if "claude" in mid else 8192
     if schema:
         system += ("\nRespond with a single JSON object (no code fences, no prose) matching this JSON schema:\n"
                    + json.dumps(schema))
-    client = _bedrock_runtime(region)
+    client = _bedrock_runtime(region, long)
     try:
         r = client.converse(
             modelId=mid,
@@ -360,8 +377,9 @@ def _converse_sync(system: str, prompt: str, schema: dict | None, max_tokens: in
     u = r.get("usage") or {}
     usage = (u.get("inputTokens", 0), u.get("outputTokens", 0)) if u else None
     stop = r.get("stopReason")
-    if stop == "max_tokens":
+    if stop == "max_tokens" and not long:
         raise LLMError("response truncated at max_tokens")
+    _last_stop.set(stop or "")
     if stop in ("content_filtered", "guardrail_intervened"):
         raise LLMError(f"model declined the request ({stop})")
     return "".join(c.get("text", "") for c in r["output"]["message"]["content"]), usage   # skips reasoning blocks

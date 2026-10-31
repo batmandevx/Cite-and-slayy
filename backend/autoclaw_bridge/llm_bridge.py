@@ -98,26 +98,32 @@ async def chat(body: ChatRequest, request: Request):
     prompt = "\n\n".join(f"{'User' if m.role == 'user' else 'Assistant'}: {_text(m.content)}" for m in turns)
     if len(turns) == 1 and turns[0].role == "user":
         prompt = _text(turns[0].content)
-    max_tokens = min(16000, body.max_completion_tokens or body.max_tokens or 8000)
+    max_tokens = min(32000, body.max_completion_tokens or body.max_tokens or 32000)
     llm.set_meter(rec["uid"] if get_settings().auth_required else None)
     llm.set_premium(True)
-    try:
-        text = await llm.complete(system or "You are a helpful research assistant.", prompt, effort="medium", max_tokens=max_tokens)
-    except llm.LLMError as e:
-        logger.error(f"[llm_bridge] /chat/completions complete failed: {e}")
-        raise HTTPException(502, llm.scrub(str(e))[:300]) from e
+    text, finish, err = "", "stop", None
+    for attempt in range(2):              # one retry for transient model/network errors
+        try:
+            text, finish = await llm.complete_long(system or "You are a helpful research assistant.", prompt, max_tokens=max_tokens)
+            err = None
+            break
+        except llm.LLMError as e:
+            err = e
+            logger.error("[llm_bridge] call failed (run %s, attempt %d, prompt %d chars): %s", rec.get("run_id"), attempt + 1, len(prompt), e)
+    if err:
+        raise HTTPException(502, llm.scrub(str(err))[:300]) from err
     rec["calls"] = rec.get("calls", 0) + 1
     get_store().put("claw_key", key, rec)
     msg = {"role": "assistant", "content": text}
     usage = {"prompt_tokens": len(system + prompt) // 4, "completion_tokens": len(text) // 4,
              "total_tokens": (len(system + prompt) + len(text)) // 4}
     out = {"id": f"chatcmpl-{uuid.uuid4().hex[:24]}", "object": "chat.completion", "created": int(time.time()), "model": body.model,
-           "choices": [{"index": 0, "message": msg, "finish_reason": "stop"}], "usage": usage}
+           "choices": [{"index": 0, "message": msg, "finish_reason": finish}], "usage": usage}
     if body.stream:
         from fastapi.responses import StreamingResponse
         import json
 
         chunk = {"id": out["id"], "object": "chat.completion.chunk", "created": out["created"], "model": body.model,
-                 "choices": [{"index": 0, "delta": msg, "finish_reason": "stop"}]}
+                 "choices": [{"index": 0, "delta": msg, "finish_reason": finish}]}
         return StreamingResponse(iter([f"data: {json.dumps(chunk)}\n\n", "data: [DONE]\n\n"]), media_type="text/event-stream")
     return out

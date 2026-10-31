@@ -10,8 +10,8 @@ def test_bridge_keys_budget_and_proxy(monkeypatch):
     from backend.llm import client as llm
 
     async def fake_complete(system, prompt, **kw):
-        return "pong"
-    monkeypatch.setattr(llm, "complete", fake_complete)
+        return "pong", "stop"
+    monkeypatch.setattr(llm, "complete_long", fake_complete)
     c = TestClient(app)
     body = {"model": "azora-pro", "messages": [{"role": "system", "content": "s"}, {"role": "user", "content": "ping"}]}
     assert c.post("/internal/llm/v1/chat/completions", json=body).status_code == 401
