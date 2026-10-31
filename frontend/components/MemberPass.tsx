@@ -99,6 +99,7 @@ export function MemberPass({ tier, name, since, seed, height = 460, anchor = "ce
   tier: Tier; name: string; since?: string; seed?: string; height?: number; anchor?: "left" | "center" | "right"; className?: string;
 }) {
   const [imgs, setImgs] = useState<{ front: string; back: string; strap: string } | null>(null);
+  const [flips, setFlips] = useState(0);
   useEffect(() => {
     const id = hashId(seed || name);
     const s = since || new Date().toLocaleDateString(undefined, { month: "short", year: "numeric" });
@@ -107,9 +108,15 @@ export function MemberPass({ tier, name, since, seed, height = 460, anchor = "ce
   }, [tier, name, since, seed]);
   const L = LOOK[tier];
   return (
-    <div className={className} style={{ height }}>
+    <div className={className} style={{ height, position: "relative" }}>
       {imgs && <Lanyard frontImage={imgs.front} backImage={imgs.back} strapImage={imgs.strap} finish={L.finish} metal={L.metal}
-        size={0.62} strapLength={0.42} anchor={anchor} breeze={0.35} cornerRadius={0.35} />}
+        size={0.62} strapLength={0.42} anchor={anchor} breeze={0.55} damping={0.35} cornerRadius={0.35} flipKey={flips} />}
+      {imgs && (
+        <button type="button" onClick={() => setFlips((f) => f + 1)} aria-label="Flip the pass"
+          className="absolute right-3 top-3 z-10 inline-flex items-center gap-1 rounded-full border-2 border-edge bg-surface px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider shadow-[2px_2px_0_var(--shadow-c)] hover:bg-yellow hover:text-[#121212]">
+          ⟲ Flip
+        </button>
+      )}
     </div>
   );
 }

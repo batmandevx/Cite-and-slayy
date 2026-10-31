@@ -1,5 +1,7 @@
 "use client";
 
+import { useAuth } from "./auth/AuthProvider";
+
 import clsx from "clsx";
 import { ArrowRight, Check, FileText, Play, Terminal } from "lucide-react";
 import { motion } from "motion/react";
@@ -14,8 +16,10 @@ const PHASES: [string, number[]][] = [
 ];
 
 export function DraftTab({
-  topic, setTopic, health, onAudit,
-}: { topic: string; setTopic: (t: string) => void; health: Health | null; onAudit: (documentId: string) => void }) {
+  topic, setTopic, health, onAudit, onStudio,
+}: { topic: string; setTopic: (t: string) => void; health: Health | null; onAudit: (documentId: string) => void; onStudio?: () => void }) {
+  const { me, config } = useAuth();
+  const founder = !config?.auth_required || !!me?.is_owner;
   const [mode, setMode] = useState<"auto" | "co-pilot" | "gate-only" | "express">("auto");
   const [demoChoice, setDemo] = useState<boolean | null>(null);
   const demo = demoChoice ?? health?.demo_mode ?? true;
@@ -39,6 +43,19 @@ export function DraftTab({
       (id) => api.get<AutoClawRun>(`/api/autoclaw/runs/${id}`).then(setRun),
       "Draft",
     );
+
+  if (!founder) {
+    return (
+      <Card className="grid place-items-center p-10 text-center">
+        <div className="max-w-md">
+          <div className="text-5xl">✍️</div>
+          <h3 className="mt-3 font-display text-2xl font-extrabold">Drafting happens in Paper Studio</h3>
+          <p className="mt-2 text-sm text-ink-2">Give it your topic and Paper Studio&apos;s agents write the full paper with verified references, figures and equations. Then come back here to audit and score it.</p>
+          <Button variant="primary" className="mt-5" onClick={onStudio}><Play className="size-4" />Open Paper Studio</Button>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-6">

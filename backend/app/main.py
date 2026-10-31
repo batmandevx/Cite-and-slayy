@@ -129,8 +129,9 @@ class RegisterRequest(BaseModel):
 
 
 def _ip(request: Request) -> str:
+    # Caddy appends the real client address last; earlier entries can be forged by the client.
     fwd = request.headers.get("x-forwarded-for", "")
-    return (fwd.split(",")[0].strip() or (request.client.host if request.client else "unknown"))[:64]
+    return (fwd.split(",")[-1].strip() or (request.client.host if request.client else "unknown"))[:64]
 
 
 def _session_response(user: dict) -> JSONResponse:
@@ -170,6 +171,22 @@ async def account_password(body: PasswordChange, request: Request):
     return _session_response(user)     # this browser stays signed in; every other session is revoked
 
 
+class ProfileUpdate(BaseModel):
+    name: str
+
+
+@app.post("/api/account/profile")
+async def account_profile(body: ProfileUpdate, request: Request):
+    user = me(request)
+    name = " ".join(body.name.split())[:60]
+    if len(name) < 2:
+        raise HTTPException(400, "Enter your name (at least 2 characters).")
+    if user.get("uid") != "local":
+        user["name"] = name
+        get_store().put("user", user["uid"], user)
+    return {"ok": True, "name": name}
+
+
 @app.post("/api/account/logout-all")
 async def account_logout_all(request: Request):
     auth.revoke_sessions(me(request))
@@ -199,7 +216,9 @@ async def auth_me(request: Request):
         "name": user.get("name"),
         "picture": user.get("picture"),
         "plan": "max" if owner else next((k for k, v in PLANS_.items() if v is plan), "free"),
-        "plan_name": "Dev Owner · Unlimited" if owner else plan["name"],
+        "plan_name": ("Founder · Unlimited" if user.get("founder") else "Dev Owner · Unlimited") if owner else plan["name"],
+        "tier": ("founder" if user.get("founder") or owner else "max" if plan is PLANS_["max"] else "pro" if plan is PLANS_["pro"]
+                 else "pack" if auth.bonus(user) else "free"),
         "is_owner": owner,
         "is_paid": paid,
         "limits": plan["limits"],
@@ -466,12 +485,14 @@ async def job_events(job_id: str, request: Request):
 
 @app.post("/api/documents", response_model=DocumentInfo)
 async def upload(request: Request, file: UploadFile = File(...)):
-    data = await file.read()
+    user = me(request)                                   # who is uploading, before reading anything
+    auth._limit(f"upload:{user['uid']}", 60, 86400)
+    data = await file.read(40 * 1024 * 1024 + 1)         # never buffer more than the cap
     if len(data) > 40 * 1024 * 1024:
         raise HTTPException(413, "File larger than 40 MB")
     try:
         info = docs.save_bytes(file.filename or "upload.pdf", data)
-        auth.own("document", info.document_id, me(request))
+        auth.own("document", info.document_id, user)
         return info
     except docs.DocumentError as e:
         raise HTTPException(400, str(e))

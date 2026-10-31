@@ -5,7 +5,7 @@ import { api, apiFetch } from "@/lib/api";
 
 export interface Me {
   uid: string; email: string; name?: string; picture?: string | null; plan: "free" | "pro" | "max"; plan_name: string;
-  is_owner?: boolean; is_paid?: boolean;
+  is_owner?: boolean; is_paid?: boolean; tier?: "founder" | "max" | "pro" | "pack" | "free";
   limits: Record<string, number>; usage: Record<string, number>; renews_at?: string | null; cancel_at_period_end?: boolean;
   engine: string; ai_budget_used: number; pack?: { credits: Record<string, number>; expires: number } | null;
 }

@@ -153,7 +153,10 @@ body {
   /* dotted paper */
   background-image: radial-gradient(var(--dot) 1.2px, transparent 1.2px);
   background-size: 22px 22px;
+  overflow-x: clip;           /* no sideways scrolling on phones */
 }
+/* Grid items may shrink below their content, so wide charts/tables scroll inside their card instead of widening the page. */
+.grid > * { min-width: 0; }
 h1, h2, h3, .font-display { font-family: var(--font-display); letter-spacing: -0.02em; }
 
 ::selection { background: var(--yellow); color: #121212; }
@@ -162,6 +165,7 @@ h1, h2, h3, .font-display { font-family: var(--font-display); letter-spacing: -0
 /* ---------- core surfaces ---------- */
 .card {
   position: relative;
+  min-width: 0;               /* grid/flex children may shrink below their content (wide charts scroll inside) */
   background: var(--surface);
   border: 2.5px solid var(--edge);
   border-radius: var(--radius);

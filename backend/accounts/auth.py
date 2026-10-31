@@ -55,6 +55,7 @@ def ensure_founders() -> list[str]:
     already set their own password after the configured one was applied."""
     store = get_store()
     done = []
+    names = {k.strip().lower(): v.strip() for k, _, v in (p.partition("=") for p in (get_settings().founder_names or "").split(";")) if "@" in k and v.strip()}
     for email, h in founder_accounts().items():
         idx = store.get("user_email", email)
         user = get_user(idx["uid"]) if idx else None
@@ -67,6 +68,9 @@ def ensure_founders() -> list[str]:
             user["founder_hash_applied"] = h
             user["sess_ver"] = int(user.get("sess_ver") or 0) + 1
         user.update(founder=True, is_owner=True, plan="max", email_verified=True, disabled=False, plan_expires=None)
+        nice = names.get(email)
+        if nice and (not user.get("name") or user.get("name") == email.split("@")[0]):   # don't override a name they set themselves
+            user["name"] = nice
         store.put("user", user["uid"], user)
         done.append(email)
     if done:   # founders are the only permanent admins: revoke owner rights handed out any other way (e.g. an old access key)

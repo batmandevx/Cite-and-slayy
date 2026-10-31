@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, useJob } from "@/lib/api";
 import type { AuditReport, DocumentInfo, Health, PipelineResult, Verdict } from "@/lib/types";
 import { Badge, Button, Callout, Field, Input, Select } from "./ui";
+import { useAuth } from "./auth/AuthProvider";
 
 const PHASES = [
   { key: "draft", label: "Draft", sub: "AI drafting engine", icon: FilePen },
@@ -26,7 +27,11 @@ export function SlayModal({
   open: boolean; onClose: () => void; health: Health | null; defaultTopic: string; defaultDocumentId: string | null;
   onOpenResult: (r: PipelineResult, tab: "audit" | "verdict") => void;
 }) {
-  const [source, setSource] = useState<"draft" | "paper">("draft");
+  const { me } = useAuth();
+  const founder = !!me?.is_owner;
+  const [pick, setSource] = useState<"draft" | "paper">("draft");
+  // Users write new papers in Paper Studio; the cached drafting replay is a founder-only tool.
+  const source = founder ? pick : "paper";
   const [topicEdit, setTopicEdit] = useState<string | null>(null);
   const topic = topicEdit ?? defaultTopic;
   const setTopic = (v: string) => setTopicEdit(v);
@@ -102,12 +107,13 @@ export function SlayModal({
             <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-accent-ink">
               <Zap className="size-3.5" /> One click
             </div>
-            <h2 className="text-2xl font-semibold tracking-tight">Slay it: draft → audit → verdict</h2>
+            <h2 className="text-2xl font-semibold tracking-tight">{founder ? "Slay it: draft → audit → verdict" : "Slay it: audit → verdict"}</h2>
             <p className="mt-1 text-sm text-ink-2">Runs the whole decision pipeline as one job, then opens the result.</p>
 
             {!job.running && !result && (
               <div className="mt-5 space-y-4">
-                <div className="grid grid-cols-2 gap-2">
+                {!founder && <p className="rounded-xl border border-line bg-surface-2 px-3 py-2 text-xs text-ink-2">Pick a paper to audit and score. To write a brand-new paper, use <b>Paper Studio</b>.</p>}
+                <div className={clsx("grid grid-cols-2 gap-2", !founder && "hidden")}>
                   {([["draft", "Draft a new paper", "AI writes it, then we check it", FilePen], ["paper", "Check an existing paper", "Any PDF or a bundled sample", FileUp]] as const).map(([k, t, d, Icon]) => (
                     <button key={k} onClick={() => setSource(k)}
                       className={clsx("rounded-xl border p-3 text-left transition", source === k ? "border-accent bg-accent-soft" : "border-line hover:border-line-strong")}>

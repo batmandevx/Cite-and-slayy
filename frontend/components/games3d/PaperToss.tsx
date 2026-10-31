@@ -11,11 +11,18 @@ import { useSparks } from "./fx";
 import { GameFrame, type Phase } from "./GameFrame";
 
 const G = 9.8, R = 0.11, RIM_R = 0.26, RIM_H = 0.52, BALLS = 10, START = new THREE.Vector3(0, 1.15, 2.6);
+const ANGLE = 0.86, DOTS = 26;
+/** Launch velocity for an aim: power p in [0, 1] and yaw in radians. */
+const launch = (p: number, yaw: number) => {
+  const v = 3.6 + p * 5.2, h = v * Math.cos(ANGLE);
+  return new THREE.Vector3(h * Math.sin(yaw), v * Math.sin(ANGLE), -h * Math.cos(yaw));
+};
 interface State {
+  aim: { p: number; yaw: number } | null;
   pos: THREE.Vector3; vel: THREE.Vector3; flying: boolean; touched: boolean; scored: boolean; settle: number;
   bin: THREE.Vector3; wind: number; left: number; score: number; streak: number; t: number; msg: string; msgT: number;
 }
-const fresh = (): State => ({ pos: START.clone(), vel: new THREE.Vector3(), flying: false, touched: false, scored: false, settle: 0,
+const fresh = (): State => ({ aim: null, pos: START.clone(), vel: new THREE.Vector3(), flying: false, touched: false, scored: false, settle: 0,
   bin: new THREE.Vector3(0, 0, -2.2), wind: 0, left: BALLS, score: 0, streak: 0, t: 0, msg: "", msgT: 0 });
 
 /** A crumpled-paper ball: a jittered icosahedron with flat shading. */
@@ -40,6 +47,7 @@ function Room({ st, phase, onHud, onEnd }: { st: React.RefObject<State>; phase: 
   const flag = useRef<THREE.Mesh>(null);
   const hud = useRef(0);
   const geo = usePaperGeometry();
+  const dots = useRef<(THREE.Mesh | null)[]>([]);
   const [sparks, burst] = useSparks();
 
   const nextBall = (s: State) => {
@@ -110,8 +118,20 @@ function Room({ st, phase, onHud, onEnd }: { st: React.RefObject<State>; phase: 
         nextBall(s);
       }
     }
+    // aiming arc (gravity only: reading the wind is your job)
+    const v = s.aim && !s.flying && phase === "play" ? launch(s.aim.p, s.aim.yaw) : null;
+    dots.current.forEach((m, k) => {
+      if (!m) return;
+      if (!v) { m.visible = false; return; }
+      const t = (k + 1) * 0.06;
+      const y = START.y + v.y * t - 0.5 * G * t * t;
+      m.visible = y > 0.02;
+      m.position.set(START.x + v.x * t, y, START.z + v.z * t);
+      m.scale.setScalar(1 - k / (DOTS * 1.4));
+    });
     if (ball.current) {
       ball.current.position.copy(s.pos);
+      if (s.aim && !s.flying) ball.current.position.z += s.aim.p * 0.25;    // wind-up
       if (s.flying) { ball.current.rotation.x -= dt * 9; ball.current.rotation.z += dt * 3; }
     }
     if (bin.current) bin.current.position.lerp(s.bin, 0.12);
@@ -139,7 +159,7 @@ function Room({ st, phase, onHud, onEnd }: { st: React.RefObject<State>; phase: 
       <mesh position={[2.6, 2.4, -5.98]}><planeGeometry args={[2.2, 1.6]} /><meshStandardMaterial color="#bfe3ff" emissive="#bfe3ff" emissiveIntensity={0.6} /></mesh>
       <mesh position={[-2.4, 2.3, -5.98]}><planeGeometry args={[1.2, 1.6]} /><meshStandardMaterial color="#ff4fa3" /></mesh>
       {/* desk you throw from */}
-      <RoundedBox args={[2.4, 0.08, 1]} radius={0.02} position={[0, 0.95, 3.05]} castShadow receiveShadow><meshStandardMaterial color="#6b4a2f" roughness={0.5} /></RoundedBox>
+      <RoundedBox args={[1.2, 0.06, 0.45]} radius={0.02} position={[0, 0.98, 3.35]} castShadow receiveShadow><meshStandardMaterial color="#6b4a2f" roughness={0.5} /></RoundedBox>
       {/* fan / wind flag */}
       <group position={[-2.6, 1.6, -3]}>
         <mesh position={[0, -0.8, 0]}><cylinderGeometry args={[0.02, 0.02, 1.6]} /><meshStandardMaterial color="#555" metalness={0.8} roughness={0.3} /></mesh>
@@ -158,6 +178,9 @@ function Room({ st, phase, onHud, onEnd }: { st: React.RefObject<State>; phase: 
       <mesh ref={ball} geometry={geo} castShadow>
         <meshStandardMaterial color="#f7f5ef" roughness={0.95} flatShading />
       </mesh>
+      {Array.from({ length: DOTS }, (_, k) => (
+        <mesh key={k} ref={(m) => { dots.current[k] = m; }} visible={false}><sphereGeometry args={[0.022, 10, 10]} /><meshBasicMaterial color="#ff4fa3" transparent opacity={0.85} /></mesh>
+      ))}
       {sparks}
     </>
   );
@@ -168,20 +191,29 @@ export function PaperToss() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [hud, setHud] = useState({ score: 0, left: BALLS, wind: 0, msg: "", msgT: 0, streak: 0 });
   const [best, setBest] = usePersistent("best3dToss", 0);
-  const drag = useRef<{ x: number; y: number; t: number } | null>(null);
+  const drag = useRef<{ x: number; y: number } | null>(null);
+  const [aiming, setAiming] = useState(false);
   const start = () => { st.current = fresh(); st.current.wind = (Math.random() - 0.5) * 0.6; setPhase("play"); };
   const end = () => { setPhase("over"); setBest((b) => Math.max(b, st.current.score)); };
-  const down = (e: React.PointerEvent) => { if (phase === "play" && !st.current.flying) drag.current = { x: e.clientX, y: e.clientY, t: performance.now() }; };
-  const up = (e: React.PointerEvent) => {
-    const d = drag.current; drag.current = null;
-    const s = st.current;
-    if (!d || phase !== "play" || s.flying) return;
+  const aimFrom = (e: React.PointerEvent) => {
+    const d = drag.current; if (!d) return null;
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const sx = (e.clientX - d.x) / r.width, sy = (d.y - e.clientY) / r.height;
-    if (sy < 0.04) return;                                    // flick upwards to throw
-    const quick = Math.min(1.25, 260 / Math.max(80, performance.now() - d.t));
-    const p = Math.min(1.3, sy * 1.6) * (0.75 + 0.25 * quick);
-    s.vel.set(sx * 4.2, 2.2 + p * 3.4, -(2.2 + p * 4.6));
+    const p = Math.max(0, Math.min(1, (d.y - e.clientY) / (r.height * 0.5)));
+    const yaw = Math.max(-0.5, Math.min(0.5, ((e.clientX - d.x) / r.width) * 1.3));
+    return { p, yaw };
+  };
+  const down = (e: React.PointerEvent) => {
+    if (phase !== "play" || st.current.flying) return;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    drag.current = { x: e.clientX, y: e.clientY }; st.current.aim = { p: 0, yaw: 0 }; setAiming(true);
+  };
+  const move = (e: React.PointerEvent) => { const a = aimFrom(e); if (a) st.current.aim = a; };
+  const up = (e: React.PointerEvent) => {
+    const a = aimFrom(e) ?? st.current.aim;
+    drag.current = null; st.current.aim = null; setAiming(false);
+    const s = st.current;
+    if (!a || phase !== "play" || s.flying || a.p < 0.06) return;     // tiny drags cancel
+    s.vel.copy(launch(a.p, a.yaw));
     s.flying = true; s.settle = 0;
     sfx("whoosh");
   };
@@ -192,11 +224,13 @@ export function PaperToss() {
         <span className="rounded-xl border-2 border-white/30 bg-black/40 px-2.5 py-1 text-sm font-extrabold backdrop-blur">💨 {hud.wind > 0.05 ? "→" : hud.wind < -0.05 ? "←" : "·"} {Math.abs(hud.wind).toFixed(1)}</span>
         {hud.msgT > 0 && <span className="rounded-xl border-2 border-white/30 bg-[#c6f24e] px-2 py-1 text-sm font-extrabold text-[#121212]">{hud.msg}</span>}
       </>}
-      how={<>Flick up on the screen to throw the crumpled paper into the bin. Watch the fan: wind pushes the ball sideways. Swish (no rim) = bonus, long shots = bonus. {BALLS} balls.</>}>
-      <div className="absolute inset-0 cursor-grab touch-none active:cursor-grabbing" onPointerDown={down} onPointerUp={up} onPointerCancel={() => { drag.current = null; }}>
+      how={<>Press, drag up for power and sideways to aim, then let go. The dotted arc shows the throw without wind: watch the fan and aim into it. Swish (no rim) and long shots score bonuses. {BALLS} balls.</>}>
+      <div className="absolute inset-0 cursor-grab touch-none active:cursor-grabbing" onPointerDown={down} onPointerMove={move} onPointerUp={up}
+        onPointerCancel={() => { drag.current = null; st.current.aim = null; setAiming(false); }}>
         <Canvas shadows camera={{ position: [0, 1.7, 4.2], fov: 50 }} dpr={[1, 1.75]} onCreated={({ camera }) => camera.lookAt(0, 0.5, -2)}>
           <Room st={st} phase={phase} onHud={(s) => setHud({ score: s.score, left: s.left, wind: s.wind, msg: s.msg, msgT: s.msgT, streak: s.streak })} onEnd={end} />
         </Canvas>
+        {phase === "play" && !aiming && <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/45 px-3 py-1 text-xs font-bold text-white/90">drag up to aim · release to throw</div>}
       </div>
     </GameFrame>
   );

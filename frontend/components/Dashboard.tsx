@@ -3,7 +3,7 @@
 import { BUSINESS } from "@/lib/business";
 
 import clsx from "clsx";
-import { ArrowLeft, BookOpen, IndianRupee, Landmark, ScanSearch, Wand2, Wrench, Compass, FilePen, Gamepad2, Gavel, LayoutDashboard, NotebookPen, ShieldCheck, Zap } from "lucide-react";
+import { ArrowLeft, BookOpen, IndianRupee, Landmark, Menu, ScanSearch, Wand2, Wrench, Compass, FilePen, Gamepad2, Gavel, LayoutDashboard, NotebookPen, ShieldCheck, X, Zap } from "lucide-react";
 import Link from "next/link";
 import { AnimatePresence, motion, MotionConfig, useScroll, useSpring } from "motion/react";
 import { useEffect, useState } from "react";
@@ -71,6 +71,8 @@ function UpgradeNudge() {
 }
 
 function StatusChips({ health, offline }: { health: Health | null; offline: boolean }) {
+  const { me, config } = useAuth();
+  const diag = !config?.auth_required || !!me?.is_owner;   // engine diagnostics are for founders only
   return (
     <div className="flex flex-wrap gap-1.5">
       {offline && <Badge tone="crit">Backend offline · {API || "same origin"}</Badge>}
@@ -79,8 +81,8 @@ function StatusChips({ health, offline }: { health: Health | null; offline: bool
           <Badge tone={health.llm.available ? "good" : "warn"}>
             {health.llm.available ? "Azora engine online" : "AI offline: checklist only"}
           </Badge>
-          {health.demo_mode && <Badge tone="warn">Demo mode</Badge>}
-          <Badge tone={health.s2_key ? "good" : "neutral"}>{health.s2_key ? "S2 key" : "S2 unkeyed"}</Badge>
+          {diag && health.demo_mode && <Badge tone="warn">Drafting replay on</Badge>}
+          {diag && <Badge tone={health.s2_key ? "good" : "neutral"}>{health.s2_key ? "S2 key" : "S2 unkeyed"}</Badge>}
         </>
       )}
     </div>
@@ -152,35 +154,41 @@ function Dashboard() {
   const current = TABS.find((t) => t.id === safeTab);
   const work = [...CREATE, ...WORK, ...ADMIN].find((t) => t.id === safeTab);
   const sbw = useRailWidth();
+  const [drawer, setDrawer] = useState(false);
+  const groups = [
+    { id: "create", title: "Create & publish", items: proBadges(CREATE) },
+    { id: "pipeline", title: "The pipeline", items: proBadges(TABS) },
+    { id: "workspace", title: "Workspace", items: WORK },
+    ...(me?.is_owner && authCfgRequired ? [{ id: "owner", title: "Owner", items: ADMIN }] : []),
+  ];
+  const goMobile = (id: Tab) => { setDrawer(false); go(id); };
 
   return (
     <MotionConfig reducedMotion="user">
-      <div className="relative min-h-screen" style={{ ["--sbw" as string]: `${sbw}px` }}>
+      <div className="relative min-h-screen overflow-x-clip" style={{ ["--sbw" as string]: `${sbw}px` }}>
         <ScrollProgress />
 
         {/* ---------- sidebar (desktop) ---------- */}
         <Sidebar tab={safeTab} go={(id) => go(id as Tab)} onSlay={() => setSlayOpen(true)} onAzora={() => setAuroraOpen(true)}
-          groups={[
-            { id: "create", title: "Create & publish", items: proBadges(CREATE) },
-            { id: "pipeline", title: "The pipeline", items: proBadges(TABS) },
-            { id: "workspace", title: "Workspace", items: WORK },
-            ...(me?.is_owner && authCfgRequired ? [{ id: "owner", title: "Owner", items: ADMIN }] : []),
-          ]}
+          groups={groups}
           footer={<><UpgradeNudge /><AccountCard /><StatusChips health={health} offline={offline} /></>} />
 
         {/* ---------- top bar (mobile) ---------- */}
-        <header className="sticky top-0 z-30 flex items-center justify-between border-b-[2.5px] border-edge bg-surface px-4 py-3 lg:hidden">
-          <Link href="/"><Logo compact /></Link>
+        <header className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b-[2.5px] border-edge bg-surface/95 px-3 py-2.5 backdrop-blur lg:hidden">
+          <div className="flex items-center gap-2">
+            <button onClick={() => setDrawer(true)} aria-label="Open menu" className="grid size-10 place-items-center rounded-xl border-2 border-edge bg-surface-2"><Menu className="size-5" /></button>
+            <Link href="/"><Logo compact /></Link>
+          </div>
           <div className="flex items-center gap-2">
             <button onClick={() => setSlayOpen(true)} className="btn-brut inline-flex items-center gap-1.5 rounded-xl bg-pink px-3 py-2 font-display text-sm font-extrabold text-[#121212]">
-              <Zap className="size-4" /> Slay it
+              <Zap className="size-4" /><span className="hidden min-[400px]:inline">Slay it</span>
             </button>
             <ThemeToggle />
             <AccountCard compact />
           </div>
         </header>
 
-        <main className="px-4 pb-28 pt-6 transition-[margin] duration-300 sm:px-6 lg:ml-[var(--sbw)] lg:px-10 lg:pb-12 lg:pt-8">
+        <main className="px-3 pb-44 pt-5 min-[400px]:px-4 transition-[margin] duration-300 sm:px-6 lg:ml-[var(--sbw)] lg:px-10 lg:pb-12 lg:pt-8">
           <div className="mx-auto max-w-[1280px]">
             {current && <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
@@ -206,7 +214,7 @@ function Dashboard() {
                 {safeTab === "home" && <HomeTab onOpen={open} onSlay={() => setSlayOpen(true)} onAurora={() => setAuroraOpen(true)} />}
                 {safeTab === "explore" && <LockedTab feature="scans" title="Find the gap nobody has filled yet" perks={["Cluster thousands of real papers into a live map of your field", "See rising, saturated and under-explored topics with growth numbers", "Turn any gap into grounded research questions in one click"]}><ExploreTab runId={gapRun} setRunId={setGapRun} onSendTopic={(q) => { setTopic(q); go("draft"); }} /></LockedTab>}
                 {safeTab === "draft" && <LockedTab feature="drafts" title="Let the research agents draft it" perks={["Multi-agent drafting from real literature and real data", "Figures, tables and a full reference list", "Send it straight to audit and review"]}><DraftTab topic={topic} setTopic={setTopic} health={health}
-                  onAudit={(id) => { setDocumentId(id); setAuditId(null); setReviewId(null); go("audit"); }} /></LockedTab>}
+                  onAudit={(id) => { setDocumentId(id); setAuditId(null); setReviewId(null); go("audit"); }} onStudio={() => go("studio")} /></LockedTab>}
                 {safeTab === "audit" && <LockedTab feature="audits" title="Catch citation problems before reviewers do" perks={["Every reference checked against OpenAlex and Crossref", "Retracted papers and mismatched claims flagged", "One-click fixes for overlap hotspots"]}><AuditTab documentId={documentId} setDocumentId={(id) => { setDocumentId(id); if (id !== documentId) { setAuditId(null); setReviewId(null); } }} auditId={auditId} setAuditId={setAuditId}
                   onVerdict={() => go("verdict")}
                   onOriginality={(docId) => { setTurnitinTarget({ documentId: docId, paperId: null }); go("turnitin"); }} /></LockedTab>}
@@ -242,18 +250,59 @@ function Dashboard() {
           </div>
         </main>
 
-        {/* ---------- bottom nav (mobile) ---------- */}
-        <nav className="fixed inset-x-0 bottom-0 z-30 flex gap-1 overflow-x-auto border-t-[2.5px] border-edge bg-surface p-2 lg:hidden">
-          <button onClick={() => go("home")} className={clsx("flex min-w-16 flex-1 flex-col items-center gap-0.5 rounded-xl border-2 py-1.5 text-[11px] font-bold",
-            tab === "home" ? "border-edge bg-violet text-white" : "border-transparent text-ink-2")}><LayoutDashboard className="size-4" />Home</button>
-          {[...CREATE, ...TABS, ...WORK].map((t) => (
-            <button key={t.id} onClick={() => go(t.id)}
-              className={clsx("flex min-w-16 flex-1 flex-col items-center gap-0.5 rounded-xl border-2 py-1.5 text-[11px] font-bold",
-                tab === t.id ? clsx("border-edge", t.color, !t.color.includes("text-white") && "text-[#121212]") : "border-transparent text-ink-2")}>
-              <t.icon className="size-4" />{t.label.split(" ")[0]}
+        {/* ---------- bottom nav (mobile): 4 favourites + menu ---------- */}
+        <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 gap-1 border-t-[2.5px] border-edge bg-surface/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1.5 backdrop-blur lg:hidden">
+          {([["home", "Home", LayoutDashboard, "bg-violet text-white"], ["studio", "Paper", Wand2, "bg-pink"], ["notes", "Notes", NotebookPen, "bg-yellow"], ["play", "Arcade", Gamepad2, "bg-orange"]] as const).map(([id, label, Icon, color]) => (
+            <button key={id} onClick={() => goMobile(id)}
+              className={clsx("relative flex flex-col items-center gap-0.5 rounded-xl py-1.5 text-[11px] font-bold", safeTab === id ? "text-[#121212]" : "text-ink-2")}>
+              {safeTab === id && <motion.span layoutId="mnav" className={clsx("absolute inset-0 rounded-xl border-2 border-edge", color)} transition={{ type: "spring", stiffness: 400, damping: 32 }} />}
+              <Icon className={clsx("relative size-5", safeTab === id && color.includes("text-white") && "text-white")} />
+              <span className={clsx("relative", safeTab === id && color.includes("text-white") && "text-white")}>{label}</span>
             </button>
           ))}
+          <button onClick={() => setDrawer(true)} className="flex flex-col items-center gap-0.5 rounded-xl py-1.5 text-[11px] font-bold text-ink-2">
+            <Menu className="size-5" />More
+          </button>
         </nav>
+
+        {/* ---------- menu drawer (mobile) ---------- */}
+        <AnimatePresence>
+          {drawer && (
+            <>
+              <motion.div className="fixed inset-0 z-[55] bg-black/40 backdrop-blur-sm lg:hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setDrawer(false)} />
+              <motion.aside className="fixed inset-y-0 left-0 z-[56] flex w-[86vw] max-w-[340px] flex-col border-r-[2.5px] border-edge bg-surface lg:hidden"
+                initial={{ x: "-100%" }} animate={{ x: 0 }} exit={{ x: "-100%" }} transition={{ type: "spring", stiffness: 320, damping: 34 }}
+                drag="x" dragConstraints={{ left: 0, right: 0 }} dragElastic={{ left: 0.4, right: 0 }} onDragEnd={(_, i) => { if (i.offset.x < -80) setDrawer(false); }}>
+                <div className="flex items-center justify-between border-b-2 border-dashed border-line px-4 py-3">
+                  <Logo compact />
+                  <button onClick={() => setDrawer(false)} aria-label="Close menu" className="grid size-9 place-items-center rounded-xl border-2 border-edge"><X className="size-4" /></button>
+                </div>
+                <div className="flex-1 space-y-4 overflow-y-auto px-3 py-3">
+                  <button onClick={() => goMobile("home")} className={clsx("flex w-full items-center gap-3 rounded-2xl border-2 px-3 py-2 text-left", safeTab === "home" ? "border-edge bg-violet text-white" : "border-transparent")}>
+                    <LayoutDashboard className="size-5" /><span className="font-display font-extrabold">Home</span>
+                  </button>
+                  {groups.map((g) => (
+                    <div key={g.id}>
+                      <div className="mb-1 px-2 text-[11px] font-extrabold uppercase tracking-wider text-muted">{g.title}</div>
+                      {g.items.map((it) => (
+                        <button key={it.id} onClick={() => goMobile(it.id)}
+                          className={clsx("flex w-full items-center gap-3 rounded-2xl border-2 px-3 py-2 text-left", safeTab === it.id ? clsx("border-edge", it.color, !it.color.includes("text-white") && "text-[#121212]") : "border-transparent hover:bg-surface-2")}>
+                          <span className="grid size-9 shrink-0 place-items-center rounded-xl border-2 border-edge bg-surface text-ink"><it.icon className="size-4" /></span>
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-1.5 font-display text-[15px] font-extrabold leading-tight">{it.label}
+                              {"badge" in it && it.badge && <span className="rounded-full border border-edge bg-yellow px-1.5 text-[9px] font-extrabold uppercase text-[#121212]">{it.badge}</span>}</span>
+                            <span className="block truncate text-xs opacity-75">{it.q}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+                <div className="space-y-2 border-t-2 border-dashed border-line p-3"><UpgradeNudge /><AccountCard /><StatusChips health={health} offline={offline} /></div>
+              </motion.aside>
+            </>
+          )}
+        </AnimatePresence>
 
         <SlayModal open={slayOpen} onClose={() => setSlayOpen(false)} health={health} defaultTopic={topic} defaultDocumentId={documentId}
           onOpenResult={(r, t) => {

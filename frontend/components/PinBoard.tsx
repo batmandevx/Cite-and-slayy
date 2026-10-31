@@ -109,7 +109,7 @@ export function PinBoard({ screen }: { screen: string }) {
       </div>
 
       {/* floating control */}
-      <div className="fixed bottom-24 left-4 z-50 lg:bottom-6 lg:left-[calc(var(--sbw,272px)+18px)]">
+      <div className="fixed bottom-[88px] left-3 z-50 sm:left-4 lg:bottom-6 lg:left-[calc(var(--sbw,272px)+18px)]">
         <AnimatePresence>
           {menu && (
             <motion.div initial={{ opacity: 0, y: 10, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.9 }}

@@ -724,12 +724,15 @@ const Lanyard = ({
   breeze = 0.5,
   interactive = true,
   intro = true,
+  flipKey = 0,
   className = '',
   style
 }) => {
   const containerRef = useRef(null);
   const settingsRef = useRef(null);
   const applyRef = useRef(null);
+  const flipRef = useRef(null);
+  const lastFlip = useRef(flipKey);
 
   const settings = {
     frontImage,
@@ -753,6 +756,11 @@ const Lanyard = ({
     interactive,
     intro
   };
+
+  // Bumping `flipKey` turns the card over (for a visible "flip" button).
+  useEffect(() => {
+    if (flipKey !== lastFlip.current) { lastFlip.current = flipKey; flipRef.current?.(); }
+  }, [flipKey]);
 
   // Latest props for the animation loop (written in an effect, not during render).
   useLayoutEffect(() => {
@@ -1179,6 +1187,7 @@ const Lanyard = ({
       if (canvas.style.cursor !== value) canvas.style.cursor = value;
     };
 
+    let swipe = null;
     const flip = point => {
       const body = sim.body;
       const up = scratch.a.set(0, 1, 0).applyQuaternion(body.quaternion);
@@ -1204,6 +1213,7 @@ const Lanyard = ({
         target: hit.point.clone()
       };
       press = { x: event.clientX, y: event.clientY, time: performance.now(), point: hit.point.clone() };
+      swipe = { x: event.clientX, point: hit.point.clone() };
       canvas.setPointerCapture?.(event.pointerId);
       setCursor('grabbing');
       event.preventDefault();
@@ -1214,7 +1224,7 @@ const Lanyard = ({
       if (!settingsRef.current.interactive) return;
       toPointer(event);
       if (sim.grab) {
-        if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 6) press = null;
+        if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 8) press = null;
         raycaster.ray.at(sim.grab.reach, sim.grab.target);
         start();
         return;
@@ -1227,8 +1237,11 @@ const Lanyard = ({
     const onPointerUp = event => {
       if (!sim.grab) return;
       sim.grab = null;
-      if (press && event.type === 'pointerup' && performance.now() - press.time < 450) flip(press.point);
+      if (press && event.type === 'pointerup' && performance.now() - press.time < 600) flip(press.point);
+      // a big sideways swipe or throw turns the card over too
+      else if (swipe && event.type === 'pointerup' && Math.abs(event.clientX - swipe.x) > 90) flip(swipe.point);
       press = null;
+      swipe = null;
       canvas.releasePointerCapture?.(event.pointerId);
       setCursor(hovering && event.pointerType !== 'touch' ? 'grab' : '');
       start();
@@ -1269,12 +1282,14 @@ const Lanyard = ({
     document.addEventListener('visibilitychange', onVisibility);
 
         applyRef.current = apply;
+    flipRef.current = () => { flip(sim.body.position.clone().add(new THREE.Vector3(0.4, 0, 0))); start(); };
     resize();
     start();
 
     return () => {
       alive = false;
       applyRef.current = null;
+      flipRef.current = null;
       if (raf) cancelAnimationFrame(raf);
       resizeObserver.disconnect();
       intersectionObserver.disconnect();

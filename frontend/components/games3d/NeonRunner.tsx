@@ -3,14 +3,14 @@
 
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Edges, Stars } from "@react-three/drei";
-import * as THREE from "three";
 import { useEffect, useRef, useState } from "react";
-import type { Group, Mesh } from "three";
+import type { Group } from "three";
 import { usePersistent } from "@/lib/api";
 import { sfx } from "@/lib/sfx";
 import { Glow, useSparks } from "./fx";
 import { NeonCity, SynthSun } from "./models";
 import { GameFrame, type Phase } from "./GameFrame";
+import { Runner } from "./Runner";
 
 const LANES = [-2.2, 0, 2.2];
 const POOL = 28;
@@ -20,13 +20,11 @@ interface State { lane: number; x: number; y: number; vy: number; speed: number;
 const fresh = (): State => ({ lane: 1, x: 0, y: 0.5, vy: 0, speed: 14, dist: 0, gems: 0, spawn: 0, things: [], dead: false, shake: 0 });
 
 function World({ st, phase, onScore, onDie }: { st: React.RefObject<State>; phase: Phase; onScore: (s: number) => void; onDie: () => void }) {
-  const player = useRef<Mesh>(null);
   const meshes = useRef<(Group | null)[]>([]);
   const grid = useRef<Group>(null);
   const tick = useRef(0);
   const [sparks, burst] = useSparks();
   const speedRef = useRef(14);
-  const trail = useRef<(Mesh | null)[]>([]);
   useFrame((state, raw) => {
     const s = st.current;
     const dt = Math.min(raw, 0.05);
@@ -55,15 +53,6 @@ function World({ st, phase, onScore, onDie }: { st: React.RefObject<State>; phas
       if (tick.current > 0.1) { tick.current = 0; onScore(Math.floor(s.dist / 4) + s.gems * 10); }
     }
     speedRef.current = phase === "play" && !s.dead ? s.speed : 4;
-    trail.current.forEach((m, k) => {   // afterimage trail behind the orb
-      if (!m) return;
-      m.position.set(s.x + Math.sin(s.dist * 0.5 + k) * 0.03, s.y - 0.05, 0.45 + k * 0.42);
-      m.scale.setScalar(0.42 - k * 0.055);
-    });
-    if (player.current) {
-      player.current.position.set(s.x, s.y, 0);
-      player.current.rotation.x -= dt * s.speed * 0.6;
-    }
     if (grid.current) grid.current.position.z = (s.dist % 4);
     s.shake = Math.max(0, s.shake - dt * 1.2);
     state.camera.position.x = s.x * 0.35 + (Math.random() - 0.5) * s.shake;
@@ -107,17 +96,8 @@ function World({ st, phase, onScore, onDie }: { st: React.RefObject<State>; phas
         <planeGeometry args={[8, 140]} />
         <meshStandardMaterial color="#1d1433" />
       </mesh>
-      <mesh ref={player} castShadow>
-        <icosahedronGeometry args={[0.5, 1]} />
-        <meshStandardMaterial color="#c6f24e" emissive="#7fb800" emissiveIntensity={0.6} flatShading />
-        <Glow color="#c6f24e" size={2.6} opacity={0.7} />
-      </mesh>
-      {Array.from({ length: 6 }, (_, k) => (
-        <mesh key={k} ref={(m) => { trail.current[k] = m; }}>
-          <icosahedronGeometry args={[1, 1]} />
-          <meshBasicMaterial color="#c6f24e" transparent opacity={0.28 - k * 0.04} blending={THREE.AdditiveBlending} depthWrite={false} />
-        </mesh>
-      ))}
+      <Runner pose={() => { const s = st.current; return { x: s.x, lift: s.y - 0.5, dist: s.dist, air: s.y > 0.55, dead: s.dead, lean: LANES[s.lane] - s.x }; }} />
+      <pointLight position={[0, 2.2, 1.6]} intensity={8} color="#c6f24e" distance={5} />
       {sparks}
       {Array.from({ length: POOL }, (_, i) => (
         <group key={i} ref={(g) => { meshes.current[i] = g; }} visible={false}>

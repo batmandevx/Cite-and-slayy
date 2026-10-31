@@ -932,11 +932,12 @@ export function AuroraLauncher({ onClick }: { onClick: () => void }) {
       whileHover={{ scale: 1.06, rotate: -1.5 }}
       whileTap={{ scale: 0.94 }}
       transition={{ type: "spring", stiffness: 300, damping: 18 }}
-      className="fixed bottom-24 right-5 z-40 flex items-center gap-2.5 rounded-full border-[2.5px] border-edge bg-surface py-2 pl-2 pr-4 shadow-[4px_4px_0_var(--shadow-c)] lg:bottom-6"
+      className="fixed bottom-[88px] right-3 z-40 flex items-center gap-2.5 rounded-full border-[2.5px] border-edge bg-surface p-1.5 shadow-[4px_4px_0_var(--shadow-c)] sm:right-5 sm:py-2 sm:pl-2 sm:pr-4 lg:bottom-6"
       title="Open Azora AI Lab (A)"
+      aria-label="Open Azora AI"
     >
       <AuroraOrb size={38} ring />
-      <div className="text-left">
+      <div className="hidden text-left sm:block">
         <span className="block font-display text-sm font-extrabold leading-tight">Azora AI</span>
         <span className="block text-[10px] font-bold text-muted">Agentic Lab · A</span>
       </div>

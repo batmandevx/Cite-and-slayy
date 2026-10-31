@@ -2,7 +2,7 @@
 /* eslint-disable react-hooks/immutability -- game state lives in a ref and is mutated per frame inside useFrame (the standard R3F loop) */
 
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Sparkles } from "@react-three/drei";
+import { ContactShadows, Environment, Lightformer, RoundedBox } from "@react-three/drei";
 import { useRef, useState } from "react";
 import type { Group, Mesh } from "three";
 import { usePersistent } from "@/lib/api";
@@ -11,7 +11,7 @@ import { Glow, useSparks } from "./fx";
 import { GameFrame, type Phase } from "./GameFrame";
 
 type Wall = [number, number, number, number];   // center x, center z, width (x), depth (z)
-const T = 0.16, BALL = 0.24, G = 14;
+const T = 0.16, BALL = 0.22, G = 11, MAX_V = 5.5, STEP = 0.04;   // STEP: max distance per physics sub-step (< wall thickness)
 
 /** Perfect maze by recursive backtracking; returns wall boxes in board coordinates (cells are 1×1, board centred). */
 function makeMaze(n: number): { walls: Wall[]; start: [number, number]; goal: [number, number]; stars: [number, number][] } {
@@ -50,7 +50,7 @@ interface State { x: number; z: number; vx: number; vz: number; rx: number; rz: 
 function Board({ st, maze, phase, onHud, onLevel, onDie }: {
   st: React.RefObject<State>; maze: ReturnType<typeof makeMaze>; phase: Phase; onHud: (s: State) => void; onLevel: () => void; onDie: () => void;
 }) {
-  const board = useRef<Group>(null), ball = useRef<Mesh>(null), goal = useRef<Mesh>(null);
+  const board = useRef<Group>(null), ball = useRef<Mesh>(null), goal = useRef<Group>(null);
   const starRefs = useRef<(Group | null)[]>([]);
   const hud = useRef(0);
   const [sparks, burst] = useSparks();
@@ -67,16 +67,26 @@ function Board({ st, maze, phase, onHud, onLevel, onDie }: {
       if (s.time <= 0) { s.time = 0; onDie(); }
       s.vx += -Math.sin(s.rz) * G * dt; s.vz += Math.sin(s.rx) * G * dt;
       const damp = Math.exp(-1.1 * dt); s.vx *= damp; s.vz *= damp;
-      for (const axis of ["x", "z"] as const) {
-        const v = axis === "x" ? s.vx : s.vz;
-        if (axis === "x") s.x += v * dt; else s.z += v * dt;
-        for (const [cx, cz, w, d] of maze.walls) {
-          const ox = BALL + w / 2 - Math.abs(s.x - cx), oz = BALL + d / 2 - Math.abs(s.z - cz);
-          if (ox > 0 && oz > 0) {
-            if (axis === "x") { s.x += Math.sign(s.x - cx || 1) * ox; if (Math.abs(s.vx) > 2) sfx("tick"); s.vx *= -0.35; }
-            else { s.z += Math.sign(s.z - cz || 1) * oz; if (Math.abs(s.vz) > 2) sfx("tick"); s.vz *= -0.35; }
+      const sp = Math.hypot(s.vx, s.vz);
+      if (sp > MAX_V) { s.vx *= MAX_V / sp; s.vz *= MAX_V / sp; }
+      // sub-steps so the ball can never jump through a wall in one frame
+      const steps = Math.max(1, Math.ceil((Math.max(Math.abs(s.vx), Math.abs(s.vz)) * dt) / STEP));
+      const h = dt / steps, lim = n / 2 - T / 2 - BALL;
+      for (let k = 0; k < steps; k++) {
+        for (const axis of ["x", "z"] as const) {
+          const prev = axis === "x" ? s.x : s.z;
+          if (axis === "x") s.x += s.vx * h; else s.z += s.vz * h;
+          for (const [cx, cz, w, d] of maze.walls) {
+            const ox = BALL + w / 2 - Math.abs(s.x - cx), oz = BALL + d / 2 - Math.abs(s.z - cz);
+            if (ox <= 0 || oz <= 0) continue;
+            // push back to the side the ball came from
+            if (axis === "x") { const side = Math.sign(prev - cx) || 1; s.x = cx + side * (w / 2 + BALL + 1e-4); if (Math.abs(s.vx) > 1.6) sfx("tick"); s.vx *= -0.3; }
+            else { const side = Math.sign(prev - cz) || 1; s.z = cz + side * (d / 2 + BALL + 1e-4); if (Math.abs(s.vz) > 1.6) sfx("tick"); s.vz *= -0.3; }
           }
         }
+        // the frame is solid: never leave the board
+        if (Math.abs(s.x) > lim) { s.x = Math.sign(s.x) * lim; s.vx *= -0.3; }
+        if (Math.abs(s.z) > lim) { s.z = Math.sign(s.z) * lim; s.vz *= -0.3; }
       }
       maze.stars.forEach(([sx, sz], k) => {
         if (!s.stars[k] && Math.hypot(s.x - sx, s.z - sz) < 0.4) {
@@ -96,34 +106,46 @@ function Board({ st, maze, phase, onHud, onLevel, onDie }: {
       ball.current.rotation.x += (s.vz * dt) / BALL;
       ball.current.rotation.z -= (s.vx * dt) / BALL;
     }
-    if (goal.current) goal.current.scale.setScalar(1 + Math.sin(state.clock.elapsedTime * 4) * 0.12);
+    if (goal.current) goal.current.scale.setScalar(1 + Math.sin(state.clock.elapsedTime * 3) * 0.04);
     starRefs.current.forEach((g, k) => { if (g) { g.visible = !s.stars[k]; g.rotation.y += dt * 2.5; g.position.y = 0.45 + Math.sin(state.clock.elapsedTime * 3 + k) * 0.08; } });
     state.camera.lookAt(0, 0, 0.6);
   });
   return (
     <>
-      <color attach="background" args={["#100a24"]} />
-      <ambientLight intensity={0.55} />
-      <directionalLight position={[3, 9, 4]} intensity={1.8} castShadow />
-      <pointLight position={[0, 4, 0]} intensity={20} color="#ff9ecf" />
-      <Sparkles count={90} scale={[16, 6, 16]} size={3} speed={0.3} color="#8f7bff" />
+      <color attach="background" args={["#1a1410"]} />
+      <hemisphereLight args={["#fff3e0", "#2a1d12", 0.6]} />
+      <directionalLight position={[3, 9, 4]} intensity={2.2} castShadow shadow-mapSize={[1024, 1024]} shadow-camera-left={-6} shadow-camera-right={6} shadow-camera-top={6} shadow-camera-bottom={-6} />
+      <spotLight position={[-4, 7, -3]} angle={0.6} penumbra={0.8} intensity={30} color="#ffd9a8" />
+      <Environment resolution={128}>
+        <Lightformer intensity={2.5} position={[0, 5, 3]} scale={[8, 3, 1]} />
+        <Lightformer intensity={1.2} position={[-5, 2, -2]} rotation-y={Math.PI / 2} scale={[6, 2, 1]} color="#ffd9a8" />
+        <Lightformer intensity={0.8} position={[5, 2, 0]} rotation-y={-Math.PI / 2} scale={[6, 2, 1]} color="#a8d8ff" />
+      </Environment>
+      {/* table */}
+      <mesh position={[0, -1.6, 0]} rotation-x={-Math.PI / 2} receiveShadow><planeGeometry args={[40, 40]} /><meshStandardMaterial color="#2a1f17" roughness={0.9} /></mesh>
+      <ContactShadows position={[0, -1.55, 0]} opacity={0.55} scale={n + 6} blur={2.5} far={3} />
       <group ref={board}>
-        <mesh position={[0, -0.12, 0]} receiveShadow>
-          <boxGeometry args={[n + 0.6, 0.2, n + 0.6]} />
-          <meshStandardMaterial color="#1d1433" metalness={0.4} roughness={0.5} />
+        {/* walnut tray with a raised frame */}
+        <RoundedBox args={[n + 0.7, 0.24, n + 0.7]} radius={0.08} position={[0, -0.13, 0]} receiveShadow castShadow>
+          <meshStandardMaterial color="#6b4428" roughness={0.45} metalness={0.05} />
+        </RoundedBox>
+        <mesh position={[0, -0.005, 0]} rotation-x={-Math.PI / 2} receiveShadow>
+          <planeGeometry args={[n, n]} /><meshStandardMaterial color="#e9dcc3" roughness={0.75} />
         </mesh>
-        <gridHelper args={[n, n, "#8f7bff", "#3a2a66"]} position={[0, -0.01, 0]} />
-        {maze.walls.map(([cx, cz, w, d], k) => (
-          <mesh key={k} position={[cx, 0.22, cz]} castShadow>
-            <boxGeometry args={[w, 0.44, d]} />
-            <meshStandardMaterial color={k < 4 ? "#ff4fa3" : "#8f7bff"} emissive={k < 4 ? "#7a0f45" : "#2e1a73"} emissiveIntensity={0.6} metalness={0.3} roughness={0.35} />
-          </mesh>
+        {Array.from({ length: n + 1 }, (_, i) => (
+          <mesh key={i} position={[i - n / 2, 0, 0]} rotation-x={-Math.PI / 2}><planeGeometry args={[0.012, n]} /><meshBasicMaterial color="#cdbd9f" /></mesh>
         ))}
-        <mesh ref={goal} position={[maze.goal[0], 0.01, maze.goal[1]]} rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[0.18, 0.36, 32]} />
-          <meshBasicMaterial color="#c6f24e" />
-        </mesh>
-        <group position={[maze.goal[0], 0.2, maze.goal[1]]}><Glow color="#c6f24e" size={1.6} opacity={0.7} /></group>
+        {maze.walls.map(([cx, cz, w, d], k) => (
+          <RoundedBox key={k} args={[w, 0.42, d]} radius={0.03} smoothness={2} position={[cx, 0.2, cz]} castShadow receiveShadow>
+            <meshStandardMaterial color={k < 4 ? "#5a361f" : "#8a5a36"} roughness={0.4} metalness={0.05} />
+          </RoundedBox>
+        ))}
+        {/* goal: a real hole with a brass rim */}
+        <group ref={goal} position={[maze.goal[0], 0.004, maze.goal[1]]}>
+          <mesh rotation-x={-Math.PI / 2}><circleGeometry args={[0.3, 40]} /><meshStandardMaterial color="#0b0806" roughness={1} /></mesh>
+          <mesh rotation-x={-Math.PI / 2}><ringGeometry args={[0.3, 0.36, 40]} /><meshStandardMaterial color="#d4a94f" metalness={1} roughness={0.25} /></mesh>
+          <group position={[0, 0.15, 0]}><Glow color="#c6f24e" size={1.2} opacity={0.45} /></group>
+        </group>
         {maze.stars.map(([sx, sz], k) => (
           <group key={k} ref={(g) => { starRefs.current[k] = g; }} position={[sx, 0.45, sz]}>
             <mesh><octahedronGeometry args={[0.18, 0]} /><meshStandardMaterial color="#ffd23f" emissive="#c79a00" emissiveIntensity={1} /></mesh>
@@ -131,9 +153,8 @@ function Board({ st, maze, phase, onHud, onLevel, onDie }: {
           </group>
         ))}
         <mesh ref={ball} castShadow>
-          <sphereGeometry args={[BALL, 32, 32]} />
-          <meshStandardMaterial color="#ff4fa3" metalness={0.7} roughness={0.15} emissive="#5a0030" emissiveIntensity={0.4} />
-          <Glow color="#ff4fa3" size={1.1} opacity={0.5} />
+          <sphereGeometry args={[BALL, 48, 48]} />
+          <meshStandardMaterial color="#eef1f5" metalness={0.8} roughness={0.14} envMapIntensity={1.8} />
         </mesh>
         {sparks}
       </group>

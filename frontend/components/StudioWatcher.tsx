@@ -43,7 +43,7 @@ export function StudioWatcher({ active, onOpen }: { active: boolean; onOpen: () 
       {show && (
         <motion.button initial={{ y: 80, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 80, opacity: 0 }}
           onClick={() => { setReady(false); onOpen(); }}
-          className="btn-brut fixed bottom-24 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-ink px-4 py-2.5 text-sm font-bold text-bg lg:bottom-6">
+          className="btn-brut fixed bottom-[88px] left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-ink px-4 py-2.5 text-sm font-bold text-bg lg:bottom-6">
           {ready ? <PartyPopper className="size-4 text-yellow" /> : <Loader2 className="size-4 animate-spin" />}
           {ready ? "Your paper is ready! Open it" : `Writing your paper… ${Math.round((job?.progress ?? 0) * 100)}%`}
           {!ready && <span className="h-1.5 w-20 overflow-hidden rounded-full bg-bg/30"><motion.span className="block h-full bg-lime" animate={{ width: `${(job?.progress ?? 0) * 100}%` }} /></span>}

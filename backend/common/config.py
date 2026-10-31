@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     auth_required: bool = False        # true in production: every /api call needs a signed-in user
     secret_key: str | None = None      # signs session cookies; generated into DATA_DIR if unset
     founder_accounts: str = ""        # base64url JSON {email: scrypt hash}; founders get owner + admin + unlimited, forever
+    founder_names: str = ""           # "email=Full Name;email2=Name" display names for founder accounts
     support_email: str = "slayyhacks@gmail.com"
     owner_emails: str = ""             # comma-separated dev/owner emails with unlimited access to all paid features
     owner_access_key: str | None = None  # optional secret key letting the dev owner unlock unlimited access on any session

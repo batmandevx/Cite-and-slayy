@@ -362,3 +362,23 @@ def test_founders_are_permanent_admins(prod, monkeypatch):
     assert f.post("/api/account/password", json={"current": "Founder2026x", "new": "Changed2027y"}).status_code == 200
     auth.ensure_founders()
     assert TestClient(prod).post("/api/auth/login", json={"email": "founder1@x.org", "password": "Changed2027y"}).status_code == 200
+
+
+def test_profile_name_and_founder_display_name(prod, monkeypatch):
+    import base64
+    from backend.accounts import auth
+    h = auth.hash_password("Founder2026z")
+    monkeypatch.setenv("FOUNDER_ACCOUNTS", base64.urlsafe_b64encode(json.dumps({"named@x.org": h}).encode()).decode().rstrip("="))
+    monkeypatch.setenv("FOUNDER_NAMES", "named@x.org=Ayush Upadhyay")
+    get_settings.cache_clear()
+    auth.ensure_founders()
+    f = TestClient(prod)
+    assert f.post("/api/auth/login", json={"email": "named@x.org", "password": "Founder2026z"}).status_code == 200
+    me = f.get("/api/auth/me").json()
+    assert me["name"] == "Ayush Upadhyay" and me["tier"] == "founder" and me["plan_name"].startswith("Founder")
+    u = TestClient(prod)
+    u.post("/api/auth/register", json={"email": "plain@x.org", "password": "Research2026"})
+    assert u.get("/api/auth/me").json()["tier"] == "free"
+    assert u.post("/api/account/profile", json={"name": "  Priya   Sharma "}).json()["name"] == "Priya Sharma"
+    assert u.get("/api/auth/me").json()["name"] == "Priya Sharma"
+    assert u.post("/api/account/profile", json={"name": "x"}).status_code == 400

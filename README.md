@@ -18,15 +18,25 @@ Built for the **GDGOC APU Hackathon**, track *Data-Driven Research & Intelligent
 
 **Runs with no API keys.** If no cloud key is set, it uses a free local model through [Ollama](https://ollama.com).
 
+**Live:** <https://citeslayy.com>. Sign up with email and password; the Free plan is a preview, Pro / Max unlock everything (§4.8).
+
 <p align="center">
-  <img src="docs/screenshots/hero.png" width="98%" alt="Cite and Slayy hero: live 3D research galaxy of a real Gap Radar scan" />
+  <img src="docs/screenshots/hero.png" width="98%" alt="Landing page: topic in, publish-ready paper out" />
 </p>
 <p align="center">
-  <img src="docs/screenshots/explore.png" width="49%" alt="Gap Radar opportunity map and heatmap" />
-  <img src="docs/screenshots/audit.png" width="49%" alt="CiteGuard audit with a retracted citation flagged" />
-  <img src="docs/screenshots/draft.png" width="49%" alt="AutoResearchClaw 23-stage pipeline view" />
-  <img src="docs/screenshots/verdict.png" width="49%" alt="Go / No-Go verdict with reasoning and ranked fixes" />
-  <img src="docs/screenshots/slay.png" width="60%" alt="Slay it: one-click draft, audit and verdict" />
+  <img src="docs/screenshots/home.png" width="49%" alt="Home dashboard with the decision pipeline and live research telemetry" />
+  <img src="docs/screenshots/studio.png" width="49%" alt="Paper Studio: a finished paper with downloads, slides and revise-by-chat" />
+  <img src="docs/screenshots/explore.png" width="49%" alt="Gap Radar opportunity map and momentum heatmap" />
+  <img src="docs/screenshots/audit.png" width="49%" alt="CiteGuard audit flagging a retracted paper" />
+  <img src="docs/screenshots/verdict.png" width="49%" alt="Reviewer Jury verdict with reasoning and a ranked fix list" />
+  <img src="docs/screenshots/notes.png" width="49%" alt="Word / Overleaf-style notes editor with ribbon, navigation pane and live preview" />
+  <img src="docs/screenshots/azora.png" width="49%" alt="Azora AI lab: tool calls, live experiments, image upload and voice" />
+  <img src="docs/screenshots/thought.png" width="49%" alt="Interactive Thought of the Day card" />
+  <img src="docs/screenshots/arcade_games.png" width="49%" alt="3D arcade: Neon Runner, Paper Toss, Tilt Maze and Archery Range" />
+  <img src="docs/screenshots/pricing.png" width="49%" alt="Plans: Free preview, Pro and Max" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/mobile.png" width="80%" alt="Mobile: home, menu drawer and Paper Studio" />
 </p>
 
 ---
@@ -43,6 +53,7 @@ Built for the **GDGOC APU Hackathon**, track *Data-Driven Research & Intelligent
 8. [Testing](#8-testing)
 9. [Known limitations](#9-known-limitations)
 10. [Project structure and team split](#10-project-structure-and-team-split)
+11. [Production deployment and security](#11-production-deployment-and-security)
 
 ---
 
@@ -104,7 +115,7 @@ uv run uvicorn backend.app.main:app --port 8000 --reload
 cd frontend && npm run dev
 ```
 
-Open <http://localhost:3000> (landing page) or <http://localhost:3000/app> (the app). The header chips show what is active: the AI model (local or cloud), the Semantic Scholar key and demo mode.
+Open <http://localhost:3000> (landing page) or <http://localhost:3000/app> (the app). Locally, `AUTH_REQUIRED` is off, so you are a single owner account with every feature unlocked. The status chips (owners only) show the AI engine, the Semantic Scholar key and whether the drafting replay is on.
 
 **Shortcuts:** `1`–`4` switch tabs, `S` opens *Slay it*.
 
@@ -121,6 +132,12 @@ Open <http://localhost:3000> (landing page) or <http://localhost:3000/app> (the 
 | `DEMO_MODE` | Draft tab | `true` replays the cached AutoClaw run |
 | `AUTOCLAW_BIN`, `AUTOCLAW_CONFIG`, `AUTOCLAW_WORKDIR` | Live AutoClaw runs | See [§4.2](#42-autoclaw-bridge) |
 | `TORTURED_REQUIRE_VERIFIED` | CiteGuard | `true` ignores phrase rows with an empty `verified_by` |
+| `AUTH_REQUIRED`, `PUBLIC_URL` | Production | Accounts on; every `/api` call needs a signed-in user. `PUBLIC_URL` sets cookie `Secure` and email links. |
+| `FOUNDER_ACCOUNTS`, `FOUNDER_NAMES` | Production | Founder logins as **scrypt hashes only** (base64url JSON `{email: hash}`) and display names (`email=Name;…`). See §11. |
+| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Payments | Card / netbanking checkout; without them the site takes UPI payments that a founder approves. |
+| `GOOGLE_CLIENT_ID`, `SMTP_*` | Optional sign-in | Google button and magic-link email. Email + password works without them. |
+| `SUPPORT_EMAIL` | Contact | Shown across the site (default slayyhacks@gmail.com). |
+| `PREMIUM_MODEL`, `BEDROCK_REGION` | Pro engine | Paid plans run on Claude via Amazon Bedrock; the standard engine is the fallback. |
 
 **AI options.** With `auto`, a running local model always wins, so API keys are only a fallback:
 
@@ -208,7 +225,7 @@ flowchart LR
   - live counters from `/api/stats`;
   - "how it works", and a bento of **real catches** from the demo audits;
   - the "no fake data" principles, and a one-click **Slay it** CTA.
-- **`/app` is the app:** a left sidebar with the 4 steps (each with its own colour), the Slay it button, and AI/status chips. On mobile it becomes a bottom bar.
+- **`/app` is the app:** a collapsible left sidebar (Create & publish, the 4-step pipeline, Workspace) and your account card with its tier badge. On mobile: a top bar with a menu drawer that holds every section and your profile, and a 5-item bottom bar (Home, Paper, Notes, Arcade, More). Layout is checked at 390 px wide with no sideways scrolling.
 - **3D with real data only:**
   - the Gap Radar galaxy, where orbs are clusters and dots are papers;
   - the **citation constellation** in Audit, where the paper is the core and every reference orbits it. Status shows as colour **and** shape, retracted citations pulse, and clicking a node opens its evidence.
@@ -347,7 +364,7 @@ Checks that could not run are **excluded**, not counted as passes. A retracted c
 | Scout | Plans 3 searches, pulls real papers with abstracts from OpenAlex, reranks them by embedding similarity to the topic, and drops anything Crossref lists as retracted or under an expression of concern. |
 | Analyst | Measures yearly publication counts for 2 key phrases (OpenAlex `group_by`) and draws the figures with matplotlib: the trend, the age of the cited works, and their citation impact. |
 | Architect | Designs the title, research question, contributions, the proposed method and a brief for each section. |
-| 6 Writers (parallel) | Write the Introduction, Related Work, Proposed Method (equations + architecture diagram), Bibliometric Analysis (results), Experimental Protocol (planned evaluation + workflow diagram), and Discussion & Conclusion. |
+| 8 Writers (parallel) | Write the Introduction, Related Work, Problem Formulation, Proposed Method (equations + architecture diagram), Theoretical Analysis, Bibliometric Analysis (results), Experimental Protocol (planned evaluation + workflow diagram), and Discussion & Conclusion. Short sections get a deepening pass. |
 | Editor | Writes the abstract, keywords, 4 highlights and a plain-language summary. |
 | Verifier | Removes out-of-range citation numbers. Flags 8-word verbatim overlap and close paraphrase (embeddings) against the cited abstracts, unsupported citation claims (sampled), unmeasured numbers or results claimed for the unrun method, tortured phrases, and malformed LaTeX. |
 | Reviser | Rewrites flagged paragraphs and repairs equations. Citations are then renumbered in order of first use (IEEE style). |
@@ -358,9 +375,21 @@ protocol whose cells read "to be measured". Tables of trend counts and key works
 An optional acknowledgment discloses AI assistance. The integrity report is shown with the paper. Downloads: PDF (print
 view with figures), Word (figures and diagrams embedded) and LaTeX `.zip` (`main.tex` + `figures/`, IEEE or Springer LNCS).
 
+**Presentation slides** (`backend/paper_studio/deck.py` + `frontend/lib/deck.ts`): a 16-slide `.pptx` built in the browser with
+pptxgenjs: native charts from the paper's measured trend and reference years, the architecture diagram redrawn as shapes,
+the evaluation table, and speaker notes. The model writes slide text only; every number comes from the paper. Six built-in
+themes, plus *Use colours* from 440+ free designs in the [ppttemplate.ai catalogue](https://github.com/ai-ppt-template/free-ppt-template)
+(CC BY 4.0, credited in the gallery): those files are picture slides, so the server extracts each cover's palette (Pillow,
+contrast-checked) rather than copying layouts.
+
 ### 4.6 Workspace, pins and AI assist
 
-- **Notes:** Notion-style Markdown pages with live KaTeX and Mermaid, a paper template, an AI menu (continue, improve, summarise, outline, explain) and IEEE/Springer export.
+- **Notes editor** (`frontend/components/notes/PageEditor.tsx`): a Word-style ribbon (Home, Insert, Review, View) over Markdown with live KaTeX and Mermaid:
+  - formatting with shortcuts (bold, italic, underline `++`, strike, highlight `==`, superscript `^`), headings, lists, checklists, quotes;
+  - table size picker, equation gallery, symbols, pictures (uploaded, re-encoded to PNG so they export), flowcharts, footnotes;
+  - **Cite DOI**: looks the DOI up on Crossref and adds a numbered IEEE reference;
+  - find & replace, navigation pane, focus mode, zoom, word/figure/citation counts, version history;
+  - read aloud and dictation (browser speech APIs), an AI menu, and an Overleaf-style **live LaTeX** view with *Open in Overleaf*.
 - **Sticky board:** drag notes, heart-vote them, *Tidy up* (sorted grid), *AI brainstorm* (a topic becomes 5 idea stickies), and AI expand per note.
 - **Pins anywhere:** the 📌 button (or Ctrl/⌘+V outside a text box) drops a sticky note on any screen; a note can be shown on every screen.
 - **To-dos:** quick-add syntax (`!high #tag @tomorrow`), due dates, tags, subtasks, *AI: break down*, *AI: plan my day*, a progress ring and a Pomodoro focus timer.
@@ -368,23 +397,45 @@ view with figures), Word (figures and diagrams embedded) and LaTeX `.zip` (`main
 
 ### 4.7 Arcade
 
-There are three original 3D games built with React Three Fiber (*Neon Runner*, *Ring Flyer*, *Bubble Pop*), plus three research games
-(*Tortured Phrase Quiz*, *Acronym Memory*, *Catch the Retraction*). While a paper is generating, a floating progress pill follows
-you around the app and announces when the paper is ready.
+Eight original 3D games built with React Three Fiber, plus three research games (*Tortured Phrase Quiz*, *Acronym Memory*,
+*Catch the Retraction*):
+
+| Game | What's in it |
+|---|---|
+| Paper Toss | Drag up to aim with a gravity-only preview arc, release to throw; a fan's wind drifts the ball; rim bounces, swish and distance bonuses. |
+| Archery Range | Recurve bow with a drawn string; arrows drop and drift with the wind and stick (with a wobble) in a 10-ring target that moves back. |
+| Mini Golf | Six holes; slingshot putting, rails, blocks and spinning bars, and a cup that lips out if you're too fast. |
+| Neon Runner | An animated runner (articulated arms and legs, tuck on jumps) on a synthwave track. |
+| Tilt Maze | Walnut board and a chrome ball; physics sub-steps so the ball can't pass through walls. |
+| Ring Flyer · Bubble Pop · Meteor Shield | Fly, pop and defend. |
+
+Free accounts get Paper Toss and the phrase quiz. While a paper is generating, a floating progress pill follows you around the
+app and announces when the paper is ready.
 
 ### 4.8 Accounts, plans and payments
 
-- **Sign-in:** Google (ID token verified server-side with `google-auth`) or emailed magic links. Sessions are HMAC-signed cookies.
-  With `AUTH_REQUIRED=true`, every `/api` call needs a user, and papers, documents, audits, verdicts, chats, notes and pins are
-  private to their owner (`owners` table, `backend/accounts/auth.py`).
-- **Plans** (`backend/accounts/plans.py`): Free ₹0, Pro ₹6,999/month, Max ₹12,999/month, GST-inclusive. Pro and Max run papers,
-  revisions and verdicts on the Pro engine (`PREMIUM_MODEL`, Anthropic API) with the standard engine as fallback.
+- **Sign-in:** email + password (scrypt, per-IP and per-email rate limits, generic errors), plus optional Google and magic links.
+  Sessions are HMAC-signed cookies (`uid.version.expiry.mac`, HttpOnly, SameSite=Lax, Secure on HTTPS); changing your password or
+  *Sign out of all devices* bumps the version and revokes every other session. With `AUTH_REQUIRED=true`, papers, documents,
+  audits, verdicts, chats, notes, images and pins are private to their owner (`owners` table, `backend/accounts/auth.py`).
+- **Founders:** four permanent admin accounts come from `FOUNDER_ACCOUNTS` (hashes only) and are re-asserted on every start; a
+  squatted founder email is taken back and its sessions revoked. Any other account holding owner rights is demoted.
+- **Profile:** editable display name, a tier badge (Founder, Max, Pro, Paper Pack) and a 3D **member pass** (React Bits
+  *Lanyard*, MIT + Commons Clause): matte for Free, holographic for Pro/Max, metallic gold for founders. Drag it, tap or swipe to flip.
+- **Plans** (`backend/accounts/plans.py`): Free ₹0, Pro ₹6,999/month, Max ₹12,999/month, a one-time Paper Pack ₹9,999, GST-inclusive.
+  Free is a preview: one paper's opening sections (truncated **server-side**), 3 Azora messages a day, Notes, Library, Toolbox
+  and two games. Downloads, slides, revisions, audits, verdicts, venue finder, AI & plagiarism reports, AI writing assist, image
+  upload, voice and the other games are paid; each is enforced with `require_paid` (HTTP 402) and shown in the UI with a 🔒 Pro
+  badge and a feature-specific upgrade screen.
 - **Margins are enforced, not hoped for.** Every model call records its real token usage and cost against the user, and each
-  plan has a monthly AI budget (Pro ₹900, Max ₹4,000) alongside its count limits. After GST and the gateway fee, at least
-  ~63–84% of each subscription is left for AWS and profit, even at full use. Failed jobs refund their quota automatically.
-- **Payments:** Razorpay Subscriptions. Plans are created by API on first use, Checkout authorises the mandate, the payment
-  signature is verified server-side, and `subscription.*` webhooks (HMAC-verified, exempt from the site password) keep each user's
-  plan in sync. Upgrading cancels the previous subscription; cancelling keeps access until the period ends.
+  plan has a monthly AI budget (Pro ₹900, Max ₹4,000) alongside its count limits. Failed jobs refund their quota automatically.
+- **Payments:**
+  - *Razorpay* subscriptions and Paper Pack orders. A valid checkout signature is not enough: the server then asks Razorpay for the
+    payment / subscription and checks status, amount, currency, order and owner before activating. A payment can't be reused for
+    another order, webhooks are HMAC-verified and de-duplicated by event id.
+  - *UPI* (works without Razorpay): the customer pays the shown UPI ID and submits the 12-digit UTR. A UTR can be claimed once, claims
+    are rate-limited, and nothing activates until a founder matches it against the bank app and approves it under **Owner → Payments**
+    (30 days, extending an active plan; decisions record who approved).
 - **Legal pages** (`/terms`, `/privacy`, `/refund`, `/contact`) take business details from `frontend/lib/business.ts`.
   Fill those in before applying for Razorpay activation.
 
@@ -408,6 +459,8 @@ you around the app and announces when the paper is ready.
 - **Diagrams:** every Mermaid block is validated against a strict flowchart grammar, repaired or dropped before it reaches a
   paper, unclosed fences are closed, and each paper gets an experimental-workflow flowchart.
 - **Azora AI `write_paper` tool:** Azora can pick a topic from a field scan and trend experiments, then run the full Paper Studio.
+- **Azora AI chat:** attach, paste or drop up to 3 images (read by a vision model and passed to the agent as a description),
+  dictate with the mic, and have replies read aloud (browser speech APIs).
 
 ## 5. The "never fabricate" guarantees
 
@@ -451,6 +504,16 @@ Interactive docs live at <http://localhost:8000/docs>. All long operations retur
 | POST | `/api/export/docx` · `/api/export/latex` · `/api/export/latex-zip` | Markdown to Word / LaTeX / LaTeX + figures; `diagrams` = browser-rendered Mermaid PNGs |
 | POST | `/api/assist` | `{action, text}`: expand, summarize, improve, continue, outline, explain, ideas, breakdown, plan |
 | GET/PUT | `/api/workspace/{pages,stickies,todos,pins}` | Notes workspace storage |
+| POST · GET | `/api/workspace/images` · `/api/workspace/images/{id}` | Upload a notes image (PNG/JPEG/WebP/GIF, ≤ 5 MB) · fetch it (owner only) |
+| POST | `/api/auth/register` · `/api/auth/login` · `/api/auth/logout` | Email + password accounts |
+| GET | `/api/auth/me` | Current user, `tier`, plan limits and usage |
+| POST | `/api/account/profile` · `/api/account/password` · `/api/account/logout-all` | Display name · change password · revoke other sessions |
+| POST | `/api/paper-studio/{id}/revise` · `/undo` · `/kit` · `/deck` | Revise by instruction · undo · submission kit · slide content |
+| GET | `/api/deck-templates` · `/api/deck-templates/{slug}/palette` | CC BY template catalogue · colour palette from a design |
+| POST | `/api/venues/find` | Ranked journals and conferences for a title + abstract |
+| POST | `/api/agent/chat` | Azora AI turn: `{message, chat_id?, images?}` (data URLs) |
+| GET · POST | `/api/billing/plans` · `/api/billing/upi-claim` · `/subscribe` · `/verify` · `/pack` · `/pack/verify` · `/cancel` · `/webhook` | Plans and payments |
+| GET · POST | `/api/admin/upi-claims` · `/api/admin/upi-claims/{id}/{approve,reject}` | Founder-only payment review |
 
 The schemas are in `backend/common/schemas.py`, mirrored in `frontend/lib/types.ts`.
 
@@ -475,7 +538,7 @@ uv run python scripts/import_pps.py export.csv --tortured-col … --expected-col
 ## 8. Testing
 
 ```bash
-uv run pytest -m "not live"     # 26 offline tests: parsing, matching, score, verdict rules, phrase list, LLM paths (stubbed)
+uv run pytest -m "not live"     # 86 offline tests: parsing, matching, verdict rules, Paper Studio guards, accounts, paywall, payments
 uv run pytest -m live           # 3 tests against the real APIs, on public-record facts
 ```
 
@@ -483,6 +546,10 @@ The live tests assert:
 - Crossref's retraction notice for 10.1155/2022/4989248;
 - that the HCQ preprint's citation of Gautret et al. resolves to the retracted IJAA article;
 - that all 15 GARD references exist.
+
+The account tests cover sessions and revocation, password rules and lockout, founders (including a squatted email),
+the free-plan preview and every paid gate, notes-image privacy, UPI claims, and Razorpay verification against a mocked API
+(wrong amount, someone else's subscription, replayed webhooks).
 
 The offline tests also lock in regressions found during development:
 - similar-title false matches (Brown 2020 vs. "Making Pre-trained Language Models Better Few-shot Learners");
@@ -496,7 +563,9 @@ The offline tests also lock in regressions found during development:
 
 - **LLM paths were run end to end on a local Ollama model** (claim judgments, research questions, the jury and the full *Slay it* pipeline). The **cloud** providers (Anthropic, OpenAI, Gemini) were not exercised live because no API key was available. The Anthropic path uses the installed SDK's `beta.messages.create` with JSON-schema output, `fallbacks="default"` and refusal handling. Run one review with your key before the demo.
 - Small local models are lenient reviewers: a 3B model tended to rate papers generously. Use `qwen3.5:9b` (the configured default), or a cloud model, for the demo. The rule-based checklist and CiteGuard are model-independent.
-- **Live AutoResearchClaw runs were not executed here**: the CLI wasn't installed. Stage parsing follows the stage names and output layout in its README. Demo mode is tested end to end.
+- **Live AutoResearchClaw runs were not executed here**: the CLI wasn't installed. Stage parsing follows the stage names and output layout in its README. Demo mode is tested end to end. In production the cached drafting replay is a founder-only tool; users write papers in Paper Studio.
+- **Google sign-in is "coming soon"** until a `GOOGLE_CLIENT_ID` is configured; email + password is the production login.
+- **3D games and the member pass need WebGL.** They were play-tested in headless Chrome's software renderer, which is far slower than a real GPU.
 - **GROBID is not integrated.** `GROBID_URL` is reserved; parsing uses PyMuPDF plus our reference parser. Superscript citation styles can't be linked to references, so the claim check is skipped for those papers, and the UI says so.
 - Some PDFs lose accented characters during text extraction ("Burduel" for "Burdușel"). Author matching is fuzzy to compensate.
 - Retraction coverage is Crossref's. Works without a Crossref DOI (many arXiv / NeurIPS papers) are reported as *Not covered* rather than clean.
@@ -522,10 +591,14 @@ cite-and-slayy/
     citeguard/      resolver.py · claims.py · phrases.py · overlap.py · score.py · audit.py
     jury/           personas.py · venues.py · verdict.py
     autoclaw_bridge/runner.py
+    accounts/       auth.py (sessions, passwords, founders, quotas) · plans.py · billing.py (Razorpay)
+    paper_studio/   studio.py (agents) · deck.py · kit.py · palette.py · ppt_templates.json
+    agent/          aurora.py (Azora AI tool-using agent)
   frontend/         Next.js app: app/, components/ (one file per tab + charts + ui), lib/ (api, types)
   data/             tortured_phrases.csv
   demo/             autoclaw_run/ (showcase paper + replay meta) · sample_pdfs/
-  scripts/          dev.sh · slayy_cli.py · import_pps.py
+  scripts/          dev.sh · slayy_cli.py · import_pps.py · aws_deploy.sh
+  deploy/           Dockerfiles · docker-compose.yml · Caddyfile.template
   tests/            offline + live tests
   docs/             PLAN.md (architecture & task split) · DEMO_SCRIPT.md · screenshots/
 ```
@@ -539,6 +612,26 @@ Suggested ownership for 3–5 people is in [`docs/PLAN.md` §6](docs/PLAN.md#6-t
 | Frontend | `frontend` |
 | LLM + Jury | `llm`, `jury`, claim prompts |
 | Integration + story | bridge, `demo`, phrase curation, README / demo |
+
+## 11. Production deployment and security
+
+`scripts/aws_deploy.sh` runs the stack on one EC2 instance (Docker Compose: backend, frontend, Caddy) without SSH:
+
+```bash
+./scripts/aws_deploy.sh up      # first time: instance, security group, Elastic IP, SSM role
+./scripts/aws_deploy.sh push    # ship the current code (S3 presigned upload + SSM send-command)
+```
+
+- **Config:** `.env` and `.env.production` (both gitignored; production values win) are merged into `.env.server` on every push.
+  Founder passwords are stored only as scrypt hashes; generate them with `backend.accounts.auth.hash_password`.
+- **Domain:** set `DOMAIN=yourdomain.com` in `.aws-deploy.env` and point the DNS A record at the instance. Caddy gets and renews
+  the HTTPS certificate; the `sslip.io` address keeps working. `SITE_PASSWORD=public` removes the optional site-wide password.
+- **HTTP hardening (Caddy):** HSTS, `nosniff`, `X-Frame-Options: DENY`, a strict referrer policy, a permissions policy
+  (microphone and payment for this site only), a CSP limiting framing, plugins and form targets, a 45 MB request cap, and no server banner.
+- **Application:** CORS limited to the site, owner checks on every object read, server-side paywall and quotas, per-user rate
+  limits on sign-up, login, uploads, images and payment claims, uploads read only up to their cap, client IP taken from the
+  proxy's own `X-Forwarded-For` entry, Mermaid in strict mode, no raw HTML in Markdown, image types allow-listed (no SVG), and
+  the template-palette fetch restricted to one CDN host.
 
 ## License
 

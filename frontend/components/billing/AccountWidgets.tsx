@@ -1,13 +1,14 @@
 "use client";
 
 import clsx from "clsx";
-import { Crown, Lock, LogOut, Settings, X, Zap } from "lucide-react";
+import { Crown, Lock, LogOut, Pencil, Settings, X, Zap } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { api, toast } from "@/lib/api";
 import { useAuth, type Me } from "../auth/AuthProvider";
 import { Button } from "../ui";
 import { MemberPass } from "../MemberPass";
+import { TierBadge, type Tier } from "./TierBadge";
 import { Pricing, startCheckout, startPackCheckout, type PlanInfo } from "./Pricing";
 
 const LABEL: Record<string, string> = {
@@ -16,6 +17,10 @@ const LABEL: Record<string, string> = {
   chats_day: "Azora messages today", assists_day: "AI assists today",
 };
 const PLAN_COLOR = { free: "bg-surface-2", pro: "bg-pink text-[#121212]", max: "bg-yellow text-[#121212]" };
+const RING: Record<Tier, string> = {
+  founder: "border-[#e3b341] bg-[linear-gradient(135deg,#8a6a1f,#e3b341)] shadow-[0_0_0_2px_#f6d36b55]",
+  max: "border-[#7b5cff] bg-[linear-gradient(135deg,#7b5cff,#ff5fa2)]", pro: "border-edge bg-pink", pack: "border-edge bg-orange", free: "border-edge bg-violet",
+};
 
 function Meter({ k, me }: { k: string; me: Me }) {
   const used = me.usage[k] ?? 0, lim = me.limits[k] ?? 0;
@@ -164,8 +169,15 @@ function SecurityPanel() {
 export function AccountCard({ compact }: { compact?: boolean }) {
   const { me, logout, openUpgrade, refresh, config } = useAuth();
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
   if (!me) return null;
   if (!config?.auth_required && compact) return null;
+  const tier: Tier = me.tier ?? (me.is_owner ? "founder" : me.plan === "max" ? "max" : me.plan === "pro" ? "pro" : "free");
+  const saveName = async () => {
+    try { await api.post("/api/account/profile", { name: nameDraft }); await refresh(); setEditing(false); toast({ title: "Name updated", tone: "good" }); }
+    catch (e) { toast({ title: "Couldn't save your name", body: (e as Error).message, tone: "crit" }); }
+  };
 
   const cancel = async () => {
     if (!confirm("Cancel your subscription? You keep your plan until the end of the current billing period.")) return;
@@ -176,9 +188,9 @@ export function AccountCard({ compact }: { compact?: boolean }) {
     <>
       <button onClick={() => setOpen(true)} className={clsx("flex w-full items-center gap-2.5 rounded-2xl border-[2.5px] border-edge bg-surface px-2.5 py-2 text-left hover:bg-surface-2", compact && "w-auto")}>
         {me.picture ? <img src={me.picture} alt="" className="size-8 rounded-full border-2 border-edge" referrerPolicy="no-referrer" /> // eslint-disable-line @next/next/no-img-element
-          : <span className="grid size-8 place-items-center rounded-full border-2 border-edge bg-violet font-display font-extrabold text-white">{(me.name || me.email)[0]?.toUpperCase()}</span>}
+          : <span className={clsx("grid size-8 place-items-center rounded-full border-2 font-display font-extrabold text-white", RING[tier])}>{(me.name || me.email)[0]?.toUpperCase()}</span>}
         {!compact && <span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold">{me.name || me.email}</span>
-          <span className={clsx("inline-block rounded-full border-2 border-edge px-1.5 text-[10px] font-extrabold uppercase", me.is_owner ? "bg-lime text-[#121212]" : PLAN_COLOR[me.plan])}>{me.plan_name}</span></span>}
+          <TierBadge tier={tier} size="xs" /></span>}
         {!compact && <Settings className="size-4 text-muted" />}
       </button>
       <AnimatePresence>
@@ -189,7 +201,7 @@ export function AccountCard({ compact }: { compact?: boolean }) {
               className="card relative my-6 grid w-full max-w-3xl overflow-hidden p-0 md:grid-cols-[300px_1fr]">
               <div className="relative border-b-[2.5px] border-edge bg-[radial-gradient(circle_at_50%_0%,var(--surface-2),var(--surface))] md:border-b-0 md:border-r-[2.5px]">
                 <div className="absolute left-3 top-3 z-10 rounded-full border-2 border-edge bg-surface px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider">Your pass</div>
-                <MemberPass tier={me.is_owner ? "founder" : me.plan === "max" ? "max" : me.plan === "pro" || me.is_paid ? "pro" : "free"}
+                <MemberPass tier={tier === "pack" ? "pro" : tier}
                   name={me.name || me.email.split("@")[0]} seed={me.uid} height={380} />
                 {!me.is_paid && !me.is_owner && (
                   <button onClick={() => { setOpen(false); openUpgrade(); }}
@@ -201,10 +213,24 @@ export function AccountCard({ compact }: { compact?: boolean }) {
               <div className="relative p-5 sm:p-6">
               <button onClick={() => setOpen(false)} className="absolute right-3 top-3 rounded-lg p-1 hover:bg-surface-2"><X className="size-5" /></button>
               <div className="flex items-center gap-3">
-                <span className="grid size-12 place-items-center rounded-full border-[2.5px] border-edge bg-violet font-display text-xl font-extrabold text-white">{(me.name || me.email)[0]?.toUpperCase()}</span>
-                <div className="min-w-0"><div className="truncate font-display text-lg font-extrabold">{me.name}</div><div className="truncate text-xs text-muted">{me.email}</div></div>
+                <span className={clsx("grid size-12 shrink-0 place-items-center rounded-full border-[3px] font-display text-xl font-extrabold text-white", RING[tier])}>{(me.name || me.email)[0]?.toUpperCase()}</span>
+                <div className="min-w-0 flex-1 pr-6">
+                  {editing ? (
+                    <form onSubmit={(e) => { e.preventDefault(); saveName(); }} className="flex gap-1.5">
+                      <input autoFocus value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} maxLength={60} placeholder="Your full name"
+                        className="min-w-0 flex-1 rounded-lg border-2 border-edge bg-surface px-2 py-1 font-display text-sm font-extrabold outline-none" />
+                      <button className="rounded-lg border-2 border-edge bg-lime px-2 text-xs font-extrabold text-[#121212]">Save</button>
+                    </form>
+                  ) : (
+                    <button onClick={() => { setNameDraft(me.name || ""); setEditing(true); }} className="group flex max-w-full items-center gap-1.5 text-left" title="Edit your name">
+                      <span className="truncate font-display text-lg font-extrabold">{me.name || me.email.split("@")[0]}</span>
+                      <Pencil className="size-3.5 shrink-0 opacity-40 group-hover:opacity-100" />
+                    </button>
+                  )}
+                  <div className="mt-0.5 flex flex-wrap items-center gap-1.5"><TierBadge tier={tier} /><span className="truncate text-xs text-muted">{me.email}</span></div>
+                </div>
               </div>
-              <div className={clsx("mt-4 flex items-center gap-2 rounded-2xl border-[2.5px] border-edge px-4 py-3", me.is_owner ? "bg-lime text-[#121212]" : PLAN_COLOR[me.plan])}>
+              <div className={clsx("mt-4 flex items-center gap-2 rounded-2xl border-[2.5px] border-edge px-4 py-3", tier === "founder" ? "bg-[linear-gradient(110deg,#f6d36b,#fff2bf,#e3b341)] text-[#2a1d05]" : me.is_owner ? "bg-lime text-[#121212]" : PLAN_COLOR[me.plan])}>
                 <Crown className="size-5" />
                 <div className="flex-1">
                   <div className="font-display font-extrabold">{me.plan_name}</div>

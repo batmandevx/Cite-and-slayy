@@ -21,7 +21,7 @@ export function Toaster() {
     return () => window.removeEventListener("slayy:toast", onToast);
   }, []);
   return (
-    <div className="pointer-events-none fixed bottom-5 right-5 z-[60] flex w-[min(380px,calc(100vw-2.5rem))] flex-col gap-2" aria-live="polite">
+    <div className="pointer-events-none fixed bottom-[88px] right-3 z-[60] sm:right-5 lg:bottom-5 flex w-[min(380px,calc(100vw-2.5rem))] flex-col gap-2" aria-live="polite">
       <AnimatePresence initial={false}>
         {items.map((t) => (
           <motion.div key={t.id} layout initial={{ opacity: 0, y: 20, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }}

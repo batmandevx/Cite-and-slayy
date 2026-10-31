@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuth } from "@/components/auth/AuthProvider";
+import { TierBadge } from "@/components/billing/TierBadge";
 import clsx from "clsx";
 import {
   Activity, ArrowRight, Bot, Calendar, CheckCircle2, Compass, FilePen, Flame, Gavel, Layers, ListTodo,
@@ -939,6 +940,7 @@ export function HomeTab({ onOpen, onSlay, onAurora }: { onOpen: (t: OpenTarget) 
               >
                 <RefreshCw className={clsx("size-3", refreshing && "animate-spin")} /> Live
               </button>
+              {me?.tier && me.tier !== "free" && <TierBadge tier={me.tier} />}
             </div>
 
             <h1 className="mt-1.5 font-display text-4xl font-extrabold leading-tight md:text-5xl">
