@@ -35,6 +35,8 @@ interface SentenceMatch {
   similarity: number;
   ngram_overlap: number;
   matched_sentence: string;
+  shared_phrases?: string[];
+  cited?: boolean;
   source_title: string;
   source_venue?: string | null;
   source_year?: number | null;
@@ -124,6 +126,53 @@ const SAMPLE_AI_PLAG_TEXT = `Adaptive Conformal Prediction in Streaming Systems
 In the realm of real-time decision systems, uncertainty quantification plays a pivotal role in safeguarding downstream actions. Moreover, distribution-free conformal prediction delves into finite-sample coverage guarantees without parametric assumptions, highlighting its multifaceted appeal across safety-critical deployments. Notably, standard split conformal calibration assumes exchangeability between historical calibration residuals and future test observations, underscoring the fragility of fixed quantile thresholds under regime shifts.
 
 Furthermore, online adaptive conformal inference updates miscoverage levels via gradient-like step sizes on the pinball loss, seamlessly tracking non-stationary covariate and concept drift. This framework meticulously balances interval tightness against empirical coverage stability, paving the way for trustworthy autonomous forecasting. However, abrupt volatility jumps still induce transient under-coverage windows before the adaptive threshold catches up, showcasing an intricate interplay between step-size responsiveness and post-shift variance.`;
+
+interface LineFix { before: string; after: string; action: "rewrite" | "quote"; citation_added: boolean; overlap_before: number; overlap_after: number | null }
+
+/** Highlights the exact runs of words a line shares with its matched source. */
+function SharedText({ text, phrases }: { text: string; phrases: string[] }) {
+  if (!phrases.length) return <>{text}</>;
+  const esc = phrases.map((p) => p.split(" ").map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[^A-Za-z0-9]+"));
+  const re = new RegExp(`(${esc.join("|")})`, "gi");
+  return <>{text.split(re).map((part, i) => (i % 2 ? <mark key={i} className="rounded bg-crit/25 px-0.5 text-ink">{part}</mark> : <span key={i}>{part}</span>))}</>;
+}
+
+/** Selected flagged line: what exactly overlaps, whether it's cited, and honest fixes. */
+function LineFixPanel({ scanId, sent }: { scanId: string; sent: AnnotatedSentence }) {
+  const [busy, setBusy] = useState<"rewrite" | "quote" | null>(null);
+  const [fix, setFix] = useState<LineFix | null>(null);
+  const m = sent.match!;
+  const run = async (action: "rewrite" | "quote") => {
+    setBusy(action);
+    try { setFix(await api.post<LineFix>("/api/originality/fix-line", { scan_id: scanId, sentence_id: sent.id, action })); }
+    catch (e) { toast({ title: "Couldn't fix this line", body: (e as Error).message, tone: "crit" }); }
+    finally { setBusy(null); }
+  };
+  return (
+    <div className="rounded-xl border-2 border-edge bg-surface p-3 text-xs">
+      <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+        <span className="font-display text-[11px] font-extrabold uppercase tracking-wider text-muted">Selected line</span>
+        <span className="rounded-full border border-edge px-1.5 text-[10px] font-extrabold" style={{ backgroundColor: `${m.color}30` }}>[{m.source_id}] {m.kind}</span>
+        <span className={clsx("rounded-full border px-1.5 text-[10px] font-extrabold", m.cited ? "border-good bg-good/15 text-good" : "border-crit bg-crit/15 text-crit-ink")}>
+          {m.cited ? "has a citation" : "no citation"}</span>
+      </div>
+      <p className="leading-relaxed text-ink"><SharedText text={sent.text} phrases={m.shared_phrases ?? []} /></p>
+      {(m.shared_phrases?.length ?? 0) > 0 && <p className="mt-1 text-[10.5px] text-muted">Highlighted: word-for-word runs shared with the source.</p>}
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <Button className="!px-2.5 !py-1 text-[11px]" loading={busy === "rewrite"} onClick={() => run("rewrite")}>Rewrite &amp; cite</Button>
+        {m.kind === "verbatim" && <Button variant="ghost" className="!px-2.5 !py-1 text-[11px]" loading={busy === "quote"} onClick={() => run("quote")}>Quote &amp; cite</Button>}
+      </div>
+      {fix && (
+        <div className="mt-2.5 space-y-1.5 rounded-lg border border-edge/40 bg-surface-2 p-2.5">
+          <div className="text-[10.5px] font-bold uppercase text-muted">Suggested line ({fix.action === "rewrite" ? "own words" : "quoted"}{fix.citation_added ? ", citation added" : ""})</div>
+          <p className="text-ink">{fix.after}</p>
+          {fix.overlap_after !== null && <p className="text-[10.5px] text-good">Shared 4-word phrases with the source: {Math.round(fix.overlap_before * 100)}% → {Math.round(fix.overlap_after * 100)}%</p>}
+          <button className="text-[11px] font-bold underline" onClick={() => { navigator.clipboard.writeText(fix.after); toast({ title: "Copied fixed line", tone: "good" }); }}>Copy</button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function GaugeRing({
   label,
@@ -1014,6 +1063,10 @@ export function TurnitinTab({
                   {/* Tab 1: Matched Sources */}
                   {inspectorTab === "sources" && (
                     <div className="space-y-2.5">
+                      {(() => {
+                        const sel = activeReport.paragraphs.flatMap((p) => p.sentences).find((x) => x.id === selectedSentId);
+                        return sel?.match ? <LineFixPanel key={sel.id} scanId={activeReport.scan_id} sent={sel} /> : null;
+                      })()}
                       {activeReport.sources.length === 0 ? (
                         <div className="rounded-xl border-2 border-dashed border-edge bg-surface-2 p-5 text-center text-xs text-ink-2">
                           <CheckCircle2 className="mx-auto mb-1.5 size-6 text-good" />

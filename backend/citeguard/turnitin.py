@@ -104,6 +104,28 @@ def _ngram_set(words: list[str], n: int) -> set[tuple[str, ...]]:
     return {tuple(words[i:i + n]) for i in range(len(words) - n + 1)}
 
 
+CITE_RE = re.compile(r"\[\d+(?:\s*[-–,]\s*\d+)*\]|\([A-Z][A-Za-z\-]+(?:\s+(?:et\s+al\.|and|&)\s*[A-Za-z\-]*)?,?\s*\d{4}[a-z]?\)")
+
+
+def shared_phrases(sent_words: list[str], src_words: list[str], n: int = 4) -> list[str]:
+    """Maximal runs of words the sentence shares with the source (every run is >= n words), for line-level highlighting."""
+    src = _ngram_set(src_words, n)
+    hit = [False] * len(sent_words)
+    for i in range(len(sent_words) - n + 1):
+        if tuple(sent_words[i:i + n]) in src:
+            for k in range(i, i + n):
+                hit[k] = True
+    runs, cur = [], []
+    for w, h in zip(sent_words, hit):
+        if h:
+            cur.append(w)
+        elif cur:
+            runs.append(" ".join(cur)); cur = []
+    if cur:
+        runs.append(" ".join(cur))
+    return runs[:6]
+
+
 def _ngram_containment(sent_words: list[str], src_words: list[str], n: int = 4) -> float:
     a = _ngram_set(sent_words, n)
     if not a:
@@ -440,6 +462,8 @@ async def _score_manuscript(
                     "similarity": m["similarity"],
                     "ngram_overlap": m["ngram_overlap"],
                     "matched_sentence": m["matched_sentence"],
+                    "shared_phrases": shared_phrases(_word_tokens(stext), _word_tokens(m["matched_sentence"])),
+                    "cited": bool(CITE_RE.search(stext)),
                     "source_title": src_meta["title"],
                     "source_venue": src_meta["venue"],
                     "source_year": src_meta["year"],
@@ -784,3 +808,60 @@ async def reduce(
         "after_scan": {k: v for k, v in after_report.items() if not k.startswith("_")},
     }
 
+
+
+class _LineFix(BaseModel):
+    sentence: str
+
+
+async def fix_line(scan_id: str, sentence_id: str, action: Literal["rewrite", "quote"]) -> dict:
+    """Fix one similarity-flagged line honestly: rewrite it in original words with a citation, or quote and cite it.
+    A rewrite is accepted only if it shares no 4-word run with the matched source sentence."""
+    stored = get_store().get("originality_scan", scan_id)
+    if not stored:
+        raise ValueError("scan not found")
+    sent = next((s for p in stored["paragraphs"] for s in p.get("sentences") or [] if s["id"] == sentence_id), None)
+    if not sent or not sent.get("match"):
+        raise ValueError("that line has no similarity match to fix")
+    m = sent["match"]
+    src = next((x for x in stored.get("_candidate_sources") or [] if x["title"] == m["source_title"]), {})
+    author = ((src.get("authors") or ["Author"])[0].split() or ["Author"])[-1]
+    year = m.get("source_year") or src.get("year") or "n.d."
+    citation = f"({author} et al., {year})"
+    before = sent["text"].strip()
+    src_words = _word_tokens(m["matched_sentence"])
+    already_cited = bool(CITE_RE.search(before))
+
+    if action == "quote":
+        if m["kind"] != "verbatim":
+            raise ValueError("only verbatim matches can be quoted; use Rewrite & cite for paraphrases")
+        body = before.rstrip(".!? ")
+        after = f"“{body}” {citation}." if not already_cited else f"“{body}”."
+    else:
+        if not llm.available():
+            raise llm.LLMError("No LLM is configured for rewriting.")
+        prompt = (f"Sentence from the author's manuscript:\n{before}\n\nPublished source sentence it overlaps with:\n{m['matched_sentence']}\n"
+                  f"Source citation to use: {citation}\n\n"
+                  "Rewrite the author's sentence in genuinely original wording and structure that keeps exactly the same meaning. "
+                  "Do not reuse any run of 4 or more consecutive words from the source sentence. Keep every number, symbol and "
+                  "existing citation marker unchanged" + ("" if already_cited else f", and attribute the idea by adding {citation}") +
+                  ". Do not add claims. Return one sentence.")
+        after, err = "", ""
+        for _ in range(3):
+            out = await llm.complete_json("You are a careful academic editor who paraphrases properly and always attributes sources.",
+                                          prompt + (f"\nYour previous attempt still shared these words with the source: {err}. Change them." if err else ""),
+                                          _LineFix, effort="low", tier="fast")
+            cand = out.sentence.strip()
+            left = shared_phrases(_word_tokens(cand), src_words)
+            if not left:
+                after = cand
+                break
+            err = "; ".join(left)
+        if not after:
+            raise ValueError("couldn't produce a rewrite free of the source wording; try Quote & cite or edit it yourself")
+    return {
+        "sentence_id": sentence_id, "action": action, "before": before, "after": after, "citation_added": not already_cited,
+        "overlap_before": round(_ngram_containment(_word_tokens(before), src_words, 4), 3),
+        "overlap_after": round(_ngram_containment(_word_tokens(after), src_words, 4), 3) if action == "rewrite" else None,
+        "source": {"title": m["source_title"], "year": year, "url": m.get("source_url")},
+    }

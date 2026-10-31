@@ -1164,6 +1164,30 @@ async def originality_scan(body: OriginalityScanRequest, request: Request):
     return rep
 
 
+class LineFixRequest(BaseModel):
+    scan_id: str
+    sentence_id: str
+    action: Literal["rewrite", "quote"] = "rewrite"
+
+
+@app.post("/api/originality/fix-line")
+async def originality_fix_line(req: LineFixRequest, request: Request):
+    """Fix one similarity-flagged line: original-wording rewrite with a citation, or quote and cite."""
+    from backend.citeguard import turnitin
+    user = me(request)
+    auth.require_paid(user, "fixes")
+    auth.check_access("originality_scan", req.scan_id, user)
+    auth.consume(user, "fixes")
+    try:
+        return await turnitin.fix_line(req.scan_id, req.sentence_id, req.action)
+    except ValueError as e:
+        auth.refund(user, "fixes")
+        raise HTTPException(400, str(e))
+    except llm.LLMError as e:
+        auth.refund(user, "fixes")
+        raise HTTPException(502, llm.scrub(str(e))[:200])
+
+
 @app.get("/api/originality/{scan_id}")
 async def originality_get(scan_id: str, request: Request):
     user = me(request)
