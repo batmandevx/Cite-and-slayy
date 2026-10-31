@@ -1,638 +1,543 @@
-# Cite and Slayy
+<div align="center">
 
-**Cite it right. Slay the review.** A decision layer for AI-written research.
+# Cite & Slayy
 
-> **AutoClaw can write a paper. Cite and Slayy tells you whether you should write it, whether you can trust it, and whether it's ready.**
+### Topic in. Publish-ready paper out. Every citation real, every number measured.
 
-Built for the **GDGOC APU Hackathon**, track *Data-Driven Research & Intelligent Decision Making*.
+**A multi-agent research studio that writes the paper, audits every reference against live scholarly databases,
+convenes a reviewer jury, and tells you exactly where to submit.**
 
-[AutoResearchClaw](https://github.com/aiming-lab/AutoResearchClaw) turns a research idea into a paper draft. Cite and Slayy wraps it with the decisions around that draft:
+[**citeslayy.com**](https://citeslayy.com) · [Features](#-what-it-does) · [Architecture](#-architecture) · [The maths](#-the-maths-behind-the-decisions) · [Quick start](#-quick-start) · [Security](#-security-and-production)
 
-| Question | Module | What it does |
-|---|---|---|
-| **What should I research?** | **Gap Radar** | Clusters 300–2,000 recent papers from OpenAlex + arXiv. Classifies each sub-topic as *Rising / Saturated / Underexplored* with visible thresholds. Proposes research questions grounded in real papers. |
-| *(write it)* | **AutoClaw bridge** | Sends the chosen question to AutoResearchClaw's CLI and streams its 23-stage pipeline. Includes a demo mode that replays a real cached run. |
-| **Can I trust this paper?** | **CiteGuard** | Checks for **any** PDF: reference existence, retractions (including of the paper itself), claim–citation support, tortured phrases and overlap hotspots. Every flag shows its evidence. |
-| **Is it ready, and where?** | **Reviewer Jury** | A rule-based readiness checklist, four LLM reviewer personas and an optional venue persona, combined with CiteGuard into **Submit / Revise / Don't submit**. Includes a ranked fix list, a downloadable report and venues where similar real work was published. |
-| **All of it, now** | **Slay it** ⚡ | One click (or press **S**): draft (or pick any paper) → audit → verdict as a single job with live progress. |
+![Next.js](https://img.shields.io/badge/Next.js-16-000?logo=nextdotjs) ![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=000) ![FastAPI](https://img.shields.io/badge/FastAPI-Python%203.11-009688?logo=fastapi&logoColor=fff) ![three.js](https://img.shields.io/badge/three.js-R3F-000?logo=threedotjs) ![Tailwind](https://img.shields.io/badge/Tailwind-4-38bdf8?logo=tailwindcss&logoColor=fff) ![AWS](https://img.shields.io/badge/AWS-EC2%20%2B%20Bedrock-ff9900?logo=amazonwebservices&logoColor=fff) ![Tests](https://img.shields.io/badge/tests-89%20passing-2ea44f) ![License](https://img.shields.io/badge/license-MIT-blue)
 
-**Runs with no API keys.** If no cloud key is set, it uses a free local model through [Ollama](https://ollama.com).
+<img src="docs/screenshots/hero.png" width="100%" alt="Cite & Slayy landing page" />
 
-**Live:** <https://citeslayy.com>. Sign up with email and password; the Free plan is a preview, Pro / Max unlock everything (§4.8).
-
-<p align="center">
-  <img src="docs/screenshots/hero.png" width="98%" alt="Landing page: topic in, publish-ready paper out" />
-</p>
-<p align="center">
-  <img src="docs/screenshots/home.png" width="49%" alt="Home dashboard with the decision pipeline and live research telemetry" />
-  <img src="docs/screenshots/studio.png" width="49%" alt="Paper Studio: a finished paper with downloads, slides and revise-by-chat" />
-  <img src="docs/screenshots/explore.png" width="49%" alt="Gap Radar opportunity map and momentum heatmap" />
-  <img src="docs/screenshots/audit.png" width="49%" alt="CiteGuard audit flagging a retracted paper" />
-  <img src="docs/screenshots/verdict.png" width="49%" alt="Reviewer Jury verdict with reasoning and a ranked fix list" />
-  <img src="docs/screenshots/notes.png" width="49%" alt="Word / Overleaf-style notes editor with ribbon, navigation pane and live preview" />
-  <img src="docs/screenshots/azora.png" width="49%" alt="Azora AI lab: tool calls, live experiments, image upload and voice" />
-  <img src="docs/screenshots/thought.png" width="49%" alt="Interactive Thought of the Day card" />
-  <img src="docs/screenshots/arcade_games.png" width="49%" alt="3D arcade: Neon Runner, Paper Toss, Tilt Maze and Archery Range" />
-  <img src="docs/screenshots/pricing.png" width="49%" alt="Plans: Free preview, Pro and Max" />
-</p>
-<p align="center">
-  <img src="docs/screenshots/mobile.png" width="80%" alt="Mobile: home, menu drawer and Paper Studio" />
-</p>
+</div>
 
 ---
 
-## Contents
+## The problem
 
-1. [Credits and what is ours](#1-credits-and-what-is-ours)
-2. [Quick start](#2-quick-start)
-3. [Architecture](#3-architecture)
-4. [How each module works](#4-how-each-module-works)
-5. [The "never fabricate" guarantees](#5-the-never-fabricate-guarantees)
-6. [API reference](#6-api-reference)
-7. [CLI, demo mode and cache warm-up](#7-cli-demo-mode-and-cache-warm-up)
-8. [Testing](#8-testing)
-9. [Known limitations](#9-known-limitations)
-10. [Project structure and team split](#10-project-structure-and-team-split)
-11. [Production deployment and security](#11-production-deployment-and-security)
+AI can now draft a research paper in minutes. That's the easy part. What it can't do on its own is make that paper
+**trustworthy**:
 
----
+- language models invent references that look perfect and don't exist;
+- real papers get retracted and keep collecting citations for years;
+- a claim gets pinned to a source that never said it;
+- reviewers reject papers for missing limitations, missing statistics, or the wrong venue.
 
-## 1. Credits and what is ours
+Every one of those failures ends the same way: a desk reject, a retraction, or a reputation hit.
 
-**AutoResearchClaw** ([aiming-lab/AutoResearchClaw](https://github.com/aiming-lab/AutoResearchClaw), MIT license, by AIMING Lab) is an **external dependency**. Cite and Slayy only:
+## The answer
 
-- invokes its CLI (`researchclaw run --topic "…" …`) as a subprocess;
-- reads its output folder (`artifacts/rc-*/deliverables/`).
+**Cite & Slayy is the decision layer around AI-written research.** It answers the four questions every researcher has,
+with evidence you can click:
 
-None of its code is copied into this repository.
+| | Question | Module | What happens |
+|---|---|---|---|
+| 🧭 | **What should I research?** | Gap Radar | Clusters up to 2,000 real papers, measures growth and attention, and labels each sub-field *Rising*, *Saturated* or *Underexplored* |
+| ✍️ | **Write it for me** | Paper Studio | A team of 14 AI agents writes a full paper with **only real references**, measured figures, equations, diagrams and a planned evaluation |
+| 🛡️ | **Can I trust it?** | CiteGuard | Checks every reference exists, catches retractions (including of the paper itself), tests claim support, tortured phrases and overlap |
+| ⚖️ | **Is it ready, and where?** | Reviewer Jury + Venue finder | Four expert reviewer personas plus deterministic rules decide *Submit / Revise / Don't submit*, with a ranked fix list and real venues |
 
-The demo draft in `demo/autoclaw_run/deliverables/paper.pdf` is **Paper V of the AutoResearchClaw public showcase**: *GARD: Gradient-Spectral Rank Allocation for LoRA Fine-Tuning* ([source](https://github.com/aiming-lab/AutoResearchClaw/blob/main/docs/showcase/papers/paper_V_gard_lora.pdf), MIT). It is redistributed with attribution and labelled in the UI as a replay.
-
-**White-label UI.** The website itself presents every AI feature as *Azora AI* and never names the drafting engine, the AI
-vendor or the model: `/api/health` and verdicts expose only `"Azora engine"`, and error messages pass through `llm.scrub()`.
-The attribution above (and in `THIRD_PARTY_NOTICES.md`) stays in the repository, as the MIT license and the hackathon rules require.
-
-**Our original code:** everything under `backend/` (Gap Radar, CiteGuard, Jury, bridge, LLM wrapper, cache), `frontend/` and `scripts/`.
-
-**Data sources (all free):**
-
-| Source | Used for |
-|---|---|
-| [OpenAlex](https://openalex.org) | Bulk paper retrieval, abstracts, citation counts, venues |
-| [arXiv API](https://info.arxiv.org/help/api/) | Recent preprints |
-| [Semantic Scholar Graph API](https://api.semanticscholar.org) | Title matching, abstracts |
-| [Crossref REST API](https://api.crossref.org) | DOI resolution, bibliographic matching, retraction/correction notices (including Retraction Watch data that Crossref distributes) |
-
-**Tortured-phrase seed list:** `data/tortured_phrases.csv` is transcribed from Table 1 of Cabanac, Labbé & Magazinov (2021), *Tortured phrases: A dubious writing style emerging in science* ([arXiv:2107.06751](https://arxiv.org/abs/2107.06751)). Each `(a | b)` alternative is expanded into its own row, and every row links its source. The `verified_by` column is empty until a team member signs each row off.
-
-**Sample papers in `demo/sample_pdfs/`** are real, openly available papers, used only to demonstrate the checks:
-
-| File | What it is | Why it's in the demo |
-|---|---|---|
-| `retracted_PMC9402320.txt` | Full text of *Environmental and Geographical (EG) Image Classification Using FLIM and CNN Algorithms*, DOI 10.1155/2022/4989248 (CC BY), from PMC's open-access dataset | Crossref lists retraction notice 10.1155/2023/9780628 (source includes Retraction Watch) |
-| `hcq_nanoparticles_covid_preprint.pdf` | A 2020 COVID-19 preprint | Cites Gautret et al. 2020 (IJAA, 10.1016/j.ijantimicag.2020.105949), which Crossref shows as retracted (notice 10.1016/j.ijantimicag.2024.107416) |
-| `clean_speculative_decoding_arXiv2211.17192.pdf` | Leviathan, Kalman & Matias, *Fast Inference from Transformers via Speculative Decoding* (arXiv:2211.17192) | A clean baseline |
+> **The rule we never break:** nothing is invented. Every reference is a real record with a DOI or URL. Every number is
+> measured or comes from a cited abstract. When something can't be checked, the app says *could not verify*, never a guess.
 
 ---
 
-## 2. Quick start
+## 📸 A tour
 
-**Prerequisites:**
-- [uv](https://docs.astral.sh/uv/). It installs Python 3.11 for you.
-- Node.js 20+.
-- Internet access for the scholarly APIs.
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/home.png" alt="Home dashboard" /><br/><b>Home:</b> the decision pipeline, live research telemetry, activity heatmap and your membership badge.</td>
+<td width="50%"><img src="docs/screenshots/studio.png" alt="Paper Studio" /><br/><b>Paper Studio:</b> a finished 13,000-word paper with highlights, an integrity report, revise-by-chat, Word / LaTeX / PDF and 16-slide decks.</td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/explore.png" alt="Gap Radar" /><br/><b>Gap Radar:</b> a 3D research galaxy and momentum heatmap built from a real OpenAlex + arXiv scan.</td>
+<td><img src="docs/screenshots/audit.png" alt="CiteGuard" /><br/><b>CiteGuard:</b> catches that this paper <i>itself</i> was retracted, with the Crossref notice linked.</td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/verdict.png" alt="Verdict" /><br/><b>Reviewer Jury:</b> <i>Don't submit</i>, with the exact rule that fired and a ranked fix list.</td>
+<td><img src="docs/screenshots/notes.png" alt="Notes editor" /><br/><b>Notes:</b> a Word-style ribbon over Markdown with a navigation pane, live preview, KaTeX and an Overleaf-style LaTeX view.</td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/azora.png" alt="Azora AI" /><br/><b>Azora AI:</b> an agent that runs real experiments (trend lab, cluster scans, claim tests) and reads images and voice.</td>
+<td><img src="docs/screenshots/thought.png" alt="Thought of the day" /><br/><b>Thought of the Day:</b> a 3D-tilting, swipeable card with read-aloud, share, streaks and a Pro insight.</td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/arcade_games.png" alt="3D arcade" /><br/><b>Arcade:</b> eight physics-based 3D games to play while a paper generates.</td>
+<td><img src="docs/screenshots/pricing.png" alt="Pricing" /><br/><b>Plans:</b> a free preview, Pro and Max, with UPI and Razorpay checkout.</td>
+</tr>
+</table>
 
-```bash
-cd cite-and-slayy
-cp .env.example .env              # optional: add an API key and CONTACT_EMAIL (see below)
-ollama pull qwen3.5:9b && ollama serve   # optional: free local AI if you have no API key
-uv sync                            # Python 3.11 venv + dependencies (first run downloads torch, ~2 min)
-cd frontend && npm install && cd ..
-
-./scripts/dev.sh                   # backend :8000 + frontend :3000
-# or separately:
-uv run uvicorn backend.app.main:app --port 8000 --reload
-cd frontend && npm run dev
-```
-
-Open <http://localhost:3000> (landing page) or <http://localhost:3000/app> (the app). Locally, `AUTH_REQUIRED` is off, so you are a single owner account with every feature unlocked. The status chips (owners only) show the AI engine, the Semantic Scholar key and whether the drafting replay is on.
-
-**Shortcuts:** `1`–`4` switch tabs, `S` opens *Slay it*.
-
-### Environment variables (`.env`)
-
-| Variable | Needed for | Notes |
-|---|---|---|
-| `LLM_PROVIDER` | Claim support, cluster labels, research questions, jury | `auto` (default): **local Ollama first** (free, no API cost), else the first cloud key found, else none. Or force `anthropic` \| `openai` \| `gemini` \| `ollama` \| `none`. |
-| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | Cloud providers | Default models: `claude-opus-5-5`, `gpt-4.1-mini`, `gemini-2.5-flash`. Override with `LLM_MODEL`. |
-| `OLLAMA_URL` / `OLLAMA_MODEL` | Local AI | Default `http://localhost:11434`. The model is auto-picked from those installed, preferring text models over vision ones. `qwen3.5:9b` is recommended on 16 GB RAM (6.6 GB); its thinking mode is switched off for speed. |
-| `CONTACT_EMAIL` | Crossref / OpenAlex polite pools | Strongly recommended: more reliable and allows more concurrency |
-| `S2_API_KEY` | Semantic Scholar | [Free key](https://www.semanticscholar.org/product/api). Unkeyed requests share a heavily rate-limited pool. |
-| `OPENALEX_API_KEY` | Large Gap Radar scans | Optional. Without it, Cite and Slayy uses page-based paging. |
-| `DEMO_MODE` | Draft tab | `true` replays the cached AutoClaw run |
-| `AUTOCLAW_BIN`, `AUTOCLAW_CONFIG`, `AUTOCLAW_WORKDIR` | Live AutoClaw runs | See [§4.2](#42-autoclaw-bridge) |
-| `TORTURED_REQUIRE_VERIFIED` | CiteGuard | `true` ignores phrase rows with an empty `verified_by` |
-| `AUTH_REQUIRED`, `PUBLIC_URL` | Production | Accounts on; every `/api` call needs a signed-in user. `PUBLIC_URL` sets cookie `Secure` and email links. |
-| `FOUNDER_ACCOUNTS`, `FOUNDER_NAMES` | Production | Founder logins as **scrypt hashes only** (base64url JSON `{email: hash}`) and display names (`email=Name;…`). See §11. |
-| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Payments | Card / netbanking checkout; without them the site takes UPI payments that a founder approves. |
-| `GOOGLE_CLIENT_ID`, `SMTP_*` | Optional sign-in | Google button and magic-link email. Email + password works without them. |
-| `SUPPORT_EMAIL` | Contact | Shown across the site (default slayyhacks@gmail.com). |
-| `PREMIUM_MODEL`, `BEDROCK_REGION` | Pro engine | Paid plans run on Claude via Amazon Bedrock; the standard engine is the fallback. |
-
-**AI options.** With `auto`, a running local model always wins, so API keys are only a fallback:
-
-1. **A cloud key:** fastest, and the strongest reviews. Used only when Ollama isn't running, or when you set `LLM_PROVIDER` to that provider.
-2. **Local Ollama:** free and offline. Local models get a condensed paper text (opening + ending, ~28k characters), and the verdict says so. Claim checks are batched 4 at a time. Every LLM response is cached in SQLite, so re-running the same audit or verdict is instant.
-3. **No LLM at all:** everything else still runs, and LLM features report "not assessed" rather than guessing:
-   - claim support shows similarity only;
-   - cluster labels fall back to keywords;
-   - research questions are disabled;
-   - the jury is just the rule-based checklist, so the verdict can be at best *Revise*.
-
-### Live AutoResearchClaw (optional)
-
-```bash
-git clone https://github.com/aiming-lab/AutoResearchClaw.git && cd AutoResearchClaw
-pip install -e . && researchclaw setup && researchclaw init     # creates config.arc.yaml
-```
-
-Then set `DEMO_MODE=false`, `AUTOCLAW_CONFIG=/path/to/config.arc.yaml` and optionally `AUTOCLAW_WORKDIR`. Untick *Demo mode* in the Draft tab.
+<p align="center"><img src="docs/screenshots/mobile.png" width="85%" alt="Mobile layout" /><br/><b>Mobile:</b> menu drawer, 5-item bottom bar, no sideways scrolling at 390 px.</p>
 
 ---
 
-## 3. Architecture
+## ✨ What it does
+
+### ✍️ Paper Studio: a 14-agent writing room
+
+Type a topic. Watch fourteen specialised agents work in parallel and stream their status live.
 
 ```mermaid
 flowchart LR
-  subgraph FE["Frontend · Next.js 16 + Tailwind 4 + ECharts + three.js (R3F) + Motion"]
-    T1[1 Explore gaps] --> T2[2 Draft] --> T3[3 Audit] --> T4[4 Verdict]
+  T([Your topic + angle]) --> S[🔎 Scout<br/>3 searches · OpenAlex<br/>rerank by embedding<br/>drop retracted works]
+  S --> A[📊 Analyst<br/>yearly counts via OpenAlex group_by<br/>matplotlib figures]
+  A --> R[🏛️ Architect<br/>title · research question<br/>contributions · method · briefs]
+  R --> W1[Intro] & W2[Related work] & W3[Formulation] & W4[Method<br/>+ architecture diagram] & W5[Theory] & W6[Bibliometric results] & W7[Protocol<br/>+ workflow diagram] & W8[Discussion]
+  W1 & W2 & W3 & W4 & W5 & W6 & W7 & W8 --> E[✒️ Editor<br/>abstract · keywords<br/>highlights · summary]
+  E --> V{🛡️ Verifier}
+  V -->|flags| X[🔧 Reviser<br/>rewrite flagged paragraphs<br/>repair LaTeX + diagrams]
+  X --> V
+  V -->|clean| P([📄 Paper + integrity report])
+```
+
+| Agent | Job |
+|---|---|
+| **Scout** | Plans 3 searches, pulls real papers with abstracts, reranks them by semantic similarity, removes anything Crossref marks retracted or under an expression of concern |
+| **Analyst** | Measures real publication counts per year and draws the trend, citation-age and impact figures in code |
+| **Architect** | Designs the title, research question, contributions, the proposed method and a brief for each section |
+| **8 Section writers** (parallel) | Introduction, Related Work, Problem Formulation, Proposed Method, Theoretical Analysis, Bibliometric Results, Experimental Protocol, Discussion. Short sections get a deepening pass |
+| **Editor** | Abstract, keywords, four highlights and a plain-language summary |
+| **Verifier** | Drops citations that point nowhere; flags verbatim and semantic overlap with the cited abstracts, unsupported claims, unmeasured numbers, invented results tables, malformed LaTeX and broken Mermaid |
+| **Reviser** | Rewrites only what was flagged, then renumbers citations in order of first use (IEEE) |
+
+**Honest by construction.** The proposed method is never claimed to have results; its evaluation is a protocol whose
+cells read *to be measured*. Results tables with unmeasured numbers are removed automatically. Papers carry an
+AI-assistance acknowledgment and the integrity report is shown next to the paper.
+
+**After the paper:**
+
+- **Revise by chat:** *"shorten the abstract to 150 words"*, *"add a threats-to-validity section"*. The agents re-plan only the affected sections, keep the same references, re-verify and keep an undo history.
+- **Exports:** PDF, Word (figures embedded) and a LaTeX `.zip` (`main.tex` + `figures/`) in IEEE, Springer LNCS or plain format, or one click to Overleaf.
+- **16-slide presentations:** native PowerPoint charts from the measured data, the architecture redrawn as shapes, the evaluation table and speaker notes. Six built-in themes, or the colours of any of **440+ free designs** from the [ppttemplate.ai catalogue](https://github.com/ai-ppt-template/free-ppt-template) (CC BY 4.0).
+- **Submission kit:** cover letter, declarations, a computed pre-submission checklist, reviewer suggestions drawn from cited authors, and a response-to-reviewers template.
+- **Journal & conference finder:** ranks venues by where the most similar recent papers were published, with open-access, APC and impact facts from OpenAlex.
+
+### 🛡️ CiteGuard: five checks, every flag with evidence
+
+| # | Check | How it works |
+|---|---|---|
+| 1 | **Does the reference exist?** | Crossref DOI → Crossref bibliographic search → arXiv → Semantic Scholar → OpenAlex. A hit whose year *and* first author both disagree is treated as a different paper |
+| 2 | **Is it retracted?** | Crossref `updated-by` plus `filter=updates:{doi}` on every matched version, preprint and journal alike. The uploaded paper itself is checked too |
+| 3 | **Does the source say what you claim?** | Citing sentence vs. cited abstract: embedding cosine plus an LLM judgment. No abstract means *Unclear*, never *Unsupported* |
+| 4 | **Tortured phrases** | A sourced list from Cabanac et al. (2021), tolerant of line breaks, hyphenation and plurals |
+| 5 | **Overlap hotspots** | Paragraph embeddings vs. cited and related abstracts, labelled *possible overlap*, never "plagiarism" |
+
+Every flag links the exact API request, the matched record and the fields that matched.
+
+### ⚖️ Reviewer Jury
+
+A deterministic checklist reviewer (abstract, limitations, data availability, ethics, statistics, reproducibility,
+figures, reference recency) plus **Methods, Novelty, Clarity and Ethics** personas, and an optional venue persona.
+Every persona returns validated JSON with a score, weaknesses, fixes and a confidence. Invalid output is retried once and
+then reported as *Not assessed*, never coerced.
+
+### 🧭 Gap Radar
+
+Up to 2,000 papers from OpenAlex and arXiv are embedded, clustered and labelled, then classified relative to the field's
+own medians (formulas below). Research questions must cite papers by number from a supplied list; any question citing
+an unknown number is dropped, and the UI says how many.
+
+### 🤖 Azora AI: an agent that runs experiments
+
+Azora is a tool-using agent with **16 real tools**. It doesn't just talk about research; it runs it:
+
+| Research | Integrity | Workspace |
+|---|---|---|
+| `search_papers` · `scan_field` · `research_questions` · `trend_experiment` · `venue_fit_experiment` · `write_paper` | `check_citation` · `check_retraction` · `test_claim` · `text_integrity_test` · `audit_paper` · `review_paper` · `list_papers` | `save_note` · `pin_stickies` · `add_todos` |
+
+Attach, paste or drop images (read by a vision model), dictate with the microphone, and have answers read aloud.
+Results render as live charts, paper lists and links that jump straight into the app.
+
+### 📝 A writing workspace that feels like Word and Overleaf
+
+- **Ribbon editor:** formatting shortcuts, headings, lists, checklists, tables (size picker), an equation gallery, symbols, picture upload, flowcharts, footnotes, find & replace, navigation pane, focus mode, zoom and version history.
+- **Cite by DOI:** paste a DOI and it's looked up on Crossref and added to your References as a numbered IEEE entry.
+- **Live LaTeX view:** your page compiles to IEEE, Springer or plain LaTeX as you type; open it in Overleaf in one click.
+- **Sticky board, to-dos with AI breakdown, a Pomodoro timer,** and 📌 pins you can drop on any screen.
+- **Read aloud and dictation** using the browser's own speech engines.
+
+### 🎮 Arcade: eight 3D games with real physics
+
+| Game | Highlights |
+|---|---|
+| **Paper Toss** | Drag-to-aim with a gravity-only preview arc; a fan's wind drifts the ball; rim bounces; swish and distance bonuses |
+| **Archery Range** | A recurve bow with a drawn string; arrows drop and drift with wind and wobble when they stick; ten-ring scoring |
+| **Mini Golf** | Six holes, slingshot putting, rails, spinning bars, and a cup that lips out if you're too fast |
+| **Neon Runner** | An articulated, animated runner on a synthwave track |
+| **Tilt Maze** | Walnut board and chrome ball with sub-stepped collision physics |
+| **Ring Flyer · Bubble Pop · Meteor Shield** | Fly, pop and defend |
+
+Plus three research games: *Tortured Phrase Quiz*, *Acronym Memory* and *Catch the Retraction*.
+
+### 👑 Membership, badges and the 3D pass
+
+Every account gets a **tier badge** (Founder, Max, Pro, Paper Pack) and a physics-driven **3D lanyard pass** in its profile:
+matte for Free, holographic for Pro and Max, metallic gold for founders. Drag it, swing it, tap or swipe to flip it.
+
+---
+
+## 🏗 Architecture
+
+```mermaid
+flowchart TB
+  subgraph Client["Browser · Next.js 16 · React 19 · Tailwind 4"]
+    UI[App shell<br/>sidebar · drawer · tabs]
+    R3F[three.js / R3F<br/>galaxy · constellation · games · lanyard]
+    ED[Notes editor<br/>KaTeX · Mermaid · Markdown]
+    PPT[pptxgenjs<br/>slide builder]
+    SP[Web Speech<br/>dictation · read-aloud]
   end
 
-  subgraph API["Backend · FastAPI (Python 3.11)"]
-    JOBS[Job runner + SSE progress]
-    GR[gap_radar]
-    BR[autoclaw_bridge]
-    CG[citeguard]
-    JU[jury]
-    DOC[documents<br/>PyMuPDF parser]
-    LLM[llm wrapper<br/>Anthropic · OpenAI · Gemini]
-    EMB[embeddings<br/>all-MiniLM-L6-v2]
-    SRC[sources<br/>rate-limited + cached]
-    DB[(SQLite<br/>API cache + results)]
+  subgraph Edge["Caddy · automatic HTTPS"]
+    H[Security headers · HSTS · CSP<br/>45 MB body cap]
   end
 
-  subgraph EXT["External"]
-    ARC[[AutoResearchClaw CLI<br/>MIT · not our code]]
+  subgraph API["FastAPI · Python 3.11"]
+    AUTH[Accounts<br/>scrypt · signed sessions · founders]
+    PAY[Billing<br/>Razorpay verify · UPI review]
+    Q[Plans · quotas · AI budget meter]
+    JOB[Job runner + SSE progress]
+    PS[Paper Studio<br/>14 agents]
+    CG[CiteGuard]
+    JU[Reviewer Jury]
+    GR[Gap Radar]
+    AZ[Azora agent · 16 tools]
+    EXP[Exporters<br/>Word · LaTeX · deck data]
+    LLM[LLM router<br/>Pro engine → standard → fallback]
+    EMB[Embeddings<br/>all-MiniLM-L6-v2]
+    SRC[Source gateway<br/>rate limits · retries · cache]
+    DB[(SQLite<br/>results · owners · API cache)]
+  end
+
+  subgraph Ext["Real data and models"]
     OA[(OpenAlex)]
     AX[(arXiv)]
     S2[(Semantic Scholar)]
     CR[(Crossref + Retraction Watch)]
+    BR[[Amazon Bedrock · Claude]]
+    STD[[Standard engine]]
   end
 
-  FE <-- REST + Server-Sent Events --> JOBS
-  T1 --> GR
-  T2 --> BR
-  T3 --> CG
-  T4 --> JU
-  GR --> EMB & LLM & SRC
-  CG --> DOC & EMB & LLM & SRC
-  JU --> DOC & LLM & SRC
-  JU -. reads audit .-> CG
-  BR -->|subprocess| ARC
-  BR -->|demo mode| DEMO[(demo/autoclaw_run)]
+  Client <-->|REST + Server-Sent Events| Edge <--> API
+  JOB --> PS & CG & JU & GR & AZ
+  PS & CG & JU & GR & AZ --> LLM & EMB & SRC
+  AUTH & PAY & Q --> DB
   SRC --> DB
   SRC --> OA & AX & S2 & CR
+  LLM --> BR & STD
 ```
 
-**Design points:**
+**Design decisions that matter:**
 
-- **One gateway to the outside world.** `backend/sources/http.py` is the only code that calls external APIs. It provides:
-  - per-source rate limiting and concurrency limits;
-  - retries with back-off on 429/5xx;
-  - caching of successful responses in SQLite, together with their fetch time.
-- **Long work runs as jobs.** Every slow operation (`POST` scan / run / audit / review) returns a `job_id`. The UI follows `GET /api/jobs/{id}/events` (Server-Sent Events), so progress bars are real.
-- **Standalone tabs.** Each tab works on its own: you can upload any PDF straight into *Audit*. The tabs also chain: Explore → *Send to AutoClaw* → *Audit this draft* → *Get the verdict*. State persists in `localStorage`, and deep links work: `/?tab=audit&doc=<id>&audit=<id>`.
+- **One gateway to the outside world.** `backend/sources/http.py` is the only code that calls scholarly APIs: per-source rate limits, retries with back-off, and a timestamped SQLite cache that stores only real responses, never errors.
+- **Everything slow is a job.** Every long operation returns a `job_id`; the UI follows a Server-Sent Events stream, so progress bars reflect real work.
+- **The model never holds the pen alone.** Every model output is validated against a schema, and numbers, references, tables and diagrams are checked in code before you see them.
+- **Margins are enforced in code.** Every model call is metered against the user's monthly AI budget.
 
-### Interface: "Slay Pop", animated and 3D, and honest
+### The decision pipeline
 
-- **Look:** a neo-brutalist design system, built from:
-  - cream paper, chunky ink outlines, and hard offset shadows that press when clicked;
-  - candy colour blocks (pink, lime, electric blue, yellow) with sticker badges and scrolling marquees;
-  - Bricolage Grotesque display type;
-  - a dark mode with neon-pink shadows.
-- **`/` is a landing page:**
-  - a spring-animated hero beside a live 3D research galaxy from your latest real scan;
-  - live counters from `/api/stats`;
-  - "how it works", and a bento of **real catches** from the demo audits;
-  - the "no fake data" principles, and a one-click **Slay it** CTA.
-- **`/app` is the app:** a collapsible left sidebar (Create & publish, the 4-step pipeline, Workspace) and your account card with its tier badge. On mobile: a top bar with a menu drawer that holds every section and your profile, and a 5-item bottom bar (Home, Paper, Notes, Arcade, More). Layout is checked at 390 px wide with no sideways scrolling.
-- **3D with real data only:**
-  - the Gap Radar galaxy, where orbs are clusters and dots are papers;
-  - the **citation constellation** in Audit, where the paper is the core and every reference orbits it. Status shows as colour **and** shape, retracted citations pulse, and clicking a node opens its evidence.
-- **Motion:**
-  - spring page transitions and count-up numbers;
-  - 3D-flipping jury cards, with confetti only on a genuine *Submit*;
-  - shaking retraction alarms, and a scroll-progress bar.
-- **Accessibility:** everything respects the OS *reduce motion* setting, and status is never shown by colour alone.
+```mermaid
+sequenceDiagram
+  actor You
+  participant GR as Gap Radar
+  participant PS as Paper Studio
+  participant CG as CiteGuard
+  participant JU as Reviewer Jury
+  participant VF as Venue finder
+  You->>GR: "speculative decoding"
+  GR-->>You: Rising / Saturated / Underexplored clusters + grounded questions
+  You->>PS: pick a question
+  PS-->>You: full paper · real references · figures · integrity report
+  You->>CG: audit it (or any PDF)
+  CG-->>You: existence · retractions · claims · phrases · overlap · score
+  You->>JU: is it ready?
+  JU-->>You: Submit / Revise / Don't submit + ranked fixes
+  You->>VF: where?
+  VF-->>You: ranked journals & conferences → submission kit
+```
+
+Or press **S** for **Slay it**: audit and verdict for any paper as one job.
 
 ---
 
-## 4. How each module works
+## 🧮 The maths behind the decisions
 
-### 4.1 Gap Radar
+Every score is shown in the UI with its formula and inputs. Nothing is a black box.
 
-`backend/gap_radar/`
+### Gap Radar
 
-1. **Ingest.**
-   - Pulls papers from OpenAlex (`search` with `has_abstract:true`, from the chosen year) and adds recent arXiv preprints.
-   - Deduplicates by DOI, then by normalised title.
-2. **Embed and cluster.**
-   - Embeds `title. abstract` with all-MiniLM-L6-v2.
-   - Clusters with **KMeans, choosing k ∈ [6, 15] by silhouette** (deterministic, so it's predictable on stage). HDBSCAN is optional.
-3. **Label.**
-   - The LLM names each cluster from its 8 most central papers.
-   - Without an LLM, Cite and Slayy uses c-TF-IDF keywords, and the UI says so.
-4. **Metrics per cluster:**
-   - papers per year;
-   - **growth** = CAGR of the paper count over the last 3 complete years (+1 smoothing);
-   - **recency** = share of papers from the last 12 months;
-   - **citations/year** = mean of citations ÷ years since publication. Normalising by age keeps new topics from being penalised.
-5. **Classification** is relative to the field's own medians, and the rules are shown in the UI:
+For a cluster with paper counts $n_y$ per year over the last three complete years:
 
-   | Class | Rule |
-   |---|---|
-   | Rising | growth ≥ 1.5 × field median growth **and** recency ≥ field median |
-   | Underexplored | size in the bottom tertile **and** citations/year > field median (attention without volume) |
-   | Saturated | size in the top tertile **and** growth ≤ field median |
-   | Unclassified | none of the above. Clusters are never forced into a box. |
+$$\text{growth} = \left(\frac{n_{y_3}+1}{n_{y_1}+1}\right)^{1/2} - 1 \qquad \text{recency} = \frac{\text{papers in the last 12 months}}{\text{papers in cluster}} \qquad \text{cites/yr} = \frac{1}{|C|}\sum_{p\in C}\frac{\text{citations}_p}{\max(1,\ \text{age}_p)}$$
 
-6. **Research questions.**
-   - The LLM sees a numbered list of real papers: the cluster's 15 most central plus 5 from each of the 2 nearest clusters.
-   - It must cite them by number. Any question citing a number not on the list is **dropped**, and the UI reports how many were dropped.
-7. **Charts** follow a validated palette: the first three categorical slots pass the colour-vision-deficiency (CVD) and contrast checks in both themes.
-   - Unclassified is drawn **hollow and dashed**, so it is never told apart by colour alone.
-   - The heatmap uses a single-hue sequential ramp.
+Clusters come from KMeans with $k \in [6, 15]$ chosen by silhouette score. Classification is relative to the field's own medians:
 
-### 4.2 AutoClaw bridge
+| Class | Rule |
+|---|---|
+| **Rising** | growth ≥ 1.5 × median growth **and** recency ≥ median recency |
+| **Underexplored** | size in the bottom third **and** cites/yr > median |
+| **Saturated** | size in the top third **and** growth ≤ median |
+| **Unclassified** | none of the above (never forced into a box) |
 
-`backend/autoclaw_bridge/runner.py`
+### CiteGuard integrity score (0–100)
 
-- **Live mode** runs:
-  ```
-  researchclaw run --topic "<topic>" [--config <cfg>] (--auto-approve | --mode <co-pilot|gate-only|express>)
-  ```
-  It scans stdout for the 23 stage names (`TOPIC_INIT` … `CITATION_VERIFY`) and then picks the newest `artifacts/rc-*/deliverables/`. The largest PDF found is registered for auditing.
-  - Co-pilot and gate modes pause for human approval. Answer those in a terminal with `researchclaw attach` / `researchclaw approve`. The UI tells you this.
-- **Demo mode** replays `demo/autoclaw_run/` (a real showcase paper) with a quick stage timeline. Both the UI and the log say *demo replay*. If you request a different topic, it states that it returns the cached run.
+$$R = 40\cdot\frac{v + 0.5\,m}{v+m+f} \quad C = 30\cdot\frac{s + 0.5\,u}{a} \quad P = 15\cdot\max\!\left(0,\ 1-\frac{h}{3}\right) \quad O = 15\cdot\left(1-\frac{o}{N}\right)$$
 
-### 4.3 CiteGuard
+$$\text{score} = 100\cdot\frac{\sum \text{available terms}}{\sum \text{their maxima}} \;-\; 15\cdot(\text{retracted citations}), \qquad \text{score}=0 \text{ if the paper itself is retracted}$$
 
-`backend/citeguard/` and `backend/documents/`
+where $v$ = verified, $m$ = metadata mismatch, $f$ = not found (*could not verify* excluded), $s$ = supported, $u$ = unclear,
+$a$ = assessed claims, $h$ = tortured-phrase hits, $o$ = flagged paragraphs out of $N$. Checks that couldn't run are
+**excluded**, not counted as passes.
 
-**Parsing** uses PyMuPDF and works with PDFs and plain `.txt` files (e.g. PMC full texts).
+Overlap is flagged when a paragraph's embedding is close to a cited or related abstract:
+$\cos(\mathbf{e}_{\text{para}}, \mathbf{e}_{\text{abstract}}) \ge 0.85$.
 
-- *Reference sections:* found by heading, or by a trailing numbered list.
-- *Splitting:* handles `[n]`, `(n)`, `n.` and author–year styles, and picks the one that yields the most entries.
-- *Cleanup:* strips running headers, page numbers and figure captions, and re-joins DOIs broken across lines.
-- *In-text citations:* links `[3]`, `[3–5]`, `(Smith et al., 2020)` and `Smith et al. (2020)`.
+### Reviewer Jury verdict
 
-| # | Check | How | Statuses |
-|---|---|---|---|
-| 1 | **Reference existence** | Crossref by DOI, then Crossref bibliographic search, then arXiv id, then Semantic Scholar title match, then OpenAlex. Matching compares the full title, or a near-literal containment of the candidate title in the reference string. A search hit whose **year and first author both disagree is treated as a different paper**. Short titles need year + author agreement. If the PDF text mangled the title, a Crossref match on author + year + volume + page is accepted. Web resources (URL, no DOI) are reported as unverifiable, not guessed. | Verified · Metadata mismatch (field-level diff) · Not found · Could not verify |
-| 2 | **Retractions** | Crossref `updated-by` on the record **plus** `filter=updates:{doi}`. Checked for **every matched version** (preprint *and* journal article); the most severe status wins. The **uploaded paper itself** is checked too. | Retracted · Corrected · Expression of concern · No notices · Not covered (no Crossref DOI) · Could not verify |
-| 3 | **Claim support** | The citing sentence and the cited abstract (OpenAlex, then S2) are compared by embedding cosine, plus an LLM judgment in batches of 8 (strict JSON schema). The LLM label is authoritative and the similarity is shown next to it. **No abstract → Unclear, never Unsupported.** | Supported · Unclear · Unsupported · Not assessed |
-| 4 | **Tortured phrases** | Phrase list from `data/tortured_phrases.csv`. Matching is case-insensitive, tolerates line breaks and hyphenation, and allows a plural `s`. Each hit shows its context and source. | hit list |
-| 5 | **Overlap hotspots** | Paragraph embeddings vs. abstracts of cited and top-10 related works (OpenAlex, excluding the paper itself and its other versions). Flags cosine ≥ 0.85 and shows the closest abstract sentence. Labelled **"possible overlap"**, never "plagiarism". | hit list |
+$$\bar{s} = \frac{\sum_i \text{score}_i \cdot \text{confidence}_i}{\sum_i \text{confidence}_i} \qquad \text{checklist} = 1 + 9\cdot\frac{\text{passed}}{\text{total}}$$
 
-**Integrity score (0–100).** Each term is shown in the UI with its formula and inputs:
+| Decision | When (evaluated in order) |
+|---|---|
+| **Don't submit** | paper itself retracted · ≥ 3 references not found · integrity < 50 · $\bar{s}$ < 5 |
+| **Revise** (floor) | any reference not found or any cited work retracted |
+| **Submit** | $\bar{s}$ ≥ 7 **and** every persona ≥ 5 **and** integrity ≥ 80 **and** no floor rule |
+| **Revise** | otherwise |
 
-```
-references = 40 × (verified + 0.5·mismatch) / (verified + mismatch + not_found)     could_not_verify excluded
-claims     = 30 × (supported + 0.5·unclear) / assessed                             only LLM-labelled claims with an abstract
-phrases    = 15 × max(0, 1 − hits/3)
-overlap    = 15 × (1 − flagged_paragraphs / paragraphs)
+Fixes are ranked blocking-first, then by $(10-\text{score})\times\text{confidence}$, with near-duplicates merged by embedding similarity.
 
-score = 100 × Σ(available terms) / Σ(their maxima)  −  15 × retracted citations     (floor 0)
-score = 0 if the uploaded paper itself is retracted
-low confidence if > 30% of references could not be verified, or fewer than 2 terms were available
-```
+### Unit economics, enforced per call
 
-Checks that could not run are **excluded**, not counted as passes. A retracted citation caps the score colour at amber.
+$$\text{AI spend}_u = \sum_{\text{calls}} \left(t_{\text{in}}\cdot p_{\text{in}} + t_{\text{out}}\cdot p_{\text{out}}\right)\cdot \text{FX}_{\text{USD→INR}} \;\le\; B_{\text{plan}}$$
 
-### 4.4 Reviewer Jury and verdict
+Each plan carries a monthly budget $B$ (Pro ₹900, Max ₹4,000). When it's spent, model-backed features pause. That keeps the
+contribution margin at roughly **63–84%** after GST and gateway fees, even at full use. Failed jobs refund their quota automatically.
 
-`backend/jury/`
+### Game physics (because why not)
 
-- **Checklist (rule-based) reviewer.** Always runs, needs no LLM, and is fully deterministic. It looks for concrete evidence of:
-  - an abstract, a limitations section, and a code/data availability statement;
-  - an ethics or conflict-of-interest statement;
-  - statistical reporting (± / CIs / p-values) and reproducibility details (seeds, hyperparameters);
-  - at least 2 figures/tables referenced, and at least 20 references;
-  - recent literature, measured relative to the paper's own newest citation;
-  - CiteGuard's not-found and retracted counts.
-
-  Its score is 1 + 9 × passed/total, and every check is listed with what was found. It checks structure and reporting, **not** scientific quality, so **Submit additionally requires at least one LLM content reviewer**.
-- **LLM personas:** Methods, Novelty, Clarity, Ethics & Reproducibility, plus an optional Venue persona.
-  - Each returns validated JSON: `score 1–10`, 3 weaknesses, 3 fixes, `confidence 0–1`, summary.
-  - Out-of-range or invalid output is retried once, then reported as *Not assessed*. It is never coerced.
-  - The Novelty persona also gets 10 real related papers from OpenAlex.
-  - The Venue persona is told it has no access to the venue's current call for papers.
-- **Where to submit:** venues of the closest real OpenAlex papers. Repositories are excluded, as is the paper itself.
-- **Verdict rules**, evaluated in order. The fired rules are shown as the reasoning.
-
-  | Decision | When |
-  |---|---|
-  | **Don't submit** | the paper itself is retracted · ≥ 3 references not found · integrity < 50 · jury weighted mean < 5 |
-  | **Revise** (floor) | any reference not found, or any cited work retracted |
-  | **Submit** | weighted mean ≥ 7 **and** every persona ≥ 5 **and** integrity ≥ 80 **and** no floor rule |
-  | **Revise** | otherwise, including a missing audit or missing jury |
-
-  The weighted mean is Σ(score·confidence) ÷ Σ confidence.
-- **Ranked fix list** is ordered as follows:
-  1. Blocking CiteGuard issues: self-retraction, retracted citations, references not found.
-  2. Other CiteGuard issues: unsupported claims, tortured phrases, metadata errors, overlap.
-  3. Persona fixes, ranked by (10 − score) × confidence. Near-duplicate fixes from different personas are merged by embedding similarity.
+- **Paper Toss:** launch velocity $\mathbf{v} = v\,(\cos\theta\sin\psi,\ \sin\theta,\ -\cos\theta\cos\psi)$ with $v = 3.6 + 5.2p$, $\theta = 0.86$ rad; integrated with gravity, wind and drag in 4 sub-steps; rim collisions reflect along the contact normal.
+- **Tilt Maze:** $\dot{\mathbf{v}} = g\,(-\sin\phi_z,\ \sin\phi_x)$ with speed capped at 5.5 and $\lceil |v|\Delta t / 0.04 \rceil$ sub-steps, so the ball never moves further than a wall's thickness in one step.
 
 ---
 
-### 4.5 Paper Studio (topic in, full paper out)
+## 💳 Plans, paywall and payments
 
-`backend/paper_studio/studio.py` runs a team of agents and streams each one's status to the UI:
+| | Free | Pro · ₹6,999/mo | Max · ₹12,999/mo | Paper Pack · ₹9,999 once |
+|---|---|---|---|---|
+| Papers | 1 preview (opening sections) | 4 / month | 25 / month | 1 |
+| Downloads (Word · LaTeX · PDF · Overleaf) | – | ✓ | ✓ | ✓ |
+| Slide decks | – | 4 | 40 | 3 |
+| AI revisions | – | 10 | 100 | 40 |
+| CiteGuard audits · verdicts | – | 8 · 2 | 150 · 15 | 10 · 3 |
+| AI & plagiarism similarity reports | – | 25 | 250 | 15 |
+| Azora AI messages / day | 3 | 50 | 300 | – |
+| Engine | Standard | Pro (Claude via Bedrock) | Pro | Pro |
 
-| Agent | What it does |
+The paywall is enforced **on the server**: a free user's paper is truncated before it leaves the API, and every paid
+endpoint returns HTTP 402 with a feature-specific upgrade screen. Locked tools show a live, blurred preview.
+
+```mermaid
+sequenceDiagram
+  actor U as Customer
+  participant W as Website
+  participant API as Cite & Slayy API
+  participant RZ as Razorpay
+  U->>W: Pay (card / UPI / netbanking)
+  W->>RZ: Checkout
+  RZ-->>W: payment_id + signature
+  W->>API: verify(order, payment, signature)
+  API->>API: HMAC signature ✓
+  API->>RZ: GET /payments/{id}
+  RZ-->>API: status, amount, currency, order
+  API->>API: captured? full amount? same order? not reused?
+  API-->>U: plan activated
+  RZ--)API: webhook (HMAC-verified, de-duplicated)
+```
+
+Without Razorpay, customers pay by **UPI** and submit the 12-digit UTR. A UTR can be claimed once, and nothing activates
+until a founder matches it in the bank app and approves it on the **Owner → Payments** screen.
+
+---
+
+## 🔒 Security and production
+
+| Layer | What protects you |
 |---|---|
-| Scout | Plans 3 searches, pulls real papers with abstracts from OpenAlex, reranks them by embedding similarity to the topic, and drops anything Crossref lists as retracted or under an expression of concern. |
-| Analyst | Measures yearly publication counts for 2 key phrases (OpenAlex `group_by`) and draws the figures with matplotlib: the trend, the age of the cited works, and their citation impact. |
-| Architect | Designs the title, research question, contributions, the proposed method and a brief for each section. |
-| 8 Writers (parallel) | Write the Introduction, Related Work, Problem Formulation, Proposed Method (equations + architecture diagram), Theoretical Analysis, Bibliometric Analysis (results), Experimental Protocol (planned evaluation + workflow diagram), and Discussion & Conclusion. Short sections get a deepening pass. |
-| Editor | Writes the abstract, keywords, 4 highlights and a plain-language summary. |
-| Verifier | Removes out-of-range citation numbers. Flags 8-word verbatim overlap and close paraphrase (embeddings) against the cited abstracts, unsupported citation claims (sampled), unmeasured numbers or results claimed for the unrun method, tortured phrases, and malformed LaTeX. |
-| Reviser | Rewrites flagged paragraphs and repairs equations. Citations are then renumbered in order of first use (IEEE style). |
+| **Transport** | HTTPS everywhere (Caddy + Let's Encrypt), HSTS |
+| **Browser** | CSP (no framing, no plugins, form targets limited), `X-Frame-Options: DENY`, `nosniff`, strict referrer policy, permissions policy (microphone and payment for this site only) |
+| **Accounts** | scrypt password hashes, constant-time comparison, per-IP and per-email rate limits with lockout, generic error messages, HttpOnly + SameSite + Secure session cookies, session revocation on password change |
+| **Founders** | Admin accounts defined only by password hashes in a server-side file; re-asserted on every start; any other owner rights are revoked |
+| **Data** | Every object is owned; every read checks ownership; lists show only your own items |
+| **Abuse** | Server-side quotas and AI budgets, rate limits on sign-up, login, uploads, images and payment claims; uploads are read only up to their size cap |
+| **Payments** | Signature **and** server-to-server confirmation of amount, currency, order and owner; payment and webhook replay protection; human review for UPI |
+| **Content** | No raw HTML in Markdown, Mermaid in strict mode, image uploads allow-listed (no SVG), outbound fetches limited to known hosts |
+| **Ops** | No SSH: deploys go through AWS Systems Manager; secrets live only in gitignored files on the server |
 
-**Honesty by construction.** Every reference is a real record with a DOI or URL. Every number in the paper comes from
-FACTS we measured, or from a cited abstract. The proposed method is never claimed to have results: its evaluation is a
-protocol whose cells read "to be measured". Tables of trend counts and key works are generated in code, not by the model.
-An optional acknowledgment discloses AI assistance. The integrity report is shown with the paper. Downloads: PDF (print
-view with figures), Word (figures and diagrams embedded) and LaTeX `.zip` (`main.tex` + `figures/`, IEEE or Springer LNCS).
+---
 
-**Presentation slides** (`backend/paper_studio/deck.py` + `frontend/lib/deck.ts`): a 16-slide `.pptx` built in the browser with
-pptxgenjs: native charts from the paper's measured trend and reference years, the architecture diagram redrawn as shapes,
-the evaluation table, and speaker notes. The model writes slide text only; every number comes from the paper. Six built-in
-themes, plus *Use colours* from 440+ free designs in the [ppttemplate.ai catalogue](https://github.com/ai-ppt-template/free-ppt-template)
-(CC BY 4.0, credited in the gallery): those files are picture slides, so the server extracts each cover's palette (Pillow,
-contrast-checked) rather than copying layouts.
+## 🧰 Tech stack
 
-### 4.6 Workspace, pins and AI assist
-
-- **Notes editor** (`frontend/components/notes/PageEditor.tsx`): a Word-style ribbon (Home, Insert, Review, View) over Markdown with live KaTeX and Mermaid:
-  - formatting with shortcuts (bold, italic, underline `++`, strike, highlight `==`, superscript `^`), headings, lists, checklists, quotes;
-  - table size picker, equation gallery, symbols, pictures (uploaded, re-encoded to PNG so they export), flowcharts, footnotes;
-  - **Cite DOI**: looks the DOI up on Crossref and adds a numbered IEEE reference;
-  - find & replace, navigation pane, focus mode, zoom, word/figure/citation counts, version history;
-  - read aloud and dictation (browser speech APIs), an AI menu, and an Overleaf-style **live LaTeX** view with *Open in Overleaf*.
-- **Sticky board:** drag notes, heart-vote them, *Tidy up* (sorted grid), *AI brainstorm* (a topic becomes 5 idea stickies), and AI expand per note.
-- **Pins anywhere:** the 📌 button (or Ctrl/⌘+V outside a text box) drops a sticky note on any screen; a note can be shown on every screen.
-- **To-dos:** quick-add syntax (`!high #tag @tomorrow`), due dates, tags, subtasks, *AI: break down*, *AI: plan my day*, a progress ring and a Pomodoro focus timer.
-- All AI actions go through `POST /api/assist`.
-
-### 4.7 Arcade
-
-Eight original 3D games built with React Three Fiber, plus three research games (*Tortured Phrase Quiz*, *Acronym Memory*,
-*Catch the Retraction*):
-
-| Game | What's in it |
+| Layer | Technology |
 |---|---|
-| Paper Toss | Drag up to aim with a gravity-only preview arc, release to throw; a fan's wind drifts the ball; rim bounces, swish and distance bonuses. |
-| Archery Range | Recurve bow with a drawn string; arrows drop and drift with the wind and stick (with a wobble) in a 10-ring target that moves back. |
-| Mini Golf | Six holes; slingshot putting, rails, blocks and spinning bars, and a cup that lips out if you're too fast. |
-| Neon Runner | An animated runner (articulated arms and legs, tuck on jumps) on a synthwave track. |
-| Tilt Maze | Walnut board and a chrome ball; physics sub-steps so the ball can't pass through walls. |
-| Ring Flyer · Bubble Pop · Meteor Shield | Fly, pop and defend. |
+| **Frontend** | Next.js 16 · React 19 · TypeScript · Tailwind CSS 4 · Motion · lucide-react |
+| **3D** | three.js 0.187 · React Three Fiber · drei · React Bits *Lanyard* |
+| **Charts & docs** | ECharts 6 · Mermaid 12 · KaTeX · react-markdown · pptxgenjs · QR codes |
+| **Backend** | FastAPI · Pydantic 2 · httpx · Server-Sent Events · SQLite |
+| **Documents** | PyMuPDF · python-docx · matplotlib · Pillow |
+| **ML / NLP** | sentence-transformers (all-MiniLM-L6-v2) · scikit-learn (KMeans, silhouette) · RapidFuzz |
+| **LLMs** | Anthropic SDK on Amazon Bedrock (Claude, Pro engine) · OpenAI-compatible and Gemini clients · local Ollama |
+| **Scholarly data** | OpenAlex · arXiv · Semantic Scholar · Crossref (incl. Retraction Watch) |
+| **Auth & payments** | scrypt · HMAC-signed sessions · google-auth · Razorpay · UPI |
+| **Infra** | AWS EC2 · Elastic IP · S3 · Systems Manager · Docker Compose · Caddy · GoDaddy DNS |
+| **Quality** | pytest (89 tests) · ESLint · TypeScript strict · headless-Chrome visual QA |
 
-Free accounts get Paper Toss and the phrase quiz. While a paper is generating, a floating progress pill follows you around the
-app and announces when the paper is ready.
+---
 
-### 4.8 Accounts, plans and payments
-
-- **Sign-in:** email + password (scrypt, per-IP and per-email rate limits, generic errors), plus optional Google and magic links.
-  Sessions are HMAC-signed cookies (`uid.version.expiry.mac`, HttpOnly, SameSite=Lax, Secure on HTTPS); changing your password or
-  *Sign out of all devices* bumps the version and revokes every other session. With `AUTH_REQUIRED=true`, papers, documents,
-  audits, verdicts, chats, notes, images and pins are private to their owner (`owners` table, `backend/accounts/auth.py`).
-- **Founders:** four permanent admin accounts come from `FOUNDER_ACCOUNTS` (hashes only) and are re-asserted on every start; a
-  squatted founder email is taken back and its sessions revoked. Any other account holding owner rights is demoted.
-- **Profile:** editable display name, a tier badge (Founder, Max, Pro, Paper Pack) and a 3D **member pass** (React Bits
-  *Lanyard*, MIT + Commons Clause): matte for Free, holographic for Pro/Max, metallic gold for founders. Drag it, tap or swipe to flip.
-- **Plans** (`backend/accounts/plans.py`): Free ₹0, Pro ₹6,999/month, Max ₹12,999/month, a one-time Paper Pack ₹9,999, GST-inclusive.
-  Free is a preview: one paper's opening sections (truncated **server-side**), 3 Azora messages a day, Notes, Library, Toolbox
-  and two games. Downloads, slides, revisions, audits, verdicts, venue finder, AI & plagiarism reports, AI writing assist, image
-  upload, voice and the other games are paid; each is enforced with `require_paid` (HTTP 402) and shown in the UI with a 🔒 Pro
-  badge and a feature-specific upgrade screen.
-- **Margins are enforced, not hoped for.** Every model call records its real token usage and cost against the user, and each
-  plan has a monthly AI budget (Pro ₹900, Max ₹4,000) alongside its count limits. Failed jobs refund their quota automatically.
-- **Payments:**
-  - *Razorpay* subscriptions and Paper Pack orders. A valid checkout signature is not enough: the server then asks Razorpay for the
-    payment / subscription and checks status, amount, currency, order and owner before activating. A payment can't be reused for
-    another order, webhooks are HMAC-verified and de-duplicated by event id.
-  - *UPI* (works without Razorpay): the customer pays the shown UPI ID and submits the 12-digit UTR. A UTR can be claimed once, claims
-    are rate-limited, and nothing activates until a founder matches it against the bank app and approves it under **Owner → Payments**
-    (30 days, extending an active plan; decisions record who approved).
-- **Legal pages** (`/terms`, `/privacy`, `/refund`, `/contact`) take business details from `frontend/lib/business.ts`.
-  Fill those in before applying for Razorpay activation.
-
-### 4.9 Revisions, study papers and venue finder
-
-- **Revise in plain language:** `POST /api/paper-studio/{id}/revise` plans which sections change, rewrites them in parallel
-  with the same numbered references and measured facts, then re-checks citations, numbers and LaTeX. It keeps an undo history.
-- **Your own study papers:** uploaded PDFs are matched to real records (DOI, then title) and always cited. Unmatched files are reported, never cited.
-- **Journal / conference finder:** `POST /api/venues/find` ranks venues by where the most similar papers of the last 6 years
-  were published (embedding-weighted), with OpenAlex facts: type, publisher, open access, DOAJ, APC, h-index and 2-year mean citedness.
-
-### 4.10 Submission kit, originality fixer, Azora writes papers
-
-- **Submission kit** (`backend/paper_studio/kit.py`): cover letter and declarations written from the paper's own content
-  (unknowns left as [placeholders]); a pre-submission checklist computed from the manuscript (abstract length, keywords,
-  references, captions, pending “to be measured” results, AI disclosure, integrity report); reviewer candidates taken from
-  authors of cited works; and a response-to-reviewers template. Export to Word or Markdown.
-- **Originality fixer** (`backend/citeguard/fixer.py`): for each possible-overlap paragraph in an audit, suggests a rewrite in
-  original words with an in-text citation to the matched source, and shows shared wording (3-word sequences) before and after.
-  It does not try to hide AI use; papers carry an AI-assistance acknowledgment.
-- **Diagrams:** every Mermaid block is validated against a strict flowchart grammar, repaired or dropped before it reaches a
-  paper, unclosed fences are closed, and each paper gets an experimental-workflow flowchart.
-- **Azora AI `write_paper` tool:** Azora can pick a topic from a field scan and trend experiments, then run the full Paper Studio.
-- **Azora AI chat:** attach, paste or drop up to 3 images (read by a vision model and passed to the agent as a description),
-  dictate with the mic, and have replies read aloud (browser speech APIs).
-
-## 5. The "never fabricate" guarantees
+## 🚫 The "never fabricate" guarantees
 
 | Rule | Where it's enforced |
 |---|---|
-| Every citation check hits a real API | `sources/` is the only network layer. The cache stores only real responses, with their `fetched_at` time, and never caches errors. |
-| An API failure is never "verified" (or "not found") | `not_found` requires **every** resolver to answer successfully. Any failure without a match becomes `could_not_verify`. |
-| Every flag shows its evidence | Each `Evidence` object carries the exact request URL ("API response" link), a human-readable record link, the matched fields (title similarity, year, DOI, authors) and the note. Retraction flags link the notice DOI. |
-| The LLM can't invent sources | Questions may cite only numbered papers that Cite and Slayy supplied; unknown ids are dropped. Personas are told not to invent facts. Their structured output is validated. |
-| Missing information stays missing | No abstract → *Unclear*. No LLM → *Not assessed*. No Crossref DOI → *Not covered*. Web resource → *Could not verify*. |
-| Tortured phrases come from a published source | Every CSV row has `source` and `source_url`. Team verification is tracked in `verified_by`. The PPS importer only copies rows from a file you provide. |
+| Every citation check hits a real API | `sources/` is the only network layer; the cache stores only real responses with their fetch time |
+| An API failure is never "verified" or "not found" | *not found* requires every resolver to answer; any failure without a match is *could not verify* |
+| Every flag shows its evidence | Each flag carries the request URL, a human-readable record link and the matched fields |
+| The model can't invent sources | It may only cite numbered papers we supplied; unknown numbers are dropped |
+| The model can't invent results | Unmeasured numbers and results tables are detected and removed; evaluations read *to be measured* |
+| Missing stays missing | No abstract → *Unclear*. No model → *Not assessed*. No Crossref DOI → *Not covered* |
 
 ---
 
-## 6. API reference
+## 🚀 Quick start
 
-Interactive docs live at <http://localhost:8000/docs>. All long operations return `{ "job_id" }`.
-
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/api/health` | Configuration status (LLM, keys, demo mode, phrase count, verdict rules) |
-| GET | `/api/jobs/{id}` · `/api/jobs/{id}/events` | Job status · SSE progress stream (ends with `event: end`) |
-| POST | `/api/documents` (multipart `file`) | Upload a `.pdf` / `.txt` and get `DocumentInfo` |
-| GET | `/api/documents/samples` | Register and list the bundled demo papers |
-| GET | `/api/documents/{id}` · `/text` · `/file` | Metadata · page texts (highlight offsets refer to these) · original file |
-| POST | `/api/gap-radar/runs` | `{query, max_papers, from_year, sources, clustering}` returns a job |
-| GET | `/api/gap-radar/runs` · `/api/gap-radar/runs/{id}` | Recent scans · `GapRadarResult` |
-| POST | `/api/gap-radar/runs/{id}/clusters/{cid}/questions` | 3 grounded research questions |
-| POST | `/api/autoclaw/runs` | `{topic, mode, demo}` returns a job |
-| GET | `/api/autoclaw/runs/{id}` · `/api/autoclaw/latest` | Run with stages, log tail, PDF and `document_id` |
-| POST | `/api/citeguard/audits` | `{document_id, checks?, max_claims?}` returns a job |
-| GET | `/api/citeguard/audits/{id}` | `AuditReport` |
-| POST | `/api/jury/reviews` | `{document_id, audit_id?, venue?}` returns a job |
-| GET | `/api/jury/reviews/{id}` | `Verdict`, including the checklist results and which model reviewed it |
-| GET | `/api/citeguard/audits/{id}/report.md` · `/api/jury/reviews/{id}/report.md` | Downloadable Markdown reports with evidence links |
-| POST | `/api/pipeline` | **Slay it**: `{topic, demo?, venue?}` or `{document_id, venue?}` runs draft → audit → verdict as one job |
-| GET | `/api/pipeline/{id}` | The resulting `document_id`, `audit_id` and `review_id` |
-| GET | `/api/stats` | Real totals shown in the hero (papers mapped, references checked, retractions caught) |
-| POST | `/api/paper-studio` | `{topic, angle?, template, author, affiliation, ai_disclosure}` returns a job (multi-agent paper writer) |
-| GET | `/api/paper-studio` · `/api/paper-studio/{id}` · `/api/paper-studio/{id}/fig/{name}.png` | Recent papers · paper with highlights, summary, integrity report, references · figure images |
-| POST | `/api/export/docx` · `/api/export/latex` · `/api/export/latex-zip` | Markdown to Word / LaTeX / LaTeX + figures; `diagrams` = browser-rendered Mermaid PNGs |
-| POST | `/api/assist` | `{action, text}`: expand, summarize, improve, continue, outline, explain, ideas, breakdown, plan |
-| GET/PUT | `/api/workspace/{pages,stickies,todos,pins}` | Notes workspace storage |
-| POST · GET | `/api/workspace/images` · `/api/workspace/images/{id}` | Upload a notes image (PNG/JPEG/WebP/GIF, ≤ 5 MB) · fetch it (owner only) |
-| POST | `/api/auth/register` · `/api/auth/login` · `/api/auth/logout` | Email + password accounts |
-| GET | `/api/auth/me` | Current user, `tier`, plan limits and usage |
-| POST | `/api/account/profile` · `/api/account/password` · `/api/account/logout-all` | Display name · change password · revoke other sessions |
-| POST | `/api/paper-studio/{id}/revise` · `/undo` · `/kit` · `/deck` | Revise by instruction · undo · submission kit · slide content |
-| GET | `/api/deck-templates` · `/api/deck-templates/{slug}/palette` | CC BY template catalogue · colour palette from a design |
-| POST | `/api/venues/find` | Ranked journals and conferences for a title + abstract |
-| POST | `/api/agent/chat` | Azora AI turn: `{message, chat_id?, images?}` (data URLs) |
-| GET · POST | `/api/billing/plans` · `/api/billing/upi-claim` · `/subscribe` · `/verify` · `/pack` · `/pack/verify` · `/cancel` · `/webhook` | Plans and payments |
-| GET · POST | `/api/admin/upi-claims` · `/api/admin/upi-claims/{id}/{approve,reject}` | Founder-only payment review |
-
-The schemas are in `backend/common/schemas.py`, mirrored in `frontend/lib/types.ts`.
-
----
-
-## 7. CLI, demo mode and cache warm-up
+**You need:** [uv](https://docs.astral.sh/uv/) (installs Python 3.11), Node.js 20+, and internet access.
 
 ```bash
-uv run python scripts/slayy_cli.py audit path/to/paper.pdf            # full CiteGuard audit in the terminal
-uv run python scripts/slayy_cli.py gap "speculative decoding"          # Gap Radar scan
-uv run python scripts/slayy_cli.py warm                                # pre-fetch everything the demo needs
-uv run python scripts/import_pps.py export.csv --tortured-col … --expected-col … --source … --source-url …
+git clone https://github.com/batmandevx/Cite-and-slayy.git && cd Cite-and-slayy
+cp .env.example .env                    # optional: API keys and CONTACT_EMAIL
+uv sync                                 # Python deps (first run downloads torch, ~2 min)
+cd frontend && npm install && cd ..
+./scripts/dev.sh                        # backend :8000 + frontend :3000
 ```
 
-**Before presenting, run `warm` on a good connection.**
-- Every API response the demo touches is fetched once (real data, timestamped) and then served from `var/slayy.sqlite3`. The demo still works if the venue Wi-Fi is bad.
-- Results also appear in the UI ("Previous scans", sample papers).
-- The 3-minute script is in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
+Open <http://localhost:3000>. Locally, login is off and you are a single owner account with every feature unlocked.
+No API key? Run `ollama pull qwen3.5:9b && ollama serve` and Cite & Slayy uses the free local model automatically.
 
----
+<details>
+<summary><b>Environment variables</b></summary>
 
-## 8. Testing
+| Variable | Purpose |
+|---|---|
+| `LLM_PROVIDER`, `LLM_MODEL` | `auto` prefers local Ollama, then the first cloud key found |
+| `PREMIUM_MODEL`, `BEDROCK_REGION` | The Pro engine for paid plans (Claude on Amazon Bedrock) |
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | Cloud providers |
+| `CONTACT_EMAIL`, `S2_API_KEY`, `OPENALEX_API_KEY` | Polite pools and higher rate limits for scholarly APIs |
+| `AUTH_REQUIRED`, `PUBLIC_URL` | Production accounts; cookie `Secure` flag and email links |
+| `FOUNDER_ACCOUNTS`, `FOUNDER_NAMES` | Founder logins as scrypt hashes (base64url JSON) and display names |
+| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Card / netbanking checkout |
+| `GOOGLE_CLIENT_ID`, `SMTP_*` | Optional Google sign-in and magic-link email |
+| `SUPPORT_EMAIL` | Contact address shown across the site |
+| `DEMO_MODE`, `AUTOCLAW_*` | Founder-only drafting replay / live AutoResearchClaw runs |
+
+</details>
+
+<details>
+<summary><b>Deploy to AWS</b></summary>
 
 ```bash
-uv run pytest -m "not live"     # 86 offline tests: parsing, matching, verdict rules, Paper Studio guards, accounts, paywall, payments
-uv run pytest -m live           # 3 tests against the real APIs, on public-record facts
+./scripts/aws_deploy.sh up      # instance, security group, Elastic IP, SSM role
+./scripts/aws_deploy.sh push    # ship the current code
 ```
 
-The live tests assert:
-- Crossref's retraction notice for 10.1155/2022/4989248;
-- that the HCQ preprint's citation of Gautret et al. resolves to the retracted IJAA article;
-- that all 15 GARD references exist.
+Production settings go in `.env.production` (gitignored), which is merged into the server's `.env.server` on each push.
+Set `DOMAIN=yourdomain.com` in `.aws-deploy.env` and point an A record at the instance; Caddy fetches and renews the certificate.
 
-The account tests cover sessions and revocation, password rules and lockout, founders (including a squatted email),
-the free-plan preview and every paid gate, notes-image privacy, UPI claims, and Razorpay verification against a mocked API
-(wrong amount, someone else's subscription, replayed webhooks).
+</details>
 
-The offline tests also lock in regressions found during development:
-- similar-title false matches (Brown 2020 vs. "Making Pre-trained Language Models Better Few-shot Learners");
-- running headers spliced into references;
-- dropped diacritics in PDF text;
-- a retracted journal article hidden behind an identically titled preprint.
+<details>
+<summary><b>API reference</b></summary>
 
----
+All long operations return `{ "job_id" }`; follow `GET /api/jobs/{id}/events` for live progress.
 
-## 9. Known limitations
+| Area | Endpoints |
+|---|---|
+| Accounts | `POST /api/auth/register` · `/login` · `/logout` · `GET /api/auth/me` · `POST /api/account/profile` · `/password` · `/logout-all` |
+| Paper Studio | `POST /api/paper-studio` · `GET /api/paper-studio/{id}` · `POST …/{id}/revise` · `/undo` · `/kit` · `/deck` · `GET …/fig/{name}.png` |
+| Integrity | `POST /api/documents` · `POST /api/citeguard/audits` · `POST /api/jury/reviews` · `POST /api/pipeline` · `POST /api/originality/scan` |
+| Discovery | `POST /api/gap-radar/runs` · `POST /api/venues/find` · `GET /api/library/{trending,latest,books}` |
+| Azora AI | `POST /api/agent/chat` (`{message, chat_id?, images?}`) · `GET /api/agent/chats` |
+| Workspace | `GET/PUT /api/workspace/{pages,stickies,todos,pins}` · `POST /api/workspace/images` |
+| Slides | `GET /api/deck-templates` · `GET /api/deck-templates/{slug}/palette` |
+| Exports | `POST /api/export/docx` · `/latex` · `/latex-zip` |
+| Billing | `GET /api/billing/plans` · `POST /api/billing/{upi-claim,subscribe,verify,pack,pack/verify,cancel,webhook}` |
+| Owner | `GET /api/admin/upi-claims` · `POST /api/admin/upi-claims/{id}/{approve,reject}` |
 
-- **LLM paths were run end to end on a local Ollama model** (claim judgments, research questions, the jury and the full *Slay it* pipeline). The **cloud** providers (Anthropic, OpenAI, Gemini) were not exercised live because no API key was available. The Anthropic path uses the installed SDK's `beta.messages.create` with JSON-schema output, `fallbacks="default"` and refusal handling. Run one review with your key before the demo.
-- Small local models are lenient reviewers: a 3B model tended to rate papers generously. Use `qwen3.5:9b` (the configured default), or a cloud model, for the demo. The rule-based checklist and CiteGuard are model-independent.
-- **Live AutoResearchClaw runs were not executed here**: the CLI wasn't installed. Stage parsing follows the stage names and output layout in its README. Demo mode is tested end to end. In production the cached drafting replay is a founder-only tool; users write papers in Paper Studio.
-- **Google sign-in is "coming soon"** until a `GOOGLE_CLIENT_ID` is configured; email + password is the production login.
-- **3D games and the member pass need WebGL.** They were play-tested in headless Chrome's software renderer, which is far slower than a real GPU.
-- **GROBID is not integrated.** `GROBID_URL` is reserved; parsing uses PyMuPDF plus our reference parser. Superscript citation styles can't be linked to references, so the claim check is skipped for those papers, and the UI says so.
-- Some PDFs lose accented characters during text extraction ("Burduel" for "Burdușel"). Author matching is fuzzy to compensate.
-- Retraction coverage is Crossref's. Works without a Crossref DOI (many arXiv / NeurIPS papers) are reported as *Not covered* rather than clean.
-- The overlap threshold (0.85) was calibrated on the four demo papers only. Treat hits as pointers for a human.
-- Jobs run in-process. A backend restart drops running jobs, but finished results persist in SQLite.
-- Without `S2_API_KEY`, Semantic Scholar often rate-limits. Cite and Slayy falls back to OpenAlex, and audits take longer.
+</details>
 
 ---
 
-## 10. Project structure and team split
+## 🧪 Testing
+
+```bash
+uv run pytest -m "not live"     # 86 offline tests
+uv run pytest -m live           # 3 tests against real public records
+```
+
+The suite covers parsing and reference matching, verdict rules, Paper Studio guards (fabricated tables, unmeasured numbers,
+diagram grammar, overlap), slide extraction, sessions and revocation, password rules and lockout, founder seeding (including a
+squatted email), the free preview and every paid gate, notes-image privacy, UPI claims, and Razorpay verification against a
+mocked API (underpayment, someone else's subscription, replayed webhooks). The live tests assert real Crossref retraction
+notices and that all 15 references of a showcase paper exist.
+
+---
+
+## ⚠️ Honest limitations
+
+- Retraction coverage is Crossref's; works without a Crossref DOI are reported *Not covered*, not clean.
+- The overlap threshold (0.85) was calibrated on a small set of papers. Treat hits as pointers for a human, not a verdict.
+- Live AutoResearchClaw runs need its CLI installed; in production the drafting replay is a founder-only tool and users write papers in Paper Studio.
+- Google sign-in shows *coming soon* until a client ID is configured; email and password is the production login.
+- Jobs run in-process: a restart drops running jobs, but finished results persist.
+- 3D features need WebGL.
+
+---
+
+## 📁 Project structure
 
 ```
 cite-and-slayy/
-  backend/
-    app/            main.py (FastAPI routes), jobs.py (job runner + SSE)
-    common/         config.py, schemas.py (API contracts)
-    sources/        http.py (rate limit, retry, cache) · crossref · semantic_scholar · openalex · arxiv
-    cache/          store.py (SQLite: API cache + results)
-    llm/            client.py (Anthropic / OpenAI / Gemini, strict JSON)
-    embeddings/     model.py (all-MiniLM-L6-v2)
-    documents/      parser.py (PDF/text → pages, references, citations, paragraphs) · service.py
-    gap_radar/      pipeline.py · questions.py
-    citeguard/      resolver.py · claims.py · phrases.py · overlap.py · score.py · audit.py
-    jury/           personas.py · venues.py · verdict.py
-    autoclaw_bridge/runner.py
-    accounts/       auth.py (sessions, passwords, founders, quotas) · plans.py · billing.py (Razorpay)
-    paper_studio/   studio.py (agents) · deck.py · kit.py · palette.py · ppt_templates.json
-    agent/          aurora.py (Azora AI tool-using agent)
-  frontend/         Next.js app: app/, components/ (one file per tab + charts + ui), lib/ (api, types)
-  data/             tortured_phrases.csv
-  demo/             autoclaw_run/ (showcase paper + replay meta) · sample_pdfs/
-  scripts/          dev.sh · slayy_cli.py · import_pps.py · aws_deploy.sh
-  deploy/           Dockerfiles · docker-compose.yml · Caddyfile.template
-  tests/            offline + live tests
-  docs/             PLAN.md (architecture & task split) · DEMO_SCRIPT.md · screenshots/
+├─ backend/
+│  ├─ app/            FastAPI routes · jobs + SSE · exporters · venue finder · demo papers
+│  ├─ accounts/       auth (sessions, passwords, founders, quotas) · plans · billing (Razorpay)
+│  ├─ paper_studio/   14-agent writer · slide data · submission kit · palette · template catalogue
+│  ├─ agent/          Azora AI agent and its 16 tools
+│  ├─ citeguard/      resolver · claims · phrases · overlap · score · audit · fixer
+│  ├─ jury/           personas · venues · verdict
+│  ├─ gap_radar/      ingest · embed · cluster · classify · questions
+│  ├─ sources/        rate-limited, cached gateway to OpenAlex · arXiv · Semantic Scholar · Crossref
+│  ├─ llm/            routed client with cost metering · embeddings · documents · cache
+├─ frontend/          Next.js app · components (tabs, games3d, notes, billing, aurora) · lib (deck, export, api)
+├─ deploy/            Dockerfiles · docker-compose · Caddyfile template
+├─ scripts/           dev.sh · aws_deploy.sh · CLI tools
+├─ data/ · demo/      tortured-phrase list · sample and showcase papers
+└─ tests/             89 tests
 ```
 
-Suggested ownership for 3–5 people is in [`docs/PLAN.md` §6](docs/PLAN.md#6-task-split):
+---
 
-| Owner | Area |
-|---|---|
-| Backend lead | `sources`, `cache`, `citeguard` |
-| Data/ML | `gap_radar`, `embeddings` |
-| Frontend | `frontend` |
-| LLM + Jury | `llm`, `jury`, claim prompts |
-| Integration + story | bridge, `demo`, phrase curation, README / demo |
+## 🙏 Credits
 
-## 11. Production deployment and security
+- **[AutoResearchClaw](https://github.com/aiming-lab/AutoResearchClaw)** (MIT, AIMING Lab) is an external dependency called as a CLI; none of its code is copied. Its public showcase paper *GARD* is used, with attribution, as a demo.
+- **Tortured phrases:** Cabanac, Labbé & Magazinov (2021), [arXiv:2107.06751](https://arxiv.org/abs/2107.06751).
+- **Slide designs:** [ppttemplate.ai](https://github.com/ai-ppt-template/free-ppt-template) catalogue, CC BY 4.0.
+- **Lanyard component:** [React Bits](https://reactbits.dev).
+- **Data:** OpenAlex, arXiv, Semantic Scholar and Crossref, used through their free public APIs.
+- Sample papers in `demo/` are openly licensed and remain under their original licences.
 
-`scripts/aws_deploy.sh` runs the stack on one EC2 instance (Docker Compose: backend, frontend, Caddy) without SSH:
-
-```bash
-./scripts/aws_deploy.sh up      # first time: instance, security group, Elastic IP, SSM role
-./scripts/aws_deploy.sh push    # ship the current code (S3 presigned upload + SSM send-command)
-```
-
-- **Config:** `.env` and `.env.production` (both gitignored; production values win) are merged into `.env.server` on every push.
-  Founder passwords are stored only as scrypt hashes; generate them with `backend.accounts.auth.hash_password`.
-- **Domain:** set `DOMAIN=yourdomain.com` in `.aws-deploy.env` and point the DNS A record at the instance. Caddy gets and renews
-  the HTTPS certificate; the `sslip.io` address keeps working. `SITE_PASSWORD=public` removes the optional site-wide password.
-- **HTTP hardening (Caddy):** HSTS, `nosniff`, `X-Frame-Options: DENY`, a strict referrer policy, a permissions policy
-  (microphone and payment for this site only), a CSP limiting framing, plugins and form targets, a 45 MB request cap, and no server banner.
-- **Application:** CORS limited to the site, owner checks on every object read, server-side paywall and quotas, per-user rate
-  limits on sign-up, login, uploads, images and payment claims, uploads read only up to their cap, client IP taken from the
-  proxy's own `X-Forwarded-For` entry, Mermaid in strict mode, no raw HTML in Markdown, image types allow-listed (no SVG), and
-  the template-palette fetch restricted to one CDN host.
+Built for the **GDGOC APU Hackathon** (*Data-Driven Research & Intelligent Decision Making*) by Ayush Upadhyay and team.
+Questions or support: **slayyhacks@gmail.com**.
 
 ## License
 
-Cite and Slayy's own code: MIT. AutoResearchClaw is MIT and © its authors. Sample papers remain under their original licenses (see §1).
+Cite & Slayy's own code is MIT-licensed. Third-party components and data keep their own licences (see Credits).
