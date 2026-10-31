@@ -107,6 +107,7 @@ export interface AutoClawStage { number: number; name: string; status: "pending"
 export interface AutoClawRun {
   run_id: string; topic: string; demo: boolean; status: JobStatus; stages: AutoClawStage[]; log_tail: string[];
   pdf_path?: string | null; latex_path?: string | null; document_id?: string | null; provenance?: string | null; created_at: string;
+  worker_run_id?: string | null; spend_inr?: number | null;
 }
 
 export interface Health {

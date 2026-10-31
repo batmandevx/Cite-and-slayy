@@ -114,6 +114,7 @@ export function DraftTab({
               <div className="min-w-0">
                 <div className="mb-1 flex items-center gap-2">
                   {run.demo ? <Badge tone="warn">Demo replay</Badge> : <Badge tone="accent">Live run</Badge>}
+                  {!run.demo && run.spend_inr != null && <Badge tone="neutral">₹{Math.round(run.spend_inr)} AI spend</Badge>}
                   <Badge tone={run.status === "done" ? "good" : run.status === "error" ? "crit" : "neutral"}>{run.status}</Badge>
                 </div>
                 <div className="truncate text-sm text-ink-2">Topic: <span className="text-ink">{run.topic}</span></div>
