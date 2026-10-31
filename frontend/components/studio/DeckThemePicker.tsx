@@ -4,6 +4,7 @@ import clsx from "clsx";
 import { Check, ChevronDown, Download, ExternalLink, LayoutTemplate, Loader2, Palette, Search, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
 import { DECK_THEMES, type DeckTheme } from "@/lib/deck";
 import { toast } from "@/lib/api";
@@ -17,19 +18,27 @@ export function DeckThemePicker({ value, onChange }: { value: string | DeckTheme
   const current = typeof value === "object" ? value : DECK_THEMES.find((x) => x.id === value) ?? DECK_THEMES[0];
   const [open, setOpen] = useState(false);
   const [gallery, setGallery] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const toggle = (e: React.MouseEvent<HTMLButtonElement>) => {
+    // the menu is rendered at the document root (fixed), so cards with overflow-hidden can't clip it
+    const r = e.currentTarget.getBoundingClientRect();
+    setPos({ top: r.bottom + 8, left: Math.max(8, Math.min(r.left, window.innerWidth - 348)) });
+    setOpen(!open);
+  };
   return (
     <div className="relative">
-      <button type="button" onClick={() => setOpen(!open)} title="Slide theme"
+      <button type="button" onClick={toggle} title="Slide theme" aria-expanded={open}
         className="btn-brut inline-flex h-full items-center gap-1 rounded-l-none rounded-r-xl border-l-0 bg-lime px-2 text-[#121212]">
         <span className="flex -space-x-1">{[current.ink, current.accent, current.amber].map((c, i) => <span key={i} className="size-3 rounded-full border border-edge" style={{ background: `#${c}` }} />)}</span>
         <ChevronDown className="size-3.5" />
       </button>
-      <AnimatePresence>
-        {open && (
+      {typeof document !== "undefined" && createPortal(<AnimatePresence>
+        {open && pos && (
           <>
-            <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+            <div className="fixed inset-0 z-[65]" onClick={() => setOpen(false)} />
             <motion.div initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6 }}
-              className="absolute left-0 top-full z-40 mt-2 w-[340px] rounded-2xl border-[2.5px] border-edge bg-surface p-3 shadow-[5px_5px_0_var(--shadow-c)]">
+              style={{ top: pos.top, left: pos.left }}
+              className="fixed z-[66] max-h-[70vh] w-[340px] overflow-y-auto rounded-2xl border-[2.5px] border-edge bg-surface p-3 shadow-[5px_5px_0_var(--shadow-c)]">
               <div className="mb-2 font-display text-sm font-extrabold">Slide theme</div>
               <div className="grid grid-cols-2 gap-2">
                 {DECK_THEMES.map((t) => (
@@ -60,7 +69,7 @@ export function DeckThemePicker({ value, onChange }: { value: string | DeckTheme
             </motion.div>
           </>
         )}
-      </AnimatePresence>
+      </AnimatePresence>, document.body)}
       <AnimatePresence>{gallery && <TemplateGallery onClose={() => setGallery(false)} onUse={(t) => { onChange(t); setGallery(false); }} />}</AnimatePresence>
     </div>
   );
