@@ -129,7 +129,11 @@ async def follow(run: AutoClawRun, key: str, ctx=None) -> str:
                 if st["status"] != "running":
                     break
             if st["status"] != "done":
-                raise BridgeError(st.get("error") or f"AutoResearchClaw exited with code {st.get('returncode')}; see the log")
+                log_lines = st.get("log") or []
+                fail_lines = [l.strip() for l in log_lines if any(k in l.lower() for k in ("failed", "error", "exception")) and not l.startswith("Traceback")]
+                detail = fail_lines[-1] if fail_lines else ""
+                err_msg = st.get("error") or (f"AutoResearchClaw failed: {detail}" if detail else f"AutoResearchClaw exited with code {st.get('returncode')}; see the log")
+                raise BridgeError(err_msg)
             pdf = await c.get(f"/runs/{wid}/pdf", timeout=120)
             if pdf.status_code == 200 and pdf.content[:4] == b"%PDF":
                 info = docs.save_bytes(f"autoresearchclaw-{run.run_id}.pdf", pdf.content, title=run.topic)

@@ -229,9 +229,14 @@ curl -fsSL \"\$SECRETS_URL\" | tar xz -C /tmp
 install -m 600 /tmp/env.server .env.server
 install -m 600 /tmp/env.claw .env.claw
 PW=\$(cat /tmp/site_password); rm -f /tmp/env.server /tmp/env.claw /tmp/site_password
-# The AutoResearchClaw network (172.30.0.0/24) may never reach the instance metadata service (AWS credentials).
-iptables -C DOCKER-USER -s 172.30.0.0/24 -d 169.254.169.254 -j DROP 2>/dev/null || iptables -I DOCKER-USER -s 172.30.0.0/24 -d 169.254.169.254 -j DROP
-iptables -C DOCKER-USER -s 172.30.0.0/24 -d 169.254.170.2 -j DROP 2>/dev/null || iptables -I DOCKER-USER -s 172.30.0.0/24 -d 169.254.170.2 -j DROP
+# The AutoResearchClaw container (172.30.0.20) may never reach the instance metadata service (AWS credentials).
+# Meanwhile, backend (172.30.0.10) must reach metadata for Amazon Bedrock IAM role credentials.
+iptables -D DOCKER-USER -s 172.30.0.10 -d 169.254.169.254 -j ACCEPT 2>/dev/null || true
+iptables -D DOCKER-USER -s 172.30.0.0/24 -d 169.254.169.254 -j DROP 2>/dev/null || true
+iptables -D DOCKER-USER -s 172.30.0.0/24 -d 169.254.170.2 -j DROP 2>/dev/null || true
+iptables -I DOCKER-USER 1 -s 172.30.0.0/24 -d 169.254.170.2 -j DROP
+iptables -I DOCKER-USER 1 -s 172.30.0.0/24 -d 169.254.169.254 -j DROP
+iptables -I DOCKER-USER 1 -s 172.30.0.10 -d 169.254.169.254 -j ACCEPT
 if [ ! -f data-volume/slayy.sqlite3 ] && [ -n \"\${DATA_URL:-}\" ]; then mkdir -p data-volume; curl -fsSL \"\$DATA_URL\" | tar xz -C data-volume; echo 'seeded demo data'; fi
 HASH=''; if [ -n \"\$PW\" ] && [ \"\$PW\" != public ]; then HASH=\$(docker run --rm caddy:2 caddy hash-password --plaintext \"\$PW\"); fi   # SITE_PASSWORD=public removes the site-wide password
 awk -v site='$(site_addresses)' -v hash=\"\$HASH\" '{

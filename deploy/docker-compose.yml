@@ -10,14 +10,19 @@ services:
       - ../data-volume:/data          # SQLite (API cache, results) + uploaded documents; survives rebuilds
     restart: unless-stopped
     mem_limit: 5g
-    networks: [default, claw]
+    networks:
+      default:
+      claw:
+        ipv4_address: 172.30.0.10
 
   # AutoResearchClaw runs model-written experiment code, so it lives in its own container:
   # no app secrets, no data volume, non-root, and the host firewall blocks it from the cloud metadata endpoint.
   autoclaw:
     build: { context: .., dockerfile: deploy/autoclaw.Dockerfile }
     env_file: ../.env.claw
-    networks: [claw]
+    networks:
+      claw:
+        ipv4_address: 172.30.0.20
     restart: unless-stopped
     mem_limit: 3g
     cpus: 1.5

@@ -9,6 +9,7 @@ is reachable only from containers on the private Docker network.
 """
 from __future__ import annotations
 
+import logging
 import secrets
 import time
 import uuid
@@ -20,6 +21,8 @@ from backend.accounts import auth
 from backend.cache.store import get_store
 from backend.common.config import get_settings
 from backend.llm import client as llm
+
+logger = logging.getLogger("autoclaw_bridge")
 
 router = APIRouter(prefix="/internal/llm/v1")
 MODEL = "azora-pro"
@@ -101,6 +104,7 @@ async def chat(body: ChatRequest, request: Request):
     try:
         text = await llm.complete(system or "You are a helpful research assistant.", prompt, effort="medium", max_tokens=max_tokens)
     except llm.LLMError as e:
+        logger.error(f"[llm_bridge] /chat/completions complete failed: {e}")
         raise HTTPException(502, llm.scrub(str(e))[:300]) from e
     rec["calls"] = rec.get("calls", 0) + 1
     get_store().put("claw_key", key, rec)
