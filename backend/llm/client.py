@@ -67,18 +67,29 @@ _last_stop: ContextVar[str] = ContextVar("llm_last_stop", default="")
 async def complete_long(system: str, prompt: str, max_tokens: int = 32000) -> tuple[str, str]:
     """Long-output call for the AutoResearchClaw bridge: the premium Bedrock model, up to 32k output tokens and a
     10-minute read timeout. A cut-off reply is returned with finish_reason "length" instead of raising."""
-    provider, model = chain("main")[0]
-    if provider != "bedrock":
-        return await complete(system, prompt, max_tokens=min(max_tokens, 16000)), "stop"
-    def call() -> tuple[str, tuple[int, int] | None, str]:
-        text, usage = _converse_sync(system, prompt, None, max_tokens, model, True)
-        return text, usage, _last_stop.get()        # read in the worker thread, where the call set it
+    errors: list[str] = []
+    for provider, model in chain("main"):
+        if provider != "bedrock":
+            try:
+                return await complete(system, prompt, max_tokens=min(max_tokens, 16000)), "stop"
+            except LLMError as e:
+                errors.append(f"{provider}: {e}")
+                continue
 
-    text, usage, stop = await asyncio.to_thread(call)
-    if usage:
-        _note_usage(*usage)
-    _charge(provider, model, system, prompt, text)
-    return text, ("length" if stop == "max_tokens" else "stop")
+        def call(m: str = model) -> tuple[str, tuple[int, int] | None, str]:
+            text, usage = _converse_sync(system, prompt, None, max_tokens, m, True)
+            return text, usage, _last_stop.get()        # read in the worker thread, where the call set it
+
+        try:
+            text, usage, stop = await asyncio.to_thread(call)
+        except LLMError as e:                            # e.g. Opus daily quota used up -> try Sonnet
+            errors.append(f"{model}: {e}")
+            continue
+        if usage:
+            _note_usage(*usage)
+        _charge(provider, model, system, prompt, text)
+        return text, ("length" if stop == "max_tokens" else "stop")
+    raise LLMError("; ".join(errors) or "no LLM available")
 
 
 def set_meter(uid: str | None) -> None:
@@ -187,7 +198,8 @@ def chain(tier: Tier = "main") -> list[tuple[str, str]]:
     if _premium.get() and bregion:
         prem_model = _bedrock_model_id(s.premium_model if tier == "main" else s.premium_model_fast, bregion)
         prem = ("bedrock", prem_model)
-        out = [prem] + [x for x in out if x != prem]   # standard engine stays as the fallback
+        backup = [("bedrock", _bedrock_model_id(s.premium_fallback_model, bregion))] if tier == "main" and s.premium_fallback_model else []
+        out = [prem] + [x for x in backup if x != prem] + [x for x in out if x != prem and x not in backup]   # Sonnet, then the standard engine
     return out
 
 

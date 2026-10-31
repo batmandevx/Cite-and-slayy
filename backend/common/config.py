@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     dev_show_magic_link: bool = False  # local testing only: return the login link in the API response
     premium_model: str = "us.anthropic.claude-opus-4-6-v1"            # Pro/Max engine via Amazon Bedrock (no Anthropic API key needed)
     premium_model_fast: str = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    premium_fallback_model: str = "us.anthropic.claude-sonnet-4-6"   # separate Bedrock quota; used when Opus is throttled
     price_overrides: dict[str, list[float]] | None = None   # USD per 1M tokens per model id, e.g. Bedrock rates
     usd_inr: float = 88.0               # conversion for budgets; update to the current rate
     razorpay_key_id: str | None = None
