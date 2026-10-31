@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     claw_url: str | None = None         # isolated AutoResearchClaw worker (deploy/autoclaw.Dockerfile)
     claw_token: str | None = None
     claw_run_budget_inr: float = 1500.0  # Bedrock spend cap per live run
+    # AutoResearchClaw makes hundreds of long calls, so it runs on cheaper models than Paper Studio (tried in order).
+    claw_models: str = "us.anthropic.claude-sonnet-4-6,us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
     # App
     demo_mode: bool = False

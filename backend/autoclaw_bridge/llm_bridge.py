@@ -104,7 +104,8 @@ async def chat(body: ChatRequest, request: Request):
     text, finish, err = "", "stop", None
     for attempt in range(2):              # one retry for transient model/network errors
         try:
-            text, finish = await llm.complete_long(system or "You are a helpful research assistant.", prompt, max_tokens=max_tokens)
+            text, finish = await llm.complete_long(system or "You are a helpful research assistant.", prompt, max_tokens=max_tokens,
+                                                   models=[m.strip() for m in get_settings().claw_models.split(",") if m.strip()])
             err = None
             break
         except llm.LLMError as e:

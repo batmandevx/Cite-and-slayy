@@ -64,11 +64,13 @@ DEFAULT_PRICE = (1.0, 4.0)
 _last_stop: ContextVar[str] = ContextVar("llm_last_stop", default="")
 
 
-async def complete_long(system: str, prompt: str, max_tokens: int = 32000) -> tuple[str, str]:
+async def complete_long(system: str, prompt: str, max_tokens: int = 32000, models: list[str] | None = None) -> tuple[str, str]:
     """Long-output call for the AutoResearchClaw bridge: the premium Bedrock model, up to 32k output tokens and a
     10-minute read timeout. A cut-off reply is returned with finish_reason "length" instead of raising."""
     errors: list[str] = []
-    for provider, model in chain("main"):
+    bregion = get_settings().bedrock_region
+    order = ([("bedrock", _bedrock_model_id(m, bregion)) for m in models] if models and bregion else []) + chain("main")
+    for provider, model in order:
         if provider != "bedrock":
             try:
                 return await complete(system, prompt, max_tokens=min(max_tokens, 16000)), "stop"
