@@ -1,6 +1,6 @@
 import { Biz, LegalPage } from "@/components/LegalPage";
 
-export const metadata = { title: "Cancellation & Refunds · Cite & Slayy" };
+export const metadata = { title: "Cancellation & Refunds", description: "Cancellation and refund policy for Cite & Slayy plans and Paper Packs.", alternates: { canonical: "/refund" } };
 
 export default function Refund() {
   return (

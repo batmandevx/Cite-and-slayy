@@ -1,6 +1,6 @@
 import { Biz, LegalPage } from "@/components/LegalPage";
 
-export const metadata = { title: "Contact · Cite & Slayy" };
+export const metadata = { title: "Contact", description: "Contact Cite & Slayy support at slayyhacks@gmail.com. We reply within 2 business days.", alternates: { canonical: "/contact" } };
 
 export default function Contact() {
   return (

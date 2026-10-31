@@ -1,7 +1,7 @@
 "use client";
 
 import { Moon, Sun } from "lucide-react";
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useState, useSyncExternalStore, type ReactNode } from "react";
 
 type Theme = "light" | "dark";
 const Ctx = createContext<{ theme: Theme; toggle: () => void }>({ theme: "light", toggle: () => {} });
@@ -21,8 +21,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
 export const useTheme = () => useContext(Ctx);
 
+const noop = () => () => {};
+
 export function ThemeToggle() {
-  const { theme, toggle } = useTheme();
+  const { theme: chosen, toggle } = useTheme();
+  // The server can't know the saved theme; render the light icon until hydrated so the markup matches.
+  const hydrated = useSyncExternalStore(noop, () => true, () => false);
+  const theme = hydrated ? chosen : "light";
   return (
     <button
       onClick={toggle}

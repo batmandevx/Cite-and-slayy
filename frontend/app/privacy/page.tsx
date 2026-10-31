@@ -1,6 +1,6 @@
 import { Biz, LegalPage } from "@/components/LegalPage";
 
-export const metadata = { title: "Privacy Policy · Cite & Slayy" };
+export const metadata = { title: "Privacy Policy", description: "How Cite & Slayy collects, uses and protects your data, uploads and research papers.", alternates: { canonical: "/privacy" } };
 
 export default function Privacy() {
   return (

@@ -36,10 +36,14 @@ ip() { state_get PUBLIC_IP; }
 # A record points at the server; the sslip.io address keeps working alongside it.
 domain() { local d; d=${DOMAIN:-$(state_get DOMAIN)}; echo "${d#https://}" | tr -d '/ '; }
 site() { local d; d=$(domain); if [ -n "$d" ]; then echo "$d"; else echo "$(ip | tr . -).sslip.io"; fi; }
-site_addresses() {   # www. only for a bare domain (example.com), not for a free subdomain (name.duckdns.org)
+site_addresses() {   # the custom domain plus the sslip.io fallback
   local d; d=$(domain)
   if [ -z "$d" ]; then site; return; fi
-  if [ "$(echo "$d" | tr -cd . | wc -c | tr -d ' ')" = 1 ]; then echo "$d, www.$d, $(ip | tr . -).sslip.io"; else echo "$d, $(ip | tr . -).sslip.io"; fi
+  echo "$d, $(ip | tr . -).sslip.io"
+}
+www_host() {   # a bare domain also answers on www., which permanently redirects to the bare domain (one canonical site for SEO)
+  local d; d=$(domain)
+  if [ -n "$d" ] && [ "$(echo "$d" | tr -cd . | wc -c | tr -d ' ')" = 1 ]; then echo "www.$d"; fi
 }
 
 create_role() {
@@ -239,7 +243,8 @@ iptables -I DOCKER-USER 1 -s 172.30.0.0/24 -d 169.254.169.254 -j DROP
 iptables -I DOCKER-USER 1 -s 172.30.0.10 -d 169.254.169.254 -j ACCEPT
 if [ ! -f data-volume/slayy.sqlite3 ] && [ -n \"\${DATA_URL:-}\" ]; then mkdir -p data-volume; curl -fsSL \"\$DATA_URL\" | tar xz -C data-volume; echo 'seeded demo data'; fi
 HASH=''; if [ -n \"\$PW\" ] && [ \"\$PW\" != public ]; then HASH=\$(docker run --rm caddy:2 caddy hash-password --plaintext \"\$PW\"); fi   # SITE_PASSWORD=public removes the site-wide password
-awk -v site='$(site_addresses)' -v hash=\"\$HASH\" '{
+awk -v site='$(site_addresses)' -v www='$(www_host)' -v apex='$(domain)' -v hash=\"\$HASH\" '{
+  if (\$0 ~ /__WWW_REDIRECT__/) { if (www != \"\") { print www \" {\"; print \"\\tredir https://\" apex \"{uri} permanent\"; print \"}\" }; next }
   if (\$0 ~ /__SITE_ADDRESS__/) { sub(/__SITE_ADDRESS__/, site) }
   if (\$0 ~ /__AUTH_BLOCK__/) { if (hash == \"\") next; print \"\\t@gated not path /api/billing/webhook\"; print \"\\tbasic_auth @gated {\"; print \"\\t\\tslayy \" hash; print \"\\t}\"; next }
   print }' deploy/Caddyfile.template > deploy/Caddyfile.generated

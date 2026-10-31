@@ -1,6 +1,6 @@
 import { Biz, LegalPage } from "@/components/LegalPage";
 
-export const metadata = { title: "Terms of Service · Cite & Slayy" };
+export const metadata = { title: "Terms of Service", description: "The terms for using Cite & Slayy, the AI research paper writer and citation checker.", alternates: { canonical: "/terms" } };
 
 export default function Terms() {
   return (

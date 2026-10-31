@@ -25,3 +25,5 @@ __AUTH_BLOCK__
 		reverse_proxy frontend:3000
 	}
 }
+
+__WWW_REDIRECT__

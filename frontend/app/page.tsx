@@ -1,12 +1,6 @@
-"use client";
-
-import { useSyncExternalStore } from "react";
 import Landing from "@/components/Landing";
 
-const subscribe = () => () => {};
-
+// Rendered on the server so search engines and link previews see the full page, then hydrated in the browser.
 export default function Home() {
-  const isClient = useSyncExternalStore(subscribe, () => true, () => false);
-  if (!isClient) return <div className="grid min-h-screen place-items-center font-display text-lg font-extrabold">Cite &amp; Slayy</div>;
   return <Landing />;
 }
