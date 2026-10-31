@@ -72,17 +72,16 @@ function UpgradeNudge() {
 
 function StatusChips({ health, offline }: { health: Health | null; offline: boolean }) {
   const { me, config } = useAuth();
-  const diag = !config?.auth_required || !!me?.is_owner;   // engine diagnostics are for founders only
+  const diag = !config?.auth_required || !!me?.is_owner;   // engine diagnostics are for founders only; users see a chip only when something is wrong
   return (
     <div className="flex flex-wrap gap-1.5">
       {offline && <Badge tone="crit">Backend offline · {API || "same origin"}</Badge>}
-      {health && (
+      {health && !health.llm.available && <Badge tone="warn">AI offline: checklist only</Badge>}
+      {health && diag && (
         <>
-          <Badge tone={health.llm.available ? "good" : "warn"}>
-            {health.llm.available ? "Azora engine online" : "AI offline: checklist only"}
-          </Badge>
-          {diag && health.demo_mode && <Badge tone="warn">Drafting replay on</Badge>}
-          {diag && <Badge tone={health.s2_key ? "good" : "neutral"}>{health.s2_key ? "S2 key" : "S2 unkeyed"}</Badge>}
+          {health.llm.available && <Badge tone="good">Admin · AI online</Badge>}
+          {health.demo_mode && <Badge tone="neutral">Admin · Draft defaults to demo</Badge>}
+          {!health.s2_key && <Badge tone="neutral">Admin · Semantic Scholar key missing</Badge>}
         </>
       )}
     </div>
