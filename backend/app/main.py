@@ -36,7 +36,10 @@ from backend.gap_radar import questions as gapq
 from backend.jury.verdict import RULES, run_jury
 from backend.llm import client as llm
 
-app = FastAPI(title="Cite and Slayy", version="0.1.0")
+# No public API explorer in production: the schema maps every endpoint for an attacker.
+_docs = not get_settings().auth_required
+app = FastAPI(title="Cite and Slayy", version="0.1.0", docs_url="/docs" if _docs else None,
+              redoc_url="/redoc" if _docs else None, openapi_url="/openapi.json" if _docs else None)
 from backend.autoclaw_bridge.llm_bridge import router as _claw_llm_router  # noqa: E402
 app.include_router(_claw_llm_router)
 
@@ -49,6 +52,19 @@ async def _seed_founders() -> None:
         claw.resume_live_runs()        # live AutoResearchClaw runs survive backend restarts and deploys
 app.add_middleware(CORSMiddleware, allow_origins=get_settings().cors_origins.split(","),
                    allow_methods=["*"], allow_headers=["*"], allow_credentials=True)
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    resp = await call_next(request)
+    if resp.headers.get("content-type", "").startswith("application/pdf"):
+        # PDFs are previewed in an <iframe> on our own pages: allow same-site framing, nothing else.
+        ours = " ".join(o.strip() for o in get_settings().cors_origins.split(",") if o.strip().startswith("http"))
+        resp.headers["X-Frame-Options"] = "SAMEORIGIN"
+        resp.headers["Content-Security-Policy"] = f"default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self' {ours}"
+    else:
+        resp.headers.setdefault("Cache-Control", "no-store")   # API answers are per-user: never cache them in shared caches
+    return resp
+
 
 # Endpoints anyone may call without signing in (landing page, sign-in itself, payment-provider webhooks, demo showcase PDFs).
 PUBLIC = ("/api/health", "/api/stats", "/api/auth/", "/api/billing/plans", "/api/billing/webhook", "/api/demo-papers")

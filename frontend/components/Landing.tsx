@@ -16,6 +16,9 @@ import { PaperBuilder } from "./landing/PaperBuilder";
 import { Logo } from "./Logo";
 import { AnimatedNumber } from "./motion";
 import { ThemeProvider, ThemeToggle } from "./theme";
+import { faqJsonLd, JsonLd } from "./seo/JsonLd";
+import { FeatureLinks } from "./seo/SiteFooterLinks";
+import { FAQ_HOME } from "@/lib/seoPages";
 
 interface Stats { papers_mapped: number; references_checked: number; papers_audited: number; retractions_caught: number; verdicts: number }
 
@@ -298,6 +301,22 @@ function LandingInner() {
         <Pricing onChoose={() => { window.location.href = "/pricing"; return false; }} onBuyPack={async () => { window.location.href = "/pricing"; return false; }} />
       </section>
 
+      {/* ---------- FAQ ---------- */}
+      <section id="faq" aria-labelledby="faq-h" className="mx-auto max-w-[1000px] px-5 py-16">
+        <JsonLd data={faqJsonLd(FAQ_HOME)} />
+        <h2 id="faq-h" className="text-center font-display text-4xl font-extrabold md:text-5xl">Questions, answered</h2>
+        <div className="mt-8 space-y-3">
+          {FAQ_HOME.map((f) => (
+            <details key={f.q} className="card group p-5">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-display text-lg font-extrabold">
+                {f.q}<span aria-hidden className="text-2xl transition group-open:rotate-45">+</span>
+              </summary>
+              <p className="mt-2 text-ink-2">{f.a}</p>
+            </details>
+          ))}
+        </div>
+      </section>
+
       {/* ---------- CTA ---------- */}
       <section className="mx-auto max-w-[1240px] px-5 py-20">
         <InView rotate={-1}>
@@ -320,6 +339,7 @@ function LandingInner() {
         <p className="max-w-xl text-xs">
           Data: OpenAlex, arXiv, Semantic Scholar, Crossref (incl. Retraction Watch). Built for the GDGOC APU Hackathon.
         </p>
+        <FeatureLinks className="flex w-full flex-wrap gap-x-4 gap-y-2 text-xs font-bold md:order-last" />
         <nav className="flex flex-wrap gap-4 text-xs font-bold">
           <Link href="/pricing">Pricing</Link><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link>
           <Link href="/refund">Refunds</Link><Link href="/contact">Contact</Link>

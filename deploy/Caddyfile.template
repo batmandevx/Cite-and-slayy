@@ -4,13 +4,23 @@ __SITE_ADDRESS__ {
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
-		X-Frame-Options "DENY"
+		?X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		Permissions-Policy "camera=(), geolocation=(), usb=(), microphone=(self), payment=(self)"
-		Content-Security-Policy "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self' https://www.overleaf.com https://*.razorpay.com"
+		# Pages bring their own full policy from Next.js; this strict default covers API responses and anything else.
+		?Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+		?Cross-Origin-Opener-Policy "same-origin"
+		X-Permitted-Cross-Domain-Policies "none"
 		-Server
 		-X-Powered-By
+		-X-Nextjs-Cache
+		-X-Nextjs-Prerender
+		-X-Nextjs-Stale-Time
 	}
+	# The raw-IP fallback address and the API should never show up in search results.
+	@fallback_host host *.sslip.io
+	header @fallback_host X-Robots-Tag "noindex, nofollow"
+	header /api/* X-Robots-Tag "noindex, nofollow"
 __AUTH_BLOCK__
 	# API + Server-Sent Events: flush immediately so live progress streams aren't buffered.
 	handle /api/* {
