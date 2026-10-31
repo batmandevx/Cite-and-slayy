@@ -112,7 +112,7 @@ AI-assistance acknowledgment and the integrity report is shown next to the paper
 
 - **Revise by chat:** *"shorten the abstract to 150 words"*, *"add a threats-to-validity section"*. The agents re-plan only the affected sections, keep the same references, re-verify and keep an undo history.
 - **Exports:** PDF, Word (figures embedded) and a LaTeX `.zip` (`main.tex` + `figures/`) in IEEE, Springer LNCS or plain format, or one click to Overleaf.
-- **16-slide presentations:** native PowerPoint charts from the measured data, the architecture redrawn as shapes, the evaluation table and speaker notes. Six built-in themes, or the colours of any of **440+ free designs** from the [ppttemplate.ai catalogue](https://github.com/ai-ppt-template/free-ppt-template) (CC BY 4.0).
+- **16-slide presentations:** native PowerPoint charts from the measured data, the architecture redrawn as shapes, the evaluation table and speaker notes. Six built-in themes, or the colours of any of **530+ free designs** from the [ppttemplate.ai catalogue](https://github.com/ai-ppt-template/free-ppt-template) (CC BY 4.0).
 - **Submission kit:** cover letter, declarations, a computed pre-submission checklist, reviewer suggestions drawn from cited authors, and a response-to-reviewers template.
 - **Journal & conference finder:** ranks venues by where the most similar recent papers were published, with open-access, APC and impact facts from OpenAlex.
 

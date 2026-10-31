@@ -64,7 +64,7 @@ export function DeckThemePicker({ value, onChange }: { value: string | DeckTheme
               )}
               <button type="button" onClick={() => { setGallery(true); setOpen(false); }}
                 className="mt-3 flex w-full items-center gap-2 rounded-xl border-2 border-dashed border-edge px-3 py-2 text-left text-xs font-bold hover:bg-surface-2">
-                <LayoutTemplate className="size-4 text-pink" /><span className="flex-1">Browse 440+ free designer templates</span><ExternalLink className="size-3.5" />
+                <LayoutTemplate className="size-4 text-pink" /><span className="flex-1">Browse 530+ free designer templates</span><ExternalLink className="size-3.5" />
               </button>
             </motion.div>
           </>
@@ -98,7 +98,7 @@ function TemplateGallery({ onClose, onUse }: { onClose: () => void; onUse: (t: D
       className="fixed inset-0 z-[70] grid place-items-center bg-black/50 p-4 backdrop-blur-sm">
       <motion.div initial={{ y: 30, scale: 0.96 }} animate={{ y: 0, scale: 1 }} exit={{ y: 30, scale: 0.96 }} onClick={(e) => e.stopPropagation()}
         className="card flex max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden">
-        <div className="flex flex-wrap items-center gap-3 border-b-[2.5px] border-edge bg-surface-2 px-5 py-3">
+        <div className="flex shrink-0 flex-wrap items-center gap-3 border-b-[2.5px] border-edge bg-surface-2 px-5 py-3">
           <LayoutTemplate className="size-6 text-pink" />
           <div className="flex-1">
             <div className="font-display text-xl font-extrabold">Presentation templates</div>
@@ -109,12 +109,13 @@ function TemplateGallery({ onClose, onUse }: { onClose: () => void; onUse: (t: D
           </label>
           <button onClick={onClose} className="rounded-lg p-1 hover:bg-surface" aria-label="Close"><X className="size-5" /></button>
         </div>
-        <div className="flex gap-1.5 overflow-x-auto border-b-2 border-dashed border-line px-5 py-2">
+        <div className="flex shrink-0 gap-1.5 overflow-x-auto border-b-2 border-dashed border-line px-5 py-2.5">
           {Object.entries(data?.categories ?? { "thesis-defense": "Thesis & Academic" }).map(([k, v]) => (
-            <button key={k} onClick={() => setCat(k)} className={clsx("shrink-0 rounded-full border-2 px-3 py-0.5 text-xs font-bold", cat === k ? "border-edge bg-yellow text-[#121212]" : "border-line hover:border-edge")}>{v}</button>
+            <button key={k} onClick={() => setCat(k)} className={clsx("shrink-0 whitespace-nowrap rounded-full border-2 px-3 py-1 text-xs font-bold", cat === k ? "border-edge bg-yellow text-[#121212]" : "border-line hover:border-edge")}>{v}</button>
           ))}
         </div>
-        <div className="grid flex-1 grid-cols-1 gap-4 overflow-y-auto p-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="grid grid-cols-1 content-start gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
           {data === null ? Array.from({ length: 6 }, (_, i) => <div key={i} className="shimmer aspect-video rounded-xl" />) : data.items.length === 0 ? (
             <p className="col-span-full py-10 text-center text-sm text-muted">No templates match.</p>
           ) : data.items.map((t, i) => (
@@ -135,7 +136,8 @@ function TemplateGallery({ onClose, onUse }: { onClose: () => void; onUse: (t: D
             </motion.div>
           ))}
         </div>
-        <div className="border-t-2 border-dashed border-line px-5 py-2 text-[11px] text-muted">
+        </div>
+        <div className="shrink-0 border-t-2 border-dashed border-line px-5 py-2 text-[11px] text-muted">
           {data?.credit ?? "Templates by ppttemplate.ai (CC BY 4.0)"} · <a className="underline" href={data?.license_url ?? "https://creativecommons.org/licenses/by/4.0/"} target="_blank" rel="noreferrer">license</a>. Credit the source if you share a deck built on one publicly.
         </div>
       </motion.div>

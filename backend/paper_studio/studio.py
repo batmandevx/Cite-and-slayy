@@ -45,7 +45,7 @@ from backend.common.schemas import Paper
 from backend.documents.parser import Paragraph
 from backend.embeddings.model import embed_async
 from backend.llm import client as llm
-from backend.paper_studio import figures
+from backend.paper_studio import experiments, figures
 from backend.sources import openalex
 from backend.sources.http import SourceError
 
@@ -604,6 +604,14 @@ async def run(req: StudioRequest, ctx) -> str:
     method_label = outline.method_name if outline.method_acronym in outline.method_name else f"{outline.method_name} ({outline.method_acronym})"
     await say("architect", "done", f"“{outline.title}”", 0.3, title=outline.title)
 
+    # ---- Experimenter: pilot experiments that actually run (vetted battery + sandboxed toy simulation) ----
+    exp = await experiments.run_for_paper(topic, method_label, outline.method_summary, say)
+    for name, (png, cap) in exp.figures.items():
+        figs[name] = (png, cap)
+        store.put("paper_fig", f"{pid}-{name}", {"png": base64.b64encode(png).decode()})
+    if exp.facts:
+        facts_txt += "\nPILOT EXPERIMENTS (executed by the pipeline; illustrative, not a full evaluation of the proposed method):\n" + "\n".join(exp.facts)
+
     # ---- Writers (8 specialists in parallel) ----
     core = (
         f"PAPER TITLE: {outline.title}\n"
@@ -825,6 +833,10 @@ async def run(req: StudioRequest, ctx) -> str:
         "[[TABLE:trend]]": trend_rows,
         "[[TABLE:refs]]": ref_table,
     }
+    exp_md = experiments.section(exp, fig_block)
+    if exp_md:
+        anchor = "\n# Experimental Setup and Ablation Protocol"
+        body = body.replace(anchor, f"\n{exp_md}\n{anchor}", 1) if anchor in body else body + f"\n\n{exp_md}"
     for tok, rep in tokens.items():
         if tok in body:
             body = body.replace(tok, rep, 1).replace(tok, "")
@@ -851,6 +863,7 @@ async def run(req: StudioRequest, ctx) -> str:
         "unmeasured_claims_found": unmeasured + len(abs_issues),
         "unmeasured_claims_remaining": remaining, "paragraphs_revised": revised, "verbatim_paragraphs_after": copied_after, "unmeasured_tables_removed": fabricated_tables,
         "tortured_phrases": [h.phrase for h in phrase_hits], "uncited_refs_dropped": len(refs) - len(cited_refs),
+        "experiments": exp.report,
     }
     result = {
         "paper_id": pid, "topic": topic, "angle": angle, "title": outline.title, "markdown": md,
@@ -862,7 +875,8 @@ async def run(req: StudioRequest, ctx) -> str:
         "template": req.template, "author": req.author, "affiliation": req.affiliation, "created_at": now().isoformat(),
         "seeded": [p.title for p in seeds],
         # kept for revisions: the numbered reference records, measured facts and the method name
-        "_refs": [p.model_dump() for p in cited_refs], "_facts": facts_txt, "_method": method_label, "versions": [],
+        "_refs": [p.model_dump() for p in cited_refs], "_facts": facts_txt + ("\n" + exp.markdown if exp.markdown else ""),
+        "_method": method_label, "versions": [],
     }
     store.put("paper_studio", pid, result)
     await say("done", "done", "Paper ready", 1.0)

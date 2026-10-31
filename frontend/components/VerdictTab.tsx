@@ -183,7 +183,6 @@ export function VerdictTab({
               <motion.div key={`${v.review_id}-${p.persona}`} initial={{ opacity: 0, rotateY: 180, y: 16 }} animate={{ opacity: 1, rotateY: 0, y: 0 }}
                 transition={{ delay: 0.45 + i * 0.16, type: "spring", stiffness: 110, damping: 15 }}
                 style={{ transformPerspective: 1000, backfaceVisibility: "hidden" }}>
-              <TiltCard className="h-full rounded-[14px]">
               <Card className="flex h-full flex-col p-4">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 font-semibold"><UserRound className="size-4 text-muted" />{p.persona}</div>
@@ -203,7 +202,7 @@ export function VerdictTab({
                   </>
                 )}
               </Card>
-              </TiltCard>
+              
               </motion.div>
             ))}
           </div>

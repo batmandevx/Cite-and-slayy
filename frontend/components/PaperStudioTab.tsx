@@ -37,6 +37,7 @@ interface StudioPaper {
 const AGENTS: { id: string; name: string; role: string; emoji: string; color: string }[] = [
   { id: "scout", name: "Scout", role: "finds & vets the literature", emoji: "🔭", color: "bg-lime" },
   { id: "analyst", name: "Analyst", role: "trends, venues & 300-DPI figures", emoji: "📊", color: "bg-blue" },
+  { id: "experimenter", name: "Experimenter", role: "runs pilot benchmarks & a sandboxed simulation", emoji: "🧪", color: "bg-lime" },
   { id: "architect", name: "Architect", role: "model, acronym & theorems", emoji: "📐", color: "bg-yellow" },
   { id: "writer:intro", name: "Intro writer", role: "Introduction & scope", emoji: "✍️", color: "bg-pink" },
   { id: "writer:related", name: "Literature writer", role: "Related work & positioning", emoji: "📚", color: "bg-pink" },
