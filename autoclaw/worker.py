@@ -26,6 +26,10 @@ from pathlib import Path
 TOKEN = os.environ.get("CLAW_TOKEN", "")
 WORK = Path(os.environ.get("CLAW_WORK", "/work"))
 MAX_RUNTIME = int(os.environ.get("CLAW_MAX_RUNTIME", str(3 * 3600)))
+MAX_RETRIES = 2
+# Failures in these stages usually mean the generated experiment code was broken: regenerate it.
+EXPERIMENT_STAGES = {"CODE_GENERATION", "RESOURCE_PLANNING", "EXPERIMENT_RUN", "ITERATIVE_REFINE"}
+FAILED_RE = re.compile(r"Stage \d{2}/23 ([A-Z_]+) — FAILED")
 RUNS: dict[str, dict] = {}
 LOCK = threading.Lock()
 
@@ -89,28 +93,50 @@ def _start(topic: str, llm_key: str, base_url: str) -> str:
     d.mkdir(parents=True)
     (d / "config.yaml").write_text(CONFIG.format(topic=_q(topic), base_url=_q(base_url),
                                                  email=_q(os.environ.get("CONTACT_EMAIL", "slayyhacks@gmail.com"))))
-    env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": str(d), "RC_LLM_KEY": llm_key, "MPLBACKEND": "Agg",
+    env = {"PATH": os.environ.get("CLAW_PATH", "/usr/local/bin:/usr/bin:/bin"), "HOME": str(d), "RC_LLM_KEY": llm_key, "MPLBACKEND": "Agg",
            "PYTHONUNBUFFERED": "1", "OPENBLAS_NUM_THREADS": "2", "OMP_NUM_THREADS": "2"}
     for k in ("OPENALEX_API_KEY", "S2_API_KEY"):
         if os.environ.get(k):
             env[k] = os.environ[k]
-    log = open(d / "run.log", "w")
-    proc = subprocess.Popen(["researchclaw", "run", "--topic", topic, "--config", str(d / "config.yaml"),
-                             "--output", str(d / "out"), "--auto-approve"],
-                            cwd=d, env=env, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True)
     with LOCK:
-        RUNS[rid] = {"proc": proc, "dir": d, "started": time.time(), "error": ""}
-    threading.Thread(target=_watch, args=(rid,), daemon=True).start()
+        RUNS[rid] = {"proc": None, "dir": d, "started": time.time(), "error": "", "topic": topic, "env": env, "retries": 0}
+    _launch(rid)
+    threading.Thread(target=_watch, args=(rid,), daemon=True, name=f"watch-{rid}").start()
     return rid
+
+
+def _launch(rid: str, from_stage: str | None = None) -> None:
+    r = RUNS[rid]
+    d = r["dir"]
+    cmd = ["researchclaw", "run", "--topic", r["topic"], "--config", str(d / "config.yaml"), "--output", str(d / "out"), "--auto-approve"]
+    if from_stage:
+        cmd += ["--from-stage", from_stage, "--skip-preflight"]
+    log = open(d / "run.log", "a")
+    if from_stage:
+        log.write(f"\n[worker] Retry {r['retries']}/{MAX_RETRIES}: restarting from {from_stage}\n")
+        log.flush()
+    r["proc"] = subprocess.Popen(cmd, cwd=d, env=r["env"], stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                 start_new_session=True)
 
 
 def _watch(rid: str) -> None:
     r = RUNS[rid]
-    try:
-        r["proc"].wait(timeout=MAX_RUNTIME)
-    except subprocess.TimeoutExpired:
-        r["error"] = f"stopped after {MAX_RUNTIME // 3600} h"
-        _kill(r["proc"])
+    deadline = r["started"] + MAX_RUNTIME
+    while True:
+        try:
+            r["proc"].wait(timeout=max(1, deadline - time.time()))
+        except subprocess.TimeoutExpired:
+            r["error"] = f"stopped after {MAX_RUNTIME // 3600} h"
+            _kill(r["proc"])
+            return
+        if r["proc"].returncode == 0 or r.get("cancelled") or r["retries"] >= MAX_RETRIES:
+            return
+        failed = FAILED_RE.findall((r["dir"] / "run.log").read_text(errors="replace"))
+        if not failed:
+            return
+        stage = "CODE_GENERATION" if failed[-1] in EXPERIMENT_STAGES else failed[-1]
+        r["retries"] += 1
+        _launch(rid, stage)
 
 
 def _kill(proc) -> None:
@@ -132,6 +158,9 @@ def _pdf(d: Path) -> Path | None:
 def _status(rid: str) -> dict:
     r = RUNS[rid]
     rc = r["proc"].poll()
+    if rc is not None and rc != 0 and r["retries"] < MAX_RETRIES and not r.get("cancelled") and threading.active_count() > 1 \
+            and any(t.name == f"watch-{rid}" and t.is_alive() for t in threading.enumerate()):
+        rc = None                                  # the watcher is about to retry; report "running"
     lines = (r["dir"] / "run.log").read_text(errors="replace").splitlines()[-80:]
     # never echo the run key back
     lines = [re.sub(r"rc-[A-Za-z0-9_\-]{20,}", "rc-***", ln) for ln in lines]
@@ -189,12 +218,13 @@ class Handler(BaseHTTPRequestHandler):
             if len(topic) < 4 or not key.startswith("rc-") or not base.startswith("http://backend:"):
                 return self._json(400, {"error": "topic, llm_key and llm_base_url are required"})
             with LOCK:
-                busy = sum(1 for r in RUNS.values() if r["proc"].poll() is None)
+                busy = sum(1 for r in RUNS.values() if r["proc"] is not None and r["proc"].poll() is None)
             if busy >= 1:
                 return self._json(429, {"error": "a run is already in progress; try again when it finishes"})
             return self._json(200, {"id": _start(topic, key, base)})
         m = re.fullmatch(r"/runs/([0-9a-f]{12})/cancel", self.path)
         if m and m.group(1) in RUNS:
+            RUNS[m.group(1)]["cancelled"] = True
             _kill(RUNS[m.group(1)]["proc"])
             return self._json(200, {"ok": True})
         self._json(404, {"error": "not found"})
