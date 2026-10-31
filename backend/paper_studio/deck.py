@@ -126,12 +126,23 @@ def extract_data(paper: dict) -> dict:
     evaluation = next((rows for cap, rows in tables if "to be measured" in str(rows).lower()), None)
     positioning = next((rows for cap, rows in tables if "position" in cap.lower()), None)
     figs = [{"caption": c, "url": u} for c, u in re.findall(r"!\[([^\]]*)\]\((/api/paper-studio/[^)]+)\)", md)]
+    pilot = next((rows for cap, rows in tables if cap.lower().startswith("pilot benchmark results")), None)
+    experiments = None
+    if pilot and len(pilot) > 2:
+        def mean(cell: str) -> float | None:
+            m = re.match(r"\s*([\d.]+)", cell)
+            return float(m.group(1)) if m else None
+        rows = [{"model": r[0], "acc": mean(r[1]), "f1": mean(r[2])} for r in pilot[1:] if len(r) >= 3 and mean(r[2]) is not None]
+        pv = re.search(r"paired t-test p = ([\d.e\-]+)", md)
+        ds = re.search(r"Pilot benchmark \(executed by the pipeline\): ([^;(]+)", md)
+        experiments = {"rows": rows[:6], "p_value": pv.group(1) if pv else None, "dataset": ds.group(1).strip() if ds else None}
     return {
         "trend": trend_series,
         "ref_years": {"labels": [str(y) for y in sorted(yc)], "values": [yc[y] for y in sorted(yc)]},
         "architecture": _mermaid_graph(arch) if arch else None,
         "evaluation": evaluation[:8] if evaluation else None,
         "positioning": positioning[:7] if positioning else None,
+        "experiments": experiments,
         "figures": figs,
         "stats": {"references": len(refs), "words": paper.get("words"),
                   "median_ref_year": sorted(r["year"] for r in refs if r.get("year"))[len([r for r in refs if r.get("year")]) // 2] if any(r.get("year") for r in refs) else None,

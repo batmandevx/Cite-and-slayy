@@ -17,6 +17,7 @@ export interface DeckData {
     ref_years: { labels: string[]; values: number[] };
     architecture: { nodes: { id: string; label: string; decision: boolean }[]; edges: [string, string][] } | null;
     evaluation: string[][] | null; positioning: string[][] | null;
+    experiments?: { rows: { model: string; acc: number | null; f1: number | null }[]; p_value: string | null; dataset: string | null } | null;
     figures: { caption: string; url: string }[];
     stats: { references: number; words?: number; median_ref_year?: number | null; top_cited: number };
     references: { n: number; title: string; year?: number; venue?: string | null }[];
@@ -125,6 +126,16 @@ export function buildDeck(Pptx: typeof PptxGenJS, d: DeckData, images: Record<st
     s.addText(kw, { x, y: 5.95, w, h: 0.42, fontFace: BODY, fontSize: 12, color: ON_DARK2, align: "center", valign: "middle", isTextBox: true, margin: 0 });
   });
   notes(s);
+
+  // agenda: one numbered chip per part of the talk
+  s = slide("LIGHT", "Opening");
+  title(s, "Today's talk", "Agenda");
+  const parts = ["The problem", "Our approach", "Evidence", ...(d.data.experiments ? ["Pilot experiments"] : []), "Evaluation plan", "Takeaways"];
+  parts.forEach((t, i) => {
+    const col = i % 2, row = Math.floor(i / 2), x = M + col * 6.1, y = 1.8 + row * 1.5;
+    badge(s, String(i + 1).padStart(2, "0"), x, y + 0.1, ACCENTS[i % ACCENTS.length], 0.8);
+    s.addText(t, { x: x + 1.05, y, w: 4.8, h: 1.0, fontFace: HEAD, fontSize: 24, bold: true, color: INK, valign: "middle", isTextBox: true, margin: 0 });
+  });
 
   // 2 — problem with stat callout
   sec("Motivation");
@@ -282,6 +293,43 @@ export function buildDeck(Pptx: typeof PptxGenJS, d: DeckData, images: Record<st
       s.addText(l, { x: 8.95, y: y + 0.85, w: 3.6, h: 0.4, fontFace: BODY, fontSize: 13, color: i === 0 ? ON_DARK : SLATE, isTextBox: true, margin: 0 });
     });
   notes(s);
+
+  // pilot experiments: native bar chart of measured macro-F1 + confusion matrix image
+  const ex = d.data.experiments;
+  if (ex && ex.rows.length >= 2) {
+    sec("Pilot experiments");
+    s = slide("LIGHT", "Pilot experiments");
+    title(s, "What the pilot runs measured", "Pilot experiments");
+    s.addChart(pres.ChartType.bar, [{ name: "Macro-F1 (%)", labels: ex.rows.map((x) => clip(x.model, 22)), values: ex.rows.map((x) => x.f1 ?? 0) }], {
+      x: M, y: 1.7, w: 8.2, h: 4.9, barDir: "col", chartColors: [PINK, TEAL, AMBER, VIOLET, INK, SLATE], showValue: true, dataLabelPosition: "outEnd",
+      dataLabelColor: INK, dataLabelFontSize: 11, dataLabelFontFace: "+mn-lt", dataLabelFormatCode: "0.0", showLegend: false,
+      catAxisLabelColor: SLATE, valAxisLabelColor: SLATE, catAxisLabelFontFace: "+mn-lt", valAxisLabelFontFace: "+mn-lt", catAxisLabelFontSize: 11, valAxisLabelFontSize: 11,
+      valAxisMinVal: Math.max(0, Math.floor(Math.min(...ex.rows.map((x) => x.f1 ?? 0)) - 10)), valAxisMaxVal: 100,
+      valGridLine: { color: GRID, size: 0.5 }, catGridLine: { style: "none" }, showTitle: true, title: "Macro-F1 by model (15-fold CV, executed)",
+      titleFontFace: "+mn-lt", titleFontSize: 13, titleColor: INK,
+    });
+    const best = ex.rows[0];
+    s.addShape(pres.ShapeType.roundRect, { x: 9.2, y: 1.8, w: 3.5, h: 2.2, fill: { color: INK }, line: { color: INK, width: 0 }, rectRadius: 0.12 });
+    s.addText(`${(best.f1 ?? 0).toFixed(1)}%`, { x: 9.45, y: 1.95, w: 3.0, h: 1.0, fontFace: HEAD, fontSize: 40, bold: true, color: PINK, isTextBox: true, margin: 0 });
+    s.addText(`macro-F1, ${clip(best.model, 26)}`, { x: 9.45, y: 2.95, w: 3.0, h: 0.8, fontFace: BODY, fontSize: 14, color: ON_DARK, isTextBox: true, margin: 0, valign: "top" });
+    s.addText([
+      { text: ex.dataset ? clip(ex.dataset, 70) : "Public benchmark data", options: { bold: true, color: INK, breakLine: true } },
+      { text: ex.p_value ? `Best vs. runner-up: paired t-test p = ${ex.p_value}` : "Repeated stratified cross-validation", options: { color: SLATE } },
+    ], { x: 9.2, y: 4.25, w: 3.5, h: 1.6, fontFace: BODY, fontSize: 13, valign: "top", isTextBox: true, margin: 0 });
+    s.addText("Pilot runs on public data, executed by the pipeline; not a full evaluation of the proposed method.",
+      { x: M, y: 6.65, w: W - 2 * M, h: 0.35, fontFace: BODY, fontSize: 11, italic: true, color: SLATE, isTextBox: true, margin: 0 });
+    const cmImg = d.data.figures.find((f) => f.url.includes("exp_cm"));
+    const simImg = d.data.figures.find((f) => f.url.includes("exp_sim0")) ?? d.data.figures.find((f) => f.url.includes("exp_sweep"));
+    if ((cmImg && images[cmImg.url]) || (simImg && images[simImg.url])) {
+      s = slide("LIGHT", "Pilot experiments");
+      title(s, "Where the errors are", "Pilot experiments");
+      [cmImg, simImg].filter((f): f is { caption: string; url: string } => !!f && !!images[f.url]).forEach((f, i, arr) => {
+        const w = arr.length === 2 ? 5.9 : 9.0, x = arr.length === 2 ? M + i * 6.2 : (W - 9.0) / 2;
+        s.addImage({ data: images[f.url], x, y: 1.7, w, h: 4.4, sizing: { type: "contain", w, h: 4.4 } });
+        s.addText(clip(f.caption, 140), { x, y: 6.15, w, h: 0.6, fontFace: BODY, fontSize: 11, color: SLATE, isTextBox: true, margin: 0, valign: "top" });
+      });
+    }
+  }
 
   // 12 — hypotheses + metrics
   sec("Evaluation plan");
