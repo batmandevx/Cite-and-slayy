@@ -30,13 +30,15 @@ export function DraftTab({
   useEffect(() => { api.get<AutoClawRun | null>("/api/autoclaw/latest").then((r) => r && setRun(r)).catch(() => {}); }, []);
 
   // Poll the stored run while the job streams, so the stage grid and log update live.
+  // A live run keeps going on the server even if this page's connection drops, so keep polling it while it runs.
+  const liveRunning = !!run && !run.demo && run.status === "running";
   useEffect(() => {
-    if (!job.running) return;
+    if (!job.running && !liveRunning) return;
     const t = setInterval(() => {
       api.get<AutoClawRun | null>("/api/autoclaw/latest").then((r) => r && setRun(r)).catch(() => {});
-    }, 600);
+    }, job.running ? 600 : 8000);
     return () => clearInterval(t);
-  }, [job.running]);
+  }, [job.running, liveRunning]);
 
   const start = () =>
     job.start(

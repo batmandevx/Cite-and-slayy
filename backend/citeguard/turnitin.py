@@ -77,6 +77,192 @@ LLM_CLICHE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ]
 ]
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Turnitout-Humanizer inspired 3-Layer Evasion Pipeline (integrated natively)
+# Reference: github.com/AhmadHassan-BTed/Turnitout-Humanizer / similarity_evasion_analysis.md
+# Layer 1: Lexical – synonym cycling + n-gram breaking adverb injection
+# Layer 2: Structural – voice inversion, clause splitting/fusion, topicalization
+# Layer 3: Semantic – proposition reordering, granularity shifts, interpolation
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Layer 1: Synonym cycling tables for high-frequency academic words
+_L1_SYNONYMS: dict[str, list[str]] = {
+    "show": ["demonstrate", "reveal", "establish", "indicate"],
+    "shows": ["demonstrates", "reveals", "establishes", "indicates"],
+    "use": ["employ", "apply", "leverage", "utilise"],
+    "uses": ["employs", "applies", "leverages", "utilises"],
+    "used": ["employed", "applied", "leveraged", "utilised"],
+    "using": ["employing", "applying", "leveraging", "utilising"],
+    "improve": ["enhance", "advance", "refine", "strengthen"],
+    "improves": ["enhances", "advances", "refines", "strengthens"],
+    "improved": ["enhanced", "advanced", "refined", "strengthened"],
+    "propose": ["present", "introduce", "develop", "formulate"],
+    "proposes": ["presents", "introduces", "develops", "formulates"],
+    "proposed": ["presented", "introduced", "developed", "formulated"],
+    "increase": ["raise", "elevate", "amplify", "augment"],
+    "increases": ["raises", "elevates", "amplifies", "augments"],
+    "reduce": ["decrease", "lower", "diminish", "curtail"],
+    "reduces": ["decreases", "lowers", "diminishes", "curtails"],
+    "significant": ["substantial", "considerable", "marked", "notable"],
+    "significantly": ["substantially", "considerably", "markedly", "notably"],
+    "important": ["critical", "essential", "key", "central"],
+    "however": ["nevertheless", "yet", "nonetheless", "that said"],
+    "therefore": ["consequently", "thus", "as a result", "accordingly"],
+    "also": ["additionally", "further", "moreover", "besides"],
+    "large": ["substantial", "considerable", "extensive", "broad"],
+    "small": ["limited", "narrow", "compact", "modest"],
+    "high": ["elevated", "substantial", "considerable", "strong"],
+    "low": ["reduced", "limited", "minimal", "modest"],
+    "new": ["novel", "innovative", "original", "fresh"],
+    "result": ["outcome", "finding", "output", "consequence"],
+    "results": ["outcomes", "findings", "outputs", "consequences"],
+    "method": ["approach", "technique", "procedure", "strategy"],
+    "methods": ["approaches", "techniques", "procedures", "strategies"],
+    "approach": ["method", "strategy", "framework", "mechanism"],
+    "system": ["framework", "architecture", "platform", "scheme"],
+    "model": ["framework", "formulation", "scheme", "architecture"],
+    "performance": ["efficacy", "efficiency", "capability", "effectiveness"],
+    "based on": ["grounded in", "derived from", "built upon", "rooted in"],
+    "in order to": ["to", "so as to", "with the aim of", "with a view to"],
+    "due to": ["owing to", "because of", "as a result of", "on account of"],
+    "in this paper": ["in this work", "in the present study", "herein", "in this article"],
+    "this paper": ["this work", "the present study", "this article", "the current paper"],
+}
+
+# Layer 1: Adverb injectors to break n-gram sequences at detected boundaries
+_L1_NGRAM_BREAKERS = [
+    "notably", "specifically", "empirically", "practically", "effectively",
+    "directly", "broadly", "quantitatively", "structurally", "fundamentally",
+]
+
+# Layer 2: Passive → active / active → passive voice markers for structural transform
+_L2_PASSIVE_RE = re.compile(
+    r"\b(is|are|was|were|has been|have been|had been)\s+([\w]+ed)\b", re.I
+)
+
+# Layer 2: Clause split cue words (coordinator boundaries)
+_L2_CLAUSE_SPLIT_RE = re.compile(
+    r",\s+(?:which|that|where|whereby|while|whereas)\s+", re.I
+)
+
+# Layer 3: Proposition reorder cue — finds sentences starting with adverbial openers
+_L3_ADVERBIAL_OPENER_RE = re.compile(
+    r"^(In\s+\w+[\w\s]{0,30}?,|When\s+[\w\s]{0,30}?,|By\s+[\w\s]{0,30}?,|Through\s+[\w\s]{0,30}?,)\s+", re.I
+)
+
+import hashlib
+
+def _l1_synonym_cycle(sentence: str, salt: str = "") -> str:
+    """Layer 1: Replace high-frequency words with synonyms using deterministic cycling (hash-seeded)."""
+    h = int(hashlib.md5((sentence[:20] + salt).encode()).hexdigest(), 16)
+    words = sentence.split()
+    out: list[str] = []
+    for i, w in enumerate(words):
+        wl = w.lower().rstrip(".,;:!?")
+        if wl in _L1_SYNONYMS:
+            synonyms = _L1_SYNONYMS[wl]
+            repl = synonyms[(h + i) % len(synonyms)]
+            # Preserve capitalisation
+            if w[0].isupper():
+                repl = repl[0].upper() + repl[1:]
+            # Preserve trailing punctuation
+            tail = w[len(wl):]
+            out.append(repl + tail)
+        else:
+            out.append(w)
+    return " ".join(out)
+
+
+def _l1_break_ngrams(sentence: str, src_words: list[str], n: int = 4) -> str:
+    """Layer 1: Inject an adverb before the first detected matching n-gram run to break the hash."""
+    sent_words = _word_tokens(sentence)
+    if not src_words:
+        return sentence
+    src_set = _ngram_set(src_words, n)
+    # Find position of first matching n-gram
+    for i in range(len(sent_words) - n + 1):
+        if tuple(sent_words[i:i + n]) in src_set:
+            # Find that position in the original string and inject an adverb before it
+            target_word = sent_words[i]
+            # Use a seeded adverb
+            h = abs(hash(sentence[:15])) % len(_L1_NGRAM_BREAKERS)
+            adverb = _L1_NGRAM_BREAKERS[h]
+            # Only inject if this word appears in sentence (case-insensitive)
+            pat = re.compile(r'\b' + re.escape(target_word) + r'\b', re.I)
+            injected = pat.sub(f"{adverb} {target_word}", sentence, count=1)
+            if injected != sentence:
+                return injected
+            break
+    return sentence
+
+
+def _l2_structural_transform(sentence: str) -> str:
+    """Layer 2: Apply light structural transforms — clause splitting at relative clause boundaries."""
+    # Try clause split at ', which ...' → '. It ...'
+    m = _L2_CLAUSE_SPLIT_RE.search(sentence)
+    if m:
+        head = sentence[:m.start()].strip()
+        tail_match = sentence[m.end():]
+        # Capitalize tail and form separate sentence
+        if tail_match and len(tail_match.split()) >= 5:
+            tail_cap = tail_match[0].upper() + tail_match[1:]
+            return f"{head}. {tail_cap}"
+    # Try topicalization: "X does Y because Z" → "Because Z, X does Y"
+    # (light heuristic: move adverbial opener if present)
+    mo = _L3_ADVERBIAL_OPENER_RE.match(sentence)
+    if mo and len(sentence.split()) > 12:
+        adv_clause = mo.group(0).rstrip(", ")
+        rest = sentence[mo.end():]
+        # Swap to: rest + ', ' + adv_clause.lower()
+        if rest and len(rest.split()) >= 5:
+            return f"{rest.rstrip('.')} {adv_clause.lower()}."
+    return sentence
+
+
+def _l3_reorder_propositions(paragraph: str) -> str:
+    """Layer 3: Reorder sentences in a paragraph for semantic vector shift.
+    Moves the last non-trivial sentence to second position to alter pooling."""
+    sents = [s.strip() for s in SENT_SPLIT_RE.split(paragraph) if s.strip()]
+    if len(sents) < 3:
+        return paragraph
+    # Swap last sentence to second position
+    reordered = [sents[0], sents[-1]] + sents[1:-1]
+    return " ".join(reordered)
+
+
+def _apply_turnitout_pipeline(
+    paragraph: str,
+    matched_src_sentences: list[str],
+    apply_l1: bool = True,
+    apply_l2: bool = True,
+    apply_l3: bool = True,
+) -> str:
+    """Apply the 3-layer Turnitout evasion pipeline to a paragraph before LLM rewriting.
+    This deterministic pre-pass reduces overlap before the LLM makes its pass, resulting
+    in higher-quality output with less LLM effort needed per paragraph."""
+    sents = [s.strip() for s in SENT_SPLIT_RE.split(paragraph) if s.strip()]
+    all_src_words = [w for ss in matched_src_sentences for w in _word_tokens(ss)]
+
+    processed: list[str] = []
+    for s in sents:
+        result = s
+        # Layer 1: Synonym cycle + n-gram breaking
+        if apply_l1:
+            result = _l1_synonym_cycle(result, salt=paragraph[:8])
+            if all_src_words:
+                result = _l1_break_ngrams(result, all_src_words)
+        # Layer 2: Structural transform (clause split / topicalization)
+        if apply_l2:
+            result = _l2_structural_transform(result)
+        processed.append(result)
+
+    rebuilt = " ".join(processed)
+    # Layer 3: Proposition reorder
+    if apply_l3 and len(sents) >= 3:
+        rebuilt = _l3_reorder_propositions(rebuilt)
+    return rebuilt
+
+
 # Classic RLHF participial tail: "... , highlighting/underscoring/ensuring/showcasing/thereby ..."
 PARTICIPIAL_TAIL_RE = re.compile(
     r",\s+(?:thereby\s+\w+ing|highlighting|underscoring|showcasing|demonstrating|ensuring|enabling|facilitating|paving|bolstering)\b[^.!?]{8,}[.!?]$",
@@ -628,9 +814,9 @@ async def scan(
     return {k: v for k, v in report.items() if not k.startswith("_")}
 
 
-REDUCER_SYSTEM = """You are a senior IEEE/ACM academic copy-editor performing ethical originality & stylometric revision.
+REDUCER_SYSTEM = """You are a senior IEEE/ACM academic copy-editor performing ethical originality & stylometric revision using a 3-layer evasion pipeline (Turnitout method: lexical synonym cycling, structural clause transforms, semantic proposition reordering).
 Rewrite the provided manuscript paragraph so that:
-1. ZERO shared 4-gram phrasing remains with any listed external source sentence. Express background ideas in completely fresh clause structure, and when attributing prior work's findings, include a proper academic citation such as (Author et al., Year) if a matched source is listed and not already cited.
+1. ZERO shared 4-gram phrasing remains with any listed external source sentence. The paragraph has already been pre-processed with synonym cycling and clause restructuring — complete the remaining structural and semantic transformation. Express background ideas in completely fresh clause structure. When attributing prior work, include a proper academic citation such as (Author et al., Year) if a matched source is listed and not already cited.
 2. Natural human burstiness (CV > 0.35): deliberately vary sentence lengths! Combine at least one crisp, direct 7-11 word sentence with a richer 24-34 word analytical sentence. Do NOT write 3+ sentences of uniform ~20-word length.
 3. Eliminate ALL AI-writing clichés and tells: never use 'delve', 'tapestry', 'testament to', 'pivotal', 'crucial role', 'underscores', 'in the realm of', 'paradigm shift', 'meticulously', 'seamlessly', 'multifaceted', 'it is worth noting', 'comprehensive overview', 'paves the way', 'sheds light on', 'fostering', or sentence-initial 'Moreover,' / 'Furthermore,' / 'Notably,'.
 4. Eliminate participial '-ing' tail clauses (never end a sentence with ', highlighting...', ', underscoring...', ', showcasing...', ', ensuring...', ', thereby V-ing...'). Use active finite verbs instead.
@@ -712,12 +898,14 @@ async def reduce(
 
     async def _rewrite_one(p: dict) -> None:
         flagged_notes: list[str] = []
+        matched_src_sents: list[str] = []
         for s in p["sentences"]:
             m = s.get("match")
             if m and mode in ("both", "plagiarism"):
                 src_raw = next((sr for sr in sources if sr["title"] == m["source_title"]), None)
                 first_author = ((src_raw or {}).get("authors") or ["Author"])[0].split()[-1]
                 yr = m.get("source_year") or "n.d."
+                matched_src_sents.append(m["matched_sentence"])
                 flagged_notes.append(
                     f"- SIMILARITY ({m['kind']}, {round(m['similarity'] * 100)}%): \"{s['text']}\"\n"
                     f"  Matched external source ({first_author} et al., {yr} — {m['source_title']}): \"{m['matched_sentence']}\""
@@ -728,14 +916,29 @@ async def reduce(
                     f"  Detected issues: {'; '.join(s.get('ai_reasons') or [])}"
                 )
 
+        # ── Turnitout 3-Layer Evasion Pre-Pass ─────────────────────────────────
+        # Apply L1 (synonyms + n-gram breaking), L2 (structural transforms),
+        # L3 (proposition reordering) before the LLM pass.  This deterministic
+        # layer breaks hash fingerprints so the LLM only handles residual overlap.
+        apply_plag = mode in ("both", "plagiarism")
+        apply_ai   = mode in ("both", "ai")
+        pre_para = _apply_turnitout_pipeline(
+            p["raw"],
+            matched_src_sents,
+            apply_l1=apply_plag,
+            apply_l2=apply_plag,
+            apply_l3=apply_ai,  # semantic reorder mainly helps humanise AI cadence
+        )
+        # ────────────────────────────────────────────────────────────────────────
+
         prompt = (
             f"Manuscript Title: {stored['title']}\n"
             f"Revision Mode: {mode.upper()}\n\n"
-            f"Original Paragraph:\n{p['raw']}\n\n"
+            f"Pre-processed Paragraph (already synonym-cycled and clause-restructured):\n{pre_para}\n\n"
             f"Flagged Sentences & Evidence to Fix:\n" + "\n".join(flagged_notes[:8]) + "\n\n"
-            "Rewrite the full paragraph now so similarity overlap is eliminated (citing external prior work properly if needed) "
-            "and sentence lengths have genuine human burstiness (mix one short <=10-word sentence with longer analytical clauses) "
-            "with zero LLM clichés or participial '-ing' tails."
+            "Complete the rewrite so zero shared 4-gram phrases remain with listed source sentences, "
+            "sentence lengths have genuine human burstiness (mix one short <=10-word sentence with longer analytical clauses), "
+            "and all AI clichés / participial '-ing' tails are eliminated. Cite prior work properly where matched."
         )
         async with sem:
             res = await llm.complete_json(REDUCER_SYSTEM, prompt, _ParagraphRewrite, effort="medium")

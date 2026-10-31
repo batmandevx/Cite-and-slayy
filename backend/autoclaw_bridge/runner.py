@@ -77,19 +77,42 @@ async def _run_worker(req: AutoClawRequest, ctx, uid: str) -> str:
     s = get_settings()
     run = _new_run(req.topic, demo=False)
     key = llm_bridge.issue_key(uid, run.run_id, s.claw_run_budget_inr)
-    hdr = {"Authorization": f"Bearer {s.claw_token}"}
     run.log_tail.append(f"[bridge] Live AutoResearchClaw run · Pro engine · budget ₹{s.claw_run_budget_inr:.0f}")
     _save(run)
+    async with httpx.AsyncClient(base_url=s.claw_url, headers={"Authorization": f"Bearer {s.claw_token}"}, timeout=60) as c:
+        r = await c.post("/runs", json={"topic": req.topic, "llm_key": key, "llm_base_url": "http://backend:8000/internal/llm/v1"})
+    if r.status_code != 200:
+        llm_bridge.revoke_key(key)
+        run.status = "error"
+        _save(run)
+        raise BridgeError(f"worker refused the run: {r.json().get('error', r.status_code)}")
+    run.worker_run_id = r.json()["id"]
+    _save(run)
+    return await follow(run, key, ctx)
+
+
+async def follow(run: AutoClawRun, key: str, ctx=None) -> str:
+    """Mirror a worker run into our store until it finishes, then import its PDF. Safe to resume after a restart."""
+    import httpx
+    from backend.autoclaw_bridge import llm_bridge
+    s = get_settings()
+    wid = run.worker_run_id
+    last, misses = 0, 0
     try:
-        async with httpx.AsyncClient(base_url=s.claw_url, headers=hdr, timeout=60) as c:
-            r = await c.post("/runs", json={"topic": req.topic, "llm_key": key, "llm_base_url": "http://backend:8000/internal/llm/v1"})
-            if r.status_code != 200:
-                raise BridgeError(f"worker refused the run: {r.json().get('error', r.status_code)}")
-            wid = r.json()["id"]
-            last = 0
+        async with httpx.AsyncClient(base_url=s.claw_url, headers={"Authorization": f"Bearer {s.claw_token}"}, timeout=60) as c:
             while True:
                 await asyncio.sleep(10)
-                st = (await c.get(f"/runs/{wid}")).json()
+                try:
+                    resp = await c.get(f"/runs/{wid}")
+                except httpx.HTTPError:
+                    misses += 1
+                    if misses > 30:
+                        raise BridgeError("lost contact with the AutoResearchClaw worker")
+                    continue
+                if resp.status_code == 404:
+                    raise BridgeError("the AutoResearchClaw worker restarted and this run was lost; please start it again")
+                misses = 0
+                st = resp.json()
                 run.log_tail = (st.get("log") or [])[-40:]
                 for line in st.get("log") or []:
                     m = STAGE_RE.search(line)
@@ -97,28 +120,65 @@ async def _run_worker(req: AutoClawRequest, ctx, uid: str) -> str:
                         n = int(m.group(1)) if m.group(1) else STAGES.index(m.group(2).upper()) + 1
                         if 1 <= n <= 23 and n >= last:
                             last = n
+                run.spend_inr = llm_bridge.run_spend(key)
                 if last:
                     _advance(run, last)
-                    await ctx.update(STAGES[last - 1], f"Stage {last:02d}/23 {STAGES[last - 1]} · spent ₹{llm_bridge.run_spend(key):.0f}", last / 24)
+                    if ctx:
+                        await ctx.update(STAGES[last - 1], f"Stage {last:02d}/23 {STAGES[last - 1]} · spent ₹{run.spend_inr:.0f}", last / 24)
                 _save(run)
                 if st["status"] != "running":
                     break
             if st["status"] != "done":
-                run.status = "error"
-                _save(run)
                 raise BridgeError(st.get("error") or f"AutoResearchClaw exited with code {st.get('returncode')}; see the log")
             pdf = await c.get(f"/runs/{wid}/pdf", timeout=120)
             if pdf.status_code == 200 and pdf.content[:4] == b"%PDF":
-                info = docs.save_bytes(f"autoresearchclaw-{run.run_id}.pdf", pdf.content, title=req.topic)
+                info = docs.save_bytes(f"autoresearchclaw-{run.run_id}.pdf", pdf.content, title=run.topic)
                 run.document_id, run.pdf_path = info.document_id, f"worker:{wid}"
+    except BridgeError as e:
+        run.status = "error"
+        run.log_tail = (run.log_tail + [f"[bridge] {e}"])[-40:]
+        _save(run)
+        raise
     finally:
         llm_bridge.revoke_key(key)
     for stg in run.stages:
         stg.status = "done"
     run.status = "done"
-    run.log_tail.append(f"[bridge] Done · model spend ₹{llm_bridge.run_spend(key):.0f}")
+    run.spend_inr = llm_bridge.run_spend(key)
+    run.log_tail.append(f"[bridge] Done · model spend ₹{run.spend_inr:.0f}")
     _save(run)
     return run.run_id
+
+
+def resume_live_runs() -> int:
+    """On startup: re-attach to live runs that were in progress when the backend stopped; stop the ones we can't."""
+    from backend.autoclaw_bridge import llm_bridge
+    store = get_store()
+    keys = {k.get("run_id"): k for k in store.list("claw_key", 200)}
+    key_ids = {rid: k.get("key") for rid, k in keys.items() if k.get("key")}
+    n = 0
+    for raw in store.list("autoclaw_run", 50):
+        run = AutoClawRun.model_validate(raw)
+        if run.demo or run.status != "running":
+            continue
+        kid = key_ids.get(run.run_id)
+        if run.worker_run_id and kid and not (keys.get(run.run_id) or {}).get("revoked"):
+            asyncio.get_event_loop().create_task(_follow_quietly(run, kid))
+            n += 1
+        else:
+            if kid:
+                llm_bridge.revoke_key(kid)
+            run.status = "error"
+            run.log_tail = (run.log_tail + ["[bridge] Interrupted by a server update before it could be resumed; please start the run again."])[-40:]
+            _save(run)
+    return n
+
+
+async def _follow_quietly(run: AutoClawRun, key: str) -> None:
+    try:
+        await follow(run, key, None)
+    except BridgeError:
+        pass
 
 
 async def _run_demo(req: AutoClawRequest, ctx) -> str:

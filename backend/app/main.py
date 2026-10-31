@@ -45,6 +45,8 @@ app.include_router(_claw_llm_router)
 async def _seed_founders() -> None:
     if get_settings().auth_required:
         auth.ensure_founders()
+    if get_settings().claw_url:
+        claw.resume_live_runs()        # live AutoResearchClaw runs survive backend restarts and deploys
 app.add_middleware(CORSMiddleware, allow_origins=get_settings().cors_origins.split(","),
                    allow_methods=["*"], allow_headers=["*"], allow_credentials=True)
 

@@ -7,6 +7,7 @@ import {
   BookOpen,
   Check,
   CheckCircle2,
+  ChevronDown,
   Copy,
   Crown,
   Download,
@@ -17,12 +18,14 @@ import {
   Lock,
   Printer,
   ShieldAlert,
+  ShieldCheck,
   Sparkles,
   Upload,
   Wand2,
+  Zap,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, toast } from "@/lib/api";
 import { useAuth } from "./auth/AuthProvider";
 import type { DemoPaper } from "./DemoPapersShowcase";
@@ -155,9 +158,21 @@ function LineFixPanel({ scanId, sent }: { scanId: string; sent: AnnotatedSentenc
         <span className="rounded-full border border-edge px-1.5 text-[10px] font-extrabold" style={{ backgroundColor: `${m.color}30` }}>[{m.source_id}] {m.kind}</span>
         <span className={clsx("rounded-full border px-1.5 text-[10px] font-extrabold", m.cited ? "border-good bg-good/15 text-good" : "border-crit bg-crit/15 text-crit-ink")}>
           {m.cited ? "has a citation" : "no citation"}</span>
+        <span className="ml-auto rounded-full border border-edge bg-surface-2 px-1.5 text-[10px] font-bold text-muted">
+          {Math.round(m.similarity * 100)}% match · {Math.round(m.ngram_overlap * 100)}% 4-gram
+        </span>
       </div>
       <p className="leading-relaxed text-ink"><SharedText text={sent.text} phrases={m.shared_phrases ?? []} /></p>
       {(m.shared_phrases?.length ?? 0) > 0 && <p className="mt-1 text-[10.5px] text-muted">Highlighted: word-for-word runs shared with the source.</p>}
+      <div className="mt-2 rounded-lg border border-edge/40 bg-surface-2 p-2 text-[11px] text-ink-2">
+        <span className="font-bold uppercase text-muted">Matched source: </span>
+        &ldquo;{m.matched_sentence}&rdquo;
+        {m.source_url && (
+          <a href={m.source_url} target="_blank" rel="noreferrer" className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] font-bold underline">
+            {m.source_title.slice(0, 60)}{m.source_title.length > 60 ? "…" : ""}
+          </a>
+        )}
+      </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
         <Button className="!px-2.5 !py-1 text-[11px]" loading={busy === "rewrite"} onClick={() => run("rewrite")}>Rewrite &amp; cite</Button>
         {m.kind === "verbatim" && <Button variant="ghost" className="!px-2.5 !py-1 text-[11px]" loading={busy === "quote"} onClick={() => run("quote")}>Quote &amp; cite</Button>}
@@ -171,6 +186,66 @@ function LineFixPanel({ scanId, sent }: { scanId: string; sent: AnnotatedSentenc
         </div>
       )}
     </div>
+  );
+}
+
+/** Inline sentence tooltip showing AI evidence on hover */
+function SentenceTooltip({ sent, children }: { sent: AnnotatedSentence; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  const hasAI = sent.ai_band !== "low";
+  const hasSim = Boolean(sent.match);
+  if (!hasAI && !hasSim) return <>{children}</>;
+  return (
+    <span
+      ref={ref}
+      className="relative"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onBlur={() => setOpen(false)}
+    >
+      {children}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 4, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 4, scale: 0.97 }}
+            transition={{ duration: 0.12 }}
+            className="pointer-events-none absolute bottom-full left-0 z-50 mb-1.5 w-72 rounded-xl border-2 border-edge bg-surface p-2.5 shadow-lg text-[11px] font-sans leading-snug"
+            style={{ minWidth: 220, maxWidth: 320 }}
+          >
+            {hasSim && sent.match && (
+              <div className="mb-1.5">
+                <span className="font-extrabold uppercase text-muted text-[9px] tracking-wider">Plagiarism Signal</span>
+                <div className="mt-0.5 flex items-center gap-1.5">
+                  <span className="rounded-full px-1.5 py-0 text-[10px] font-extrabold text-white" style={{ backgroundColor: sent.match.color }}>
+                    [{sent.match.source_id}] {sent.match.kind}
+                  </span>
+                  <span className="text-muted">{Math.round(sent.match.similarity * 100)}% match</span>
+                </div>
+                <p className="mt-1 text-ink-2 italic">&ldquo;{sent.match.matched_sentence.slice(0, 100)}{sent.match.matched_sentence.length > 100 ? "…" : ""}&rdquo;</p>
+                <p className="mt-0.5 text-muted text-[10px]">— {sent.match.source_title.slice(0, 55)}{sent.match.source_title.length > 55 ? "…" : ""} ({sent.match.source_year ?? "n.d."})</p>
+              </div>
+            )}
+            {hasAI && sent.ai_reasons.length > 0 && (
+              <div>
+                <span className="font-extrabold uppercase text-muted text-[9px] tracking-wider">AI Signal · {sent.ai_band} ({Math.round(sent.ai_score * 100)}%)</span>
+                <ul className="mt-0.5 space-y-0.5">
+                  {sent.ai_reasons.slice(0, 3).map((r, i) => (
+                    <li key={i} className="flex items-start gap-1 text-orange">
+                      <span className="mt-0.5 shrink-0">⚠</span>
+                      <span className="text-ink-2">{r}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </span>
   );
 }
 
@@ -415,7 +490,8 @@ export function TurnitinTab({
     }
   };
 
-  const handleReduce = async () => {
+  const handleReduce = async (modeOverride?: "both" | "plagiarism" | "ai") => {
+    const effectiveMode = modeOverride ?? reduceMode;
     const baseScan = viewingVersion === "cleaned" && reducedResult ? reducedResult.after_scan : originalScan;
     if (!baseScan && text.trim().split(/\s+/).length < 20) {
       toast({ title: "Scan or paste at least 20 words first", tone: "accent" });
@@ -427,7 +503,7 @@ export function TurnitinTab({
         scan_id: baseScan?.scan_id ?? null,
         text: baseScan ? "" : text,
         title,
-        mode: reduceMode,
+        mode: effectiveMode,
       });
       setReducedResult(res);
       setViewingVersion("cleaned");
@@ -861,11 +937,39 @@ export function TurnitinTab({
                     variant="primary"
                     className="w-full !py-2 text-xs"
                     loading={reducing}
-                    onClick={handleReduce}
+                    onClick={() => void handleReduce()}
                   >
                     <Wand2 className="size-3.5" />
                     {reducing ? "Rewriting & Re-Scoring…" : "✨ Reduce AI & Plagiarism Now"}
                   </Button>
+                </div>
+              </div>
+
+              {/* Quick-Fix row: dedicated Remove AI / Remove Plagiarism buttons + stats */}
+              <div className="flex flex-wrap items-center gap-2 rounded-2xl border-[2px] border-dashed border-edge bg-surface-2 px-4 py-2.5">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-muted">Quick Fix:</span>
+                <button
+                  type="button"
+                  className="btn-brut inline-flex items-center gap-1.5 rounded-xl bg-violet/15 px-3 py-1.5 text-xs font-extrabold text-violet hover:bg-violet/25"
+                  onClick={() => void handleReduce("ai")}
+                  disabled={reducing}
+                >
+                  <Wand2 className="size-3.5" /> Remove AI Writing (Humanize)
+                </button>
+                <button
+                  type="button"
+                  className="btn-brut inline-flex items-center gap-1.5 rounded-xl bg-crit/10 px-3 py-1.5 text-xs font-extrabold text-crit hover:bg-crit/20"
+                  onClick={() => void handleReduce("plagiarism")}
+                  disabled={reducing}
+                >
+                  <Wand2 className="size-3.5" /> Remove Plagiarism Only
+                </button>
+                <div className="ml-auto flex flex-wrap gap-3 text-xs font-bold">
+                  <span className="text-crit">{activeReport.sources.length} source(s) matched</span>
+                  <span className="text-muted">·</span>
+                  <span className="text-violet">{aiFlaggedSentences.length} AI line(s)</span>
+                  <span className="text-muted">·</span>
+                  <span className="text-ink">{activeReport.total_words.toLocaleString()} words</span>
                 </div>
               </div>
 
@@ -941,6 +1045,28 @@ export function TurnitinTab({
                     </div>
                   </div>
 
+                  {/* Legend */}
+                  <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border-[1.5px] border-edge bg-surface-2 px-3 py-2 text-[11px] font-bold">
+                    <span className="text-muted font-extrabold uppercase tracking-wide text-[10px]">Legend:</span>
+                    <span className="inline-flex items-center gap-1">
+                      <span className="inline-block size-3 rounded-sm border-b-2" style={{ backgroundColor: "#e11d4825", borderColor: "#e11d48" }} />
+                      Verbatim match
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <span className="inline-block size-3 rounded-sm border-b-2 border-dashed" style={{ backgroundColor: "#2563eb18", borderColor: "#2563eb" }} />
+                      Paraphrase
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <span className="inline-block size-3 rounded-sm border-b-[2px] border-dashed" style={{ backgroundColor: "#7c3aed18", borderColor: "#7c3aed" }} />
+                      High AI signal
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <span className="inline-block size-3 rounded-sm border-b-[1.5px] border-dashed" style={{ backgroundColor: "#d9770618", borderColor: "#d97706" }} />
+                      Moderate AI
+                    </span>
+                    <span className="ml-auto text-muted">Click any highlighted sentence for details + fix options</span>
+                  </div>
+
                   <div className="space-y-4 font-serif text-[15px] leading-[1.78] text-ink">
                     {activeReport.paragraphs.map((p) => {
                       if (p.kind === "heading") {
@@ -957,8 +1083,12 @@ export function TurnitinTab({
                           </pre>
                         );
                       }
+                      // Paragraph-level severity indicator
+                      const paraSimSents = p.sentences.filter(s => s.match).length;
+                      const paraAiSents = p.sentences.filter(s => s.ai_band !== "low").length;
+                      const paraBg = paraSimSents > 0 ? "border-l-[3px] border-l-crit pl-3" : paraAiSents > 0 ? "border-l-[3px] border-l-orange pl-3" : "";
                       return (
-                        <p key={p.index} className="text-justify">
+                        <p key={p.index} className={clsx("text-justify", paraBg)}>
                           {p.sentences.map((s) => {
                             const showSim =
                               Boolean(s.match) &&
@@ -975,48 +1105,58 @@ export function TurnitinTab({
                             }
 
                             const simColor = s.match?.color ?? "#e11d48";
-                            const aiColor = s.ai_band === "high" ? "#7c3aed" : "#d97706";
+                            // AI heat — intensity based on ai_score (0→1)
+                            const aiBase = s.ai_band === "high" ? "#7c3aed" : "#d97706";
+                            const aiOpacity = Math.round(12 + s.ai_score * 28).toString(16).padStart(2, "0");
+                            const aiBg = `${aiBase}${aiOpacity}`;
+                            // Combined: show sim colour + AI underlining if both
+                            const bgColor = showSim ? `${simColor}24` : aiBg;
+                            const borderStyle = showSim
+                              ? (s.match?.kind === "verbatim" ? `2.5px solid ${simColor}` : `2px dashed ${simColor}`)
+                              : `${s.ai_band === "high" ? "2px" : "1.5px"} dashed ${aiBase}`;
 
                             return (
-                              <span
-                                key={s.id}
-                                onClick={() => {
-                                  setSelectedSentId(s.id);
-                                  if (showSim) setInspectorTab("sources");
-                                  else if (showAi) setInspectorTab("ai");
-                                }}
-                                style={{
-                                  backgroundColor: showSim ? `${simColor}24` : `${aiColor}1e`,
-                                  borderBottom: showSim
-                                    ? `2.5px solid ${simColor}`
-                                    : `2px dashed ${aiColor}`,
-                                  outline: isSelected ? `2px solid var(--edge)` : undefined,
-                                }}
-                                className=" mr-1 cursor-pointer rounded px-1 py-0.5 transition-all hover:brightness-95"
-                                title={
-                                  showSim
-                                    ? `Matched Source [${s.match!.source_id}]: ${s.match!.source_title} (${Math.round(s.match!.similarity * 100)}%)`
-                                    : `AI Stylometric Signal (${s.ai_band}): ${s.ai_reasons.join(" · ")}`
-                                }
-                              >
-                                {s.text}
-                                {showSim && s.match && (
-                                  <sup
-                                    style={{ backgroundColor: simColor }}
-                                    className="ml-1 inline-block rounded px-1 py-0 font-sans text-[10px] font-extrabold text-white"
-                                  >
-                                    [{s.match.source_id}]
-                                  </sup>
-                                )}
-                                {showAi && (
-                                  <sup
-                                    style={{ backgroundColor: aiColor }}
-                                    className="ml-1 inline-block rounded px-1 py-0 font-sans text-[9px] font-extrabold uppercase text-white"
-                                  >
-                                    AI
-                                  </sup>
-                                )}
-                              </span>
+                              <SentenceTooltip key={s.id} sent={s}>
+                                <span
+                                  onClick={() => {
+                                    setSelectedSentId(s.id);
+                                    if (showSim) setInspectorTab("sources");
+                                    else if (showAi) setInspectorTab("ai");
+                                  }}
+                                  style={{
+                                    backgroundColor: bgColor,
+                                    borderBottom: borderStyle,
+                                    outline: isSelected ? `2px solid var(--edge)` : undefined,
+                                  }}
+                                  className="mr-1 cursor-pointer rounded px-1 py-0.5 transition-all hover:brightness-95"
+                                >
+                                  {s.text}
+                                  {showSim && s.match && (
+                                    <sup
+                                      style={{ backgroundColor: simColor }}
+                                      className="ml-1 inline-block rounded px-1 py-0 font-sans text-[10px] font-extrabold text-white"
+                                    >
+                                      [{s.match.source_id}]
+                                    </sup>
+                                  )}
+                                  {showAi && !showSim && (
+                                    <sup
+                                      style={{ backgroundColor: aiBase, opacity: 0.6 + s.ai_score * 0.4 }}
+                                      className="ml-1 inline-block rounded px-1 py-0 font-sans text-[9px] font-extrabold uppercase text-white"
+                                    >
+                                      AI
+                                    </sup>
+                                  )}
+                                  {showSim && showAi && (
+                                    <sup
+                                      style={{ backgroundColor: aiBase }}
+                                      className="ml-0.5 inline-block rounded px-0.5 py-0 font-sans text-[8px] font-extrabold uppercase text-white"
+                                    >
+                                      +AI
+                                    </sup>
+                                  )}
+                                </span>
+                              </SentenceTooltip>
                             );
                           })}
                         </p>

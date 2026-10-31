@@ -29,7 +29,7 @@ def issue_key(uid: str, run_id: str, budget_inr: float) -> str:
     """One key per live run: who pays, and how much the run may spend."""
     key = "rc-" + secrets.token_urlsafe(32)
     user = auth.get_user(uid) or {"uid": uid}
-    get_store().put("claw_key", key, {"uid": uid, "run_id": run_id, "budget_inr": float(budget_inr),
+    get_store().put("claw_key", key, {"key": key, "uid": uid, "run_id": run_id, "budget_inr": float(budget_inr),
                                       "start_spend": auth.ai_spend_inr(user), "calls": 0, "created": time.time()})
     return key
 
@@ -53,6 +53,9 @@ def _check(request: Request) -> tuple[str, dict]:
     rec = get_store().get("claw_key", key) if key.startswith("rc-") else None
     if not rec or rec.get("revoked") or time.time() - rec.get("created", 0) > 6 * 3600:
         raise HTTPException(401, "invalid or expired run key")
+    run = get_store().get("autoclaw_run", rec.get("run_id", "")) or {}
+    if run.get("status") in ("error", "done"):
+        raise HTTPException(401, "this run has ended")      # stops orphaned runs from spending
     if run_spend(key) >= rec["budget_inr"]:
         raise HTTPException(402, f"run budget of ₹{rec['budget_inr']:.0f} reached")
     return key, rec

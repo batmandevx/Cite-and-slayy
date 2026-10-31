@@ -348,4 +348,6 @@ class AutoClawRun(BaseModel):
     latex_path: str | None = None
     document_id: str | None = None
     provenance: str | None = None
+    worker_run_id: str | None = None   # id inside the isolated AutoResearchClaw worker (lets runs survive backend restarts)
+    spend_inr: float | None = None
     created_at: datetime
