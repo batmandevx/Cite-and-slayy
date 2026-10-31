@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     autoclaw_config: str | None = None
     autoclaw_workdir: str | None = None
     autoclaw_auto_approve: bool = True
+    claw_url: str | None = None         # isolated AutoResearchClaw worker (deploy/autoclaw.Dockerfile)
+    claw_token: str | None = None
+    claw_run_budget_inr: float = 1500.0  # Bedrock spend cap per live run
 
     # App
     demo_mode: bool = False

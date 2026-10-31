@@ -55,9 +55,70 @@ def _save(run: AutoClawRun) -> None:
     get_store().put("autoclaw_run", run.run_id, run)
 
 
-async def run(req: AutoClawRequest, ctx) -> str:
-    demo = get_settings().demo_mode if req.demo is None else req.demo
-    return await (_run_demo(req, ctx) if demo else _run_live(req, ctx))
+def live_available() -> bool:
+    s = get_settings()
+    return bool(s.claw_url and s.claw_token) or bool(shutil.which(s.autoclaw_bin))
+
+
+async def run(req: AutoClawRequest, ctx, uid: str | None = None) -> str:
+    s = get_settings()
+    demo = s.demo_mode if req.demo is None else req.demo
+    if demo:
+        return await _run_demo(req, ctx)
+    if s.claw_url and s.claw_token:
+        return await _run_worker(req, ctx, uid or "local")
+    return await _run_live(req, ctx)
+
+
+async def _run_worker(req: AutoClawRequest, ctx, uid: str) -> str:
+    """Live run in the isolated worker container, paid through the metered Bedrock bridge."""
+    import httpx
+    from backend.autoclaw_bridge import llm_bridge
+    s = get_settings()
+    run = _new_run(req.topic, demo=False)
+    key = llm_bridge.issue_key(uid, run.run_id, s.claw_run_budget_inr)
+    hdr = {"Authorization": f"Bearer {s.claw_token}"}
+    run.log_tail.append(f"[bridge] Live AutoResearchClaw run · Pro engine · budget ₹{s.claw_run_budget_inr:.0f}")
+    _save(run)
+    try:
+        async with httpx.AsyncClient(base_url=s.claw_url, headers=hdr, timeout=60) as c:
+            r = await c.post("/runs", json={"topic": req.topic, "llm_key": key, "llm_base_url": "http://backend:8000/internal/llm/v1"})
+            if r.status_code != 200:
+                raise BridgeError(f"worker refused the run: {r.json().get('error', r.status_code)}")
+            wid = r.json()["id"]
+            last = 0
+            while True:
+                await asyncio.sleep(10)
+                st = (await c.get(f"/runs/{wid}")).json()
+                run.log_tail = (st.get("log") or [])[-40:]
+                for line in st.get("log") or []:
+                    m = STAGE_RE.search(line)
+                    if m:
+                        n = int(m.group(1)) if m.group(1) else STAGES.index(m.group(2).upper()) + 1
+                        if 1 <= n <= 23 and n >= last:
+                            last = n
+                if last:
+                    _advance(run, last)
+                    await ctx.update(STAGES[last - 1], f"Stage {last:02d}/23 {STAGES[last - 1]} · spent ₹{llm_bridge.run_spend(key):.0f}", last / 24)
+                _save(run)
+                if st["status"] != "running":
+                    break
+            if st["status"] != "done":
+                run.status = "error"
+                _save(run)
+                raise BridgeError(st.get("error") or f"AutoResearchClaw exited with code {st.get('returncode')}; see the log")
+            pdf = await c.get(f"/runs/{wid}/pdf", timeout=120)
+            if pdf.status_code == 200 and pdf.content[:4] == b"%PDF":
+                info = docs.save_bytes(f"autoresearchclaw-{run.run_id}.pdf", pdf.content, title=req.topic)
+                run.document_id, run.pdf_path = info.document_id, f"worker:{wid}"
+    finally:
+        llm_bridge.revoke_key(key)
+    for stg in run.stages:
+        stg.status = "done"
+    run.status = "done"
+    run.log_tail.append(f"[bridge] Done · model spend ₹{llm_bridge.run_spend(key):.0f}")
+    _save(run)
+    return run.run_id
 
 
 async def _run_demo(req: AutoClawRequest, ctx) -> str:

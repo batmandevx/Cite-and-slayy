@@ -160,6 +160,17 @@ write_env_server() {
     v=$(grep -hE "^$k=" .env .env.production 2>/dev/null | tail -1 | cut -d= -f2- || true)
     [ -n "$v" ] && echo "$k=$v" >> "$out"
   done
+  # AutoResearchClaw worker: the backend reaches it on the private network with a shared token. The worker's own env
+  # file holds only that token and the (non-secret) scholarly API settings.
+  local ct; ct=$(state_get CLAW_TOKEN)
+  if [ -z "$ct" ]; then ct=$(openssl rand -hex 32); state_set CLAW_TOKEN "$ct"; fi
+  printf 'CLAW_URL=http://autoclaw:8100\nCLAW_TOKEN=%s\n' "$ct" >> "$out"
+  : > .env.claw; chmod 600 .env.claw
+  echo "CLAW_TOKEN=$ct" >> .env.claw
+  for k in CONTACT_EMAIL OPENALEX_API_KEY S2_API_KEY; do
+    v=$(grep -hE "^$k=" .env .env.production 2>/dev/null | tail -1 | cut -d= -f2- || true)
+    [ -n "$v" ] && echo "$k=$v" >> .env.claw
+  done
   if grep -q '^AUTH_REQUIRED=true' "$out" && ! grep -q '^PUBLIC_URL=' "$out"; then
     echo "PUBLIC_URL=https://$(site)" >> "$out"
   fi
@@ -183,12 +194,13 @@ push() {
   say "Packaging code"
   COPYFILE_DISABLE=1 tar czf "$tmp/code.tgz" \
     --exclude ./.venv --exclude '*/node_modules' --exclude ./frontend/node_modules --exclude '*/.next' --exclude ./var \
-    --exclude ./_other_agent --exclude ./.env --exclude ./.env.production --exclude ./.env.server --exclude ./.aws-deploy.env --exclude '*.pem' \
+    --exclude ./_other_agent --exclude ./.env --exclude ./.env.production --exclude ./.env.server --exclude ./.env.claw --exclude ./.aws-deploy.env --exclude '*.pem' \
     --exclude ./.git --exclude '*/__pycache__' --exclude ./.pytest_cache --exclude '*.egg-info' --exclude ./data-volume \
     --exclude '*.tsbuildinfo' --exclude ./deploy/Caddyfile.generated .
   cp .env.server "$tmp/env.server"
+  cp .env.claw "$tmp/env.claw"
   printf '%s' "$(state_get SITE_PASSWORD)" > "$tmp/site_password"
-  tar czf "$tmp/secrets.tgz" -C "$tmp" env.server site_password
+  tar czf "$tmp/secrets.tgz" -C "$tmp" env.server env.claw site_password
   [ -f var/slayy.sqlite3 ] && tar czf "$tmp/data.tgz" -C var slayy.sqlite3 $( [ -d var/documents ] && echo documents )
 
   if ! aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
@@ -215,7 +227,11 @@ find . -mindepth 1 -maxdepth 1 ! -name data-volume -exec rm -rf {} +
 tar xzf /tmp/code.tgz && rm -f /tmp/code.tgz
 curl -fsSL \"\$SECRETS_URL\" | tar xz -C /tmp
 install -m 600 /tmp/env.server .env.server
-PW=\$(cat /tmp/site_password); rm -f /tmp/env.server /tmp/site_password
+install -m 600 /tmp/env.claw .env.claw
+PW=\$(cat /tmp/site_password); rm -f /tmp/env.server /tmp/env.claw /tmp/site_password
+# The AutoResearchClaw network (172.30.0.0/24) may never reach the instance metadata service (AWS credentials).
+iptables -C DOCKER-USER -s 172.30.0.0/24 -d 169.254.169.254 -j DROP 2>/dev/null || iptables -I DOCKER-USER -s 172.30.0.0/24 -d 169.254.169.254 -j DROP
+iptables -C DOCKER-USER -s 172.30.0.0/24 -d 169.254.170.2 -j DROP 2>/dev/null || iptables -I DOCKER-USER -s 172.30.0.0/24 -d 169.254.170.2 -j DROP
 if [ ! -f data-volume/slayy.sqlite3 ] && [ -n \"\${DATA_URL:-}\" ]; then mkdir -p data-volume; curl -fsSL \"\$DATA_URL\" | tar xz -C data-volume; echo 'seeded demo data'; fi
 HASH=''; if [ -n \"\$PW\" ] && [ \"\$PW\" != public ]; then HASH=\$(docker run --rm caddy:2 caddy hash-password --plaintext \"\$PW\"); fi   # SITE_PASSWORD=public removes the site-wide password
 awk -v site='$(site_addresses)' -v hash=\"\$HASH\" '{
@@ -223,6 +239,7 @@ awk -v site='$(site_addresses)' -v hash=\"\$HASH\" '{
   if (\$0 ~ /__AUTH_BLOCK__/) { if (hash == \"\") next; print \"\\t@gated not path /api/billing/webhook\"; print \"\\tbasic_auth @gated {\"; print \"\\t\\tslayy \" hash; print \"\\t}\"; next }
   print }' deploy/Caddyfile.template > deploy/Caddyfile.generated
 docker ps -a --format '{{.Names}}' | grep -E '^[0-9a-f]{12}_deploy-' | xargs -r docker rm -f >/dev/null 2>&1 || true   # stale renamed containers from an interrupted recreate
+docker image prune -f >/dev/null 2>&1 || true; docker builder prune -f --filter until=72h >/dev/null 2>&1 || true   # keep disk headroom for image builds
 docker compose -f deploy/docker-compose.yml up -d --build --remove-orphans 2>&1 | tail -15
 if docker run --rm -v \$PWD/deploy/Caddyfile.generated:/etc/caddy/Caddyfile:ro caddy:2 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/tmp/caddy-validate.log 2>&1; then docker compose -f deploy/docker-compose.yml restart caddy 2>&1 | tail -2; else echo 'Caddyfile invalid, keeping the running config:'; tail -5 /tmp/caddy-validate.log; fi
 docker compose -f deploy/docker-compose.yml ps --format '{{.Name}}: {{.Status}}'"

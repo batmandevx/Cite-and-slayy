@@ -37,6 +37,8 @@ from backend.jury.verdict import RULES, run_jury
 from backend.llm import client as llm
 
 app = FastAPI(title="Cite and Slayy", version="0.1.0")
+from backend.autoclaw_bridge.llm_bridge import router as _claw_llm_router  # noqa: E402
+app.include_router(_claw_llm_router)
 
 
 @app.on_event("startup")
@@ -428,9 +430,8 @@ def _get(kind: str, id: str, model):
 @app.get("/api/health")
 async def health():
     s = get_settings()
-    import shutil as _shutil
     return {"ok": True, "llm": llm.public_describe(), "demo_mode": s.demo_mode,
-            "drafting_live": bool(_shutil.which(s.autoclaw_bin)),
+            "drafting_live": claw.live_available(),
             "s2_key": bool(s.s2_api_key), "contact_email": bool(s.contact_email),
             "tortured_phrases": len(load_phrases()), "verdict_rules": RULES}
 
@@ -616,9 +617,12 @@ async def gap_questions(run_id: str, cluster_id: int, request: Request):
 @app.post("/api/autoclaw/runs", response_model=JobRef)
 async def autoclaw_run(req: AutoClawRequest, request: Request):
     user = me(request)
+    live = req.demo is False or (req.demo is None and not get_settings().demo_mode)
+    if live and not auth.is_owner(user):
+        raise HTTPException(403, "Live AutoResearchClaw runs are limited to founders. Use Paper Studio to write a paper.")
     auth.require_paid(user, "drafts")
     auth.consume(user, "drafts")
-    return JobRef(job_id=jobs.submit("autoclaw", lambda ctx: claw.run(req, ctx), owner=user["uid"],
+    return JobRef(job_id=jobs.submit("autoclaw", lambda ctx: claw.run(req, ctx, user["uid"]), owner=user["uid"],
                                      on_error=lambda: auth.refund(user, "drafts")).job_id)
 
 
