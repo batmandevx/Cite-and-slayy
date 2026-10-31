@@ -70,6 +70,9 @@ const PAID_LABEL: Record<string, string> = {
   exports: "Word, LaTeX & PDF downloads", decks: "presentation slides", vision: "image understanding in Azora AI", kits: "submission kits",
   integrity_scans: "AI & plagiarism reports", humanize_fixes: "AI & plagiarism reducer", reviews: "reviewer verdicts", fixes: "originality fixes",
   drafts: "drafting runs", latex: "the live LaTeX / Overleaf view",
+  favorites: "unlimited saved favourites", insights: "the daily Pro research insight", pass: "the holographic Pro pass",
+  voice: "voice dictation and read-aloud", cite: "one-click DOI citations", versions: "version history", ideas: "AI research ideas",
+  arcade: "premium arcade games", ai_assist: "AI writing assist",
 };
 
 /** Paid features: `paid` is true for Pro, Max, Paper Pack and the owner (and everyone when login is off). `gate()` opens the upgrade screen. */

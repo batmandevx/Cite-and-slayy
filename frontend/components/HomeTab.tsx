@@ -880,7 +880,7 @@ function WorkspacePulse({
 export function HomeTab({ onOpen, onSlay, onAurora }: { onOpen: (t: OpenTarget) => void; onSlay: () => void; onAurora: () => void }) {
   const { me } = useAuth();
   const [savedName, setName] = usePersistent<string>("displayName", "");
-  const name = savedName || me?.name?.split(" ")[0] || "Ayush";
+  const name = savedName || me?.name?.split(" ")[0] || "researcher";
   const [editing, setEditing] = useState(false);
   const [d, setD] = useState<Dash | null>(null);
   const [refreshing, setRefreshing] = useState(false);

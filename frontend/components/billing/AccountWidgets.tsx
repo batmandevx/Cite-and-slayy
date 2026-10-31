@@ -1,12 +1,13 @@
 "use client";
 
 import clsx from "clsx";
-import { Crown, KeyRound, Lock, LogOut, Settings, X, Zap } from "lucide-react";
+import { Crown, Lock, LogOut, Settings, X, Zap } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { api, toast } from "@/lib/api";
 import { useAuth, type Me } from "../auth/AuthProvider";
 import { Button } from "../ui";
+import { MemberPass } from "../MemberPass";
 import { Pricing, startCheckout, startPackCheckout, type PlanInfo } from "./Pricing";
 
 const LABEL: Record<string, string> = {
@@ -163,22 +164,9 @@ function SecurityPanel() {
 export function AccountCard({ compact }: { compact?: boolean }) {
   const { me, logout, openUpgrade, refresh, config } = useAuth();
   const [open, setOpen] = useState(false);
-  const [ownerKey, setOwnerKey] = useState("");
-  const [showKeyBox, setShowKeyBox] = useState(false);
   if (!me) return null;
   if (!config?.auth_required && compact) return null;
-  const unlockOwner = async () => {
-    if (!ownerKey.trim()) return;
-    try {
-      await api.post("/api/auth/owner-unlock", { key: ownerKey.trim() });
-      await refresh();
-      setOwnerKey("");
-      setShowKeyBox(false);
-      toast({ title: "Dev Owner Unlocked 👑", body: "Unlimited access enabled across all paid features.", tone: "good" });
-    } catch (e) {
-      toast({ title: "Invalid Dev Owner key", body: (e as Error).message, tone: "crit" });
-    }
-  };
+
   const cancel = async () => {
     if (!confirm("Cancel your subscription? You keep your plan until the end of the current billing period.")) return;
     try { await api.post("/api/billing/cancel"); await refresh(); toast({ title: "Subscription cancelled", body: "You keep your plan until the period ends.", tone: "accent" }); }
@@ -196,9 +184,21 @@ export function AccountCard({ compact }: { compact?: boolean }) {
       <AnimatePresence>
         {open && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setOpen(false)}
-            className="fixed inset-0 z-[70] grid place-items-center bg-black/40 p-4 backdrop-blur-sm">
+            className="fixed inset-0 z-[70] grid place-items-center overflow-y-auto bg-black/40 p-3 backdrop-blur-sm sm:p-4">
             <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} onClick={(e) => e.stopPropagation()}
-              className="card relative w-full max-w-md p-6">
+              className="card relative my-6 grid w-full max-w-3xl overflow-hidden p-0 md:grid-cols-[300px_1fr]">
+              <div className="relative border-b-[2.5px] border-edge bg-[radial-gradient(circle_at_50%_0%,var(--surface-2),var(--surface))] md:border-b-0 md:border-r-[2.5px]">
+                <div className="absolute left-3 top-3 z-10 rounded-full border-2 border-edge bg-surface px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider">Your pass</div>
+                <MemberPass tier={me.is_owner ? "founder" : me.plan === "max" ? "max" : me.plan === "pro" || me.is_paid ? "pro" : "free"}
+                  name={me.name || me.email.split("@")[0]} seed={me.uid} height={380} />
+                {!me.is_paid && !me.is_owner && (
+                  <button onClick={() => { setOpen(false); openUpgrade(); }}
+                    className="absolute bottom-3 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1 whitespace-nowrap rounded-full border-2 border-edge bg-[linear-gradient(120deg,var(--pink),var(--yellow))] px-3 py-1 text-[11px] font-extrabold text-[#121212] shadow-[3px_3px_0_var(--shadow-c)]">
+                    <Zap className="size-3.5" />Get the holographic Pro pass
+                  </button>
+                )}
+              </div>
+              <div className="relative p-5 sm:p-6">
               <button onClick={() => setOpen(false)} className="absolute right-3 top-3 rounded-lg p-1 hover:bg-surface-2"><X className="size-5" /></button>
               <div className="flex items-center gap-3">
                 <span className="grid size-12 place-items-center rounded-full border-[2.5px] border-edge bg-violet font-display text-xl font-extrabold text-white">{(me.name || me.email)[0]?.toUpperCase()}</span>
@@ -226,24 +226,11 @@ export function AccountCard({ compact }: { compact?: boolean }) {
                   </div>
                 </div>
               )}
-              {!me.is_owner && (
-                <div className="mt-3">
-                  <button type="button" onClick={() => setShowKeyBox((v) => !v)} className="inline-flex items-center gap-1 text-[11px] font-bold text-muted underline hover:text-ink">
-                    <KeyRound className="size-3" /> Dev / Owner access key
-                  </button>
-                  {showKeyBox && (
-                    <div className="mt-1.5 flex gap-2">
-                      <input type="password" value={ownerKey} onChange={(e) => setOwnerKey(e.target.value)} placeholder="OWNER_ACCESS_KEY…"
-                        className="flex-1 rounded-xl border-2 border-edge bg-surface px-2.5 py-1 text-xs font-bold outline-none" />
-                      <Button variant="blue" className="!px-3 !py-1 text-xs" onClick={unlockOwner}>Unlock</Button>
-                    </div>
-                  )}
-                </div>
-              )}
               {config?.auth_required && <SecurityPanel />}
               <div className="mt-5 flex flex-wrap gap-2">
                 {!me.is_owner && me.plan !== "free" && !me.cancel_at_period_end && <Button className="!py-1.5 text-xs" onClick={cancel}>Cancel subscription</Button>}
                 {config?.auth_required && <Button variant="ghost" className="ml-auto !py-1.5 text-xs" onClick={logout}><LogOut className="size-3.5" />Sign out</Button>}
+              </div>
               </div>
             </motion.div>
           </motion.div>

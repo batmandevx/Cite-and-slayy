@@ -32,7 +32,15 @@ awsr() { aws --region "$REGION" "$@"; }
 state_get() { [ -f "$STATE" ] && grep -E "^$1=" "$STATE" | tail -1 | cut -d= -f2- || true; }
 state_set() { touch "$STATE"; chmod 600 "$STATE"; grep -v -E "^$1=" "$STATE" > "$STATE.tmp" || true; echo "$1=$2" >> "$STATE.tmp"; mv "$STATE.tmp" "$STATE"; }
 ip() { state_get PUBLIC_IP; }
-site() { echo "$(ip | tr . -).sslip.io"; }
+# DOMAIN (in .aws-deploy.env or the environment, e.g. DOMAIN=citeandslayy.com) becomes the main address once its DNS
+# A record points at the server; the sslip.io address keeps working alongside it.
+domain() { local d; d=${DOMAIN:-$(state_get DOMAIN)}; echo "${d#https://}" | tr -d '/ '; }
+site() { local d; d=$(domain); if [ -n "$d" ]; then echo "$d"; else echo "$(ip | tr . -).sslip.io"; fi; }
+site_addresses() {   # www. only for a bare domain (example.com), not for a free subdomain (name.duckdns.org)
+  local d; d=$(domain)
+  if [ -z "$d" ]; then site; return; fi
+  if [ "$(echo "$d" | tr -cd . | wc -c | tr -d ' ')" = 1 ]; then echo "$d, www.$d, $(ip | tr . -).sslip.io"; else echo "$d, $(ip | tr . -).sslip.io"; fi
+}
 
 create_role() {
   if aws iam get-role --role-name "$ROLE" >/dev/null 2>&1; then say "IAM role $ROLE exists"; return; fi
@@ -144,12 +152,16 @@ write_env_server() {
   fi
   local v; local out=.env.server
   : > "$out"; chmod 600 "$out"
-  for k in GEMINI_API_KEY CONTACT_EMAIL S2_API_KEY OPENALEX_API_KEY OWNER_EMAILS OWNER_ACCESS_KEY; do
-    v=$(grep -E "^$k=" .env 2>/dev/null | tail -1 | cut -d= -f2- || true)
+  # .env.production (gitignored, server-only values) wins over .env. No owner key is generated: founders come
+  # from FOUNDER_ACCOUNTS (password hashes only), so the shared site password never grants admin rights.
+  for k in GEMINI_API_KEY CONTACT_EMAIL S2_API_KEY OPENALEX_API_KEY OWNER_EMAILS OWNER_ACCESS_KEY FOUNDER_ACCOUNTS AUTH_REQUIRED \
+           PUBLIC_URL SUPPORT_EMAIL GOOGLE_CLIENT_ID SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASSWORD \
+           RAZORPAY_KEY_ID RAZORPAY_KEY_SECRET RAZORPAY_WEBHOOK_SECRET; do
+    v=$(grep -hE "^$k=" .env .env.production 2>/dev/null | tail -1 | cut -d= -f2- || true)
     [ -n "$v" ] && echo "$k=$v" >> "$out"
   done
-  if ! grep -q '^OWNER_ACCESS_KEY=' "$out"; then
-    echo "OWNER_ACCESS_KEY=$pw" >> "$out"
+  if grep -q '^AUTH_REQUIRED=true' "$out" && ! grep -q '^PUBLIC_URL=' "$out"; then
+    echo "PUBLIC_URL=https://$(site)" >> "$out"
   fi
   cat >> "$out" <<EOF
 LLM_PROVIDER=bedrock
@@ -171,7 +183,7 @@ push() {
   say "Packaging code"
   COPYFILE_DISABLE=1 tar czf "$tmp/code.tgz" \
     --exclude ./.venv --exclude '*/node_modules' --exclude ./frontend/node_modules --exclude '*/.next' --exclude ./var \
-    --exclude ./_other_agent --exclude ./.env --exclude ./.env.server --exclude ./.aws-deploy.env --exclude '*.pem' \
+    --exclude ./_other_agent --exclude ./.env --exclude ./.env.production --exclude ./.env.server --exclude ./.aws-deploy.env --exclude '*.pem' \
     --exclude ./.git --exclude '*/__pycache__' --exclude ./.pytest_cache --exclude '*.egg-info' --exclude ./data-volume \
     --exclude '*.tsbuildinfo' --exclude ./deploy/Caddyfile.generated .
   cp .env.server "$tmp/env.server"
@@ -206,7 +218,7 @@ install -m 600 /tmp/env.server .env.server
 PW=\$(cat /tmp/site_password); rm -f /tmp/env.server /tmp/site_password
 if [ ! -f data-volume/slayy.sqlite3 ] && [ -n \"\${DATA_URL:-}\" ]; then mkdir -p data-volume; curl -fsSL \"\$DATA_URL\" | tar xz -C data-volume; echo 'seeded demo data'; fi
 HASH=''; if [ -n \"\$PW\" ] && [ \"\$PW\" != public ]; then HASH=\$(docker run --rm caddy:2 caddy hash-password --plaintext \"\$PW\"); fi   # SITE_PASSWORD=public removes the site-wide password
-awk -v site='$(site)' -v hash=\"\$HASH\" '{
+awk -v site='$(site_addresses)' -v hash=\"\$HASH\" '{
   if (\$0 ~ /__SITE_ADDRESS__/) { sub(/__SITE_ADDRESS__/, site) }
   if (\$0 ~ /__AUTH_BLOCK__/) { if (hash == \"\") next; print \"\\t@gated not path /api/billing/webhook\"; print \"\\tbasic_auth @gated {\"; print \"\\t\\tslayy \" hash; print \"\\t}\"; next }
   print }' deploy/Caddyfile.template > deploy/Caddyfile.generated

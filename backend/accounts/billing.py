@@ -102,26 +102,41 @@ async def buy_pack(user: dict) -> dict:
     return {"order_id": order["id"], "key_id": get_settings().razorpay_key_id, "amount": order["amount"], "currency": "INR"}
 
 
-def _paid(order_id: str) -> None:
+def _paid(order_id: str, payment_id: str | None = None) -> None:
     from backend.accounts.auth import grant_pack
     store = get_store()
     rec = store.get("order", order_id)
-    if not rec:
+    if not rec or rec.get("status") == "paid":
         return
-    store.put("order", order_id, {**rec, "status": "paid", "paid_at": now().isoformat()})
+    store.put("order", order_id, {**rec, "status": "paid", "paid_at": now().isoformat(), "payment_id": payment_id})
     user = get_user(rec["uid"])
     if user:
         grant_pack(user, order_id)
 
 
-def verify_order(user: dict, order_id: str, payment_id: str, signature: str) -> None:
-    rec = get_store().get("order", order_id)
+def _pack_paise() -> int:
+    from backend.accounts.plans import PAPER_PACK
+    return PAPER_PACK["price_inr"] * 100
+
+
+async def verify_order(user: dict, order_id: str, payment_id: str, signature: str) -> None:
+    """Signature proves the browser didn't make it up; then Razorpay itself must confirm the money for this exact order."""
+    store = get_store()
+    rec = store.get("order", order_id)
     if not rec or rec["uid"] != user["uid"]:
         raise HTTPException(404, "Order not found")
     expected = hmac.new((get_settings().razorpay_key_secret or "").encode(), f"{order_id}|{payment_id}".encode(), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(expected, signature):
         raise HTTPException(400, "Payment signature mismatch")
-    _paid(order_id)
+    used = store.get("rzp_payment", payment_id)
+    if used and used.get("order_id") != order_id:
+        raise HTTPException(409, "This payment was already used for another order")
+    pay = await _rzp("GET", f"/payments/{payment_id}")
+    if (pay.get("order_id") != order_id or pay.get("status") not in ("captured", "authorized")
+            or int(pay.get("amount") or 0) != _pack_paise() or pay.get("currency") != "INR"):
+        raise HTTPException(402, "Razorpay hasn't confirmed this payment for the full amount yet. If money left your account, it will update automatically.")
+    store.put("rzp_payment", payment_id, {"order_id": order_id, "uid": user["uid"], "at": now().isoformat()})
+    _paid(order_id, payment_id)
 
 
 def _cancel_now(sub_id: str) -> None:
@@ -136,17 +151,22 @@ def _cancel_now(sub_id: str) -> None:
         get_store().put("subscription", sub_id, {**rec, "status": "cancelled", "replaced": True})
 
 
-def verify_checkout(user: dict, payment_id: str, subscription_id: str, signature: str) -> None:
+async def verify_checkout(user: dict, payment_id: str, subscription_id: str, signature: str) -> None:
     rec = get_store().get("subscription", subscription_id)
     if not rec or rec["uid"] != user["uid"]:
         raise HTTPException(404, "Subscription not found")
     expected = hmac.new((get_settings().razorpay_key_secret or "").encode(), f"{payment_id}|{subscription_id}".encode(), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(expected, signature):
         raise HTTPException(400, "Payment signature mismatch")
-    _apply(subscription_id, "authenticated")
+    sub = await _rzp("GET", f"/subscriptions/{subscription_id}")    # Razorpay's own record decides, not the browser
+    if (sub.get("notes") or {}).get("uid") != user["uid"] or sub.get("plan_id") != (get_store().get("rzp_plan", rec["tier"]) or {}).get("id"):
+        raise HTTPException(400, "Subscription doesn't match this account")
+    if sub.get("status") not in ACTIVE:
+        raise HTTPException(402, "Razorpay hasn't activated this subscription yet. It will update automatically once the payment clears.")
+    _apply(subscription_id, sub["status"], sub.get("current_end"))
 
 
-def handle_webhook(raw: bytes, signature: str | None) -> None:
+def handle_webhook(raw: bytes, signature: str | None, event_id: str | None = None) -> None:
     secret = get_settings().razorpay_webhook_secret
     if not secret:
         raise HTTPException(503, "Webhook secret not configured")
@@ -154,11 +174,18 @@ def handle_webhook(raw: bytes, signature: str | None) -> None:
     if not signature or not hmac.compare_digest(expected, signature):
         raise HTTPException(400, "Bad signature")
     import json
+    store = get_store()
+    if event_id:
+        if store.get("rzp_event", event_id):
+            return                                    # replayed delivery
+        store.put("rzp_event", event_id, {"at": now().isoformat()})
     ev = json.loads(raw)
     if ev.get("event") == "order.paid":
         order = ((ev.get("payload") or {}).get("order") or {}).get("entity") or {}
-        if order.get("id"):
-            _paid(order["id"])
+        pay = ((ev.get("payload") or {}).get("payment") or {}).get("entity") or {}
+        rec = store.get("order", order.get("id") or "")
+        if rec and int(order.get("amount_paid") or 0) >= _pack_paise() and (order.get("notes") or {}).get("uid") == rec["uid"]:
+            _paid(order["id"], pay.get("id"))
         return
     sub = ((ev.get("payload") or {}).get("subscription") or {}).get("entity") or {}
     if sub.get("id"):

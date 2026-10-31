@@ -18,8 +18,8 @@ PLANS: dict[str, dict] = {
         "limits": {"papers": 1, "revisions": 0, "kits": 0, "decks": 0, "reviews": 0, "audits": 0, "fixes": 0,
                    "integrity_scans": 0, "humanize_fixes": 0, "scans": 0, "drafts": 0,
                    "chats_day": 3, "assists_day": 3},
-        "perks": ["Preview 1 paper (opening sections, no downloads)", "3 Azora AI messages & 3 AI assists a day",
-                  "Notes editor, library, research toolbox & arcade"],
+        "perks": ["Preview 1 paper (opening sections, no downloads)", "3 Azora AI messages a day",
+                  "Notes editor, library, research toolbox & 2 arcade games"],
     },
     "pro": {
         "name": "Pro", "price_inr": 6999, "engine": "premium", "ai_budget_inr": 900,
@@ -63,7 +63,7 @@ FEATURE_LABEL = {
     "humanize_fixes": "AI & plagiarism reducer rewrites", "reviews": "reviewer verdicts",
     "audits": "CiteGuard citation audits", "scans": "field scans", "drafts": "drafting runs",
     "chats_day": "Azora AI messages today", "assists_day": "AI assists today",
-    "exports": "Word, LaTeX & PDF downloads", "venues": "the journal & conference finder", "vision": "image understanding in Azora AI",
+    "exports": "Word, LaTeX & PDF downloads", "venues": "the journal & conference finder", "ideas": "AI research ideas", "ai_assist": "AI writing assist", "vision": "image understanding in Azora AI",
 }
 # Features that run the expensive models; blocked once the monthly AI budget is spent.
 BUDGETED = {"papers", "revisions", "kits", "decks", "fixes", "integrity_scans", "humanize_fixes", "reviews", "audits", "scans", "drafts", "chats_day"}

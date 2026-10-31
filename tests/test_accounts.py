@@ -90,15 +90,33 @@ def test_plan_limit_and_ai_budget_return_402(prod):
     assert e.value.detail["code"] == "budget"
 
 
-def test_razorpay_signatures_and_webhook_upgrade(prod):
+def _fake_rzp(monkeypatch, objects: dict):
+    from backend.accounts import billing
+
+    async def fake(method, path, body=None):
+        return objects[path]
+    monkeypatch.setattr(billing, "_rzp", fake)
+
+
+def test_razorpay_signatures_and_webhook_upgrade(prod, monkeypatch):
     from backend.accounts import auth, billing
     from backend.cache.store import get_store
     c = login(prod, "pay@x.org")
     user = auth.get_user(get_store().get("user_email", "pay@x.org")["uid"])
     get_store().put("subscription", "sub_1", {"id": "sub_1", "uid": user["uid"], "tier": "pro", "status": "created"})
+    get_store().put("rzp_plan", "pro", {"id": "plan_pro", "amount": 699900, "key_id": "rzp_test_x"})
     sig = hmac.new(b"secret_x", b"pay_1|sub_1", hashlib.sha256).hexdigest()
     assert c.post("/api/billing/verify", json={"razorpay_payment_id": "pay_1", "razorpay_subscription_id": "sub_1",
                                                "razorpay_signature": "bad"}).status_code == 400
+    # a valid signature isn't enough: Razorpay must show it's this user's subscription and it's active
+    _fake_rzp(monkeypatch, {"/subscriptions/sub_1": {"id": "sub_1", "status": "active", "plan_id": "plan_pro", "notes": {"uid": "someone-else"}}})
+    assert c.post("/api/billing/verify", json={"razorpay_payment_id": "pay_1", "razorpay_subscription_id": "sub_1",
+                                               "razorpay_signature": sig}).status_code == 400
+    _fake_rzp(monkeypatch, {"/subscriptions/sub_1": {"id": "sub_1", "status": "created", "plan_id": "plan_pro", "notes": {"uid": user["uid"]}}})
+    assert c.post("/api/billing/verify", json={"razorpay_payment_id": "pay_1", "razorpay_subscription_id": "sub_1",
+                                               "razorpay_signature": sig}).status_code == 402
+    assert c.get("/api/auth/me").json()["plan"] == "free"
+    _fake_rzp(monkeypatch, {"/subscriptions/sub_1": {"id": "sub_1", "status": "active", "plan_id": "plan_pro", "notes": {"uid": user["uid"]}}})
     assert c.post("/api/billing/verify", json={"razorpay_payment_id": "pay_1", "razorpay_subscription_id": "sub_1",
                                                "razorpay_signature": sig}).status_code == 200
     assert c.get("/api/auth/me").json()["plan"] == "pro"
@@ -106,7 +124,7 @@ def test_razorpay_signatures_and_webhook_upgrade(prod):
     anon = TestClient(prod)
     assert anon.post("/api/billing/webhook", content=body, headers={"X-Razorpay-Signature": "nope"}).status_code == 400
     good = hmac.new(b"whsec", body, hashlib.sha256).hexdigest()
-    assert anon.post("/api/billing/webhook", content=body, headers={"X-Razorpay-Signature": good}).status_code == 200
+    assert anon.post("/api/billing/webhook", content=body, headers={"X-Razorpay-Signature": good, "X-Razorpay-Event-Id": "evt_1"}).status_code == 200
     assert c.get("/api/auth/me").json()["plan"] == "free"
     assert billing.enabled()
 
@@ -132,7 +150,7 @@ def test_public_api_never_names_the_vendor(prod):
     assert not re.search(r"kimi|bedrock|gemini|claude|anthropic|moonshot|qwen", r)
 
 
-def test_paper_pack_order_grants_credits_once(prod):
+def test_paper_pack_order_grants_credits_once(prod, monkeypatch):
     from backend.accounts import auth
     from backend.cache.store import get_store
     c = login(prod, "pack@x.org")
@@ -141,8 +159,12 @@ def test_paper_pack_order_grants_credits_once(prod):
     sig = hmac.new(b"secret_x", b"order_1|pay_9", hashlib.sha256).hexdigest()
     ok = {"razorpay_payment_id": "pay_9", "razorpay_order_id": "order_1", "razorpay_signature": sig}
     assert c.post("/api/billing/pack/verify", json={**ok, "razorpay_signature": "bad"}).status_code == 400
+    _fake_rzp(monkeypatch, {"/payments/pay_9": {"id": "pay_9", "order_id": "order_1", "status": "captured", "amount": 100, "currency": "INR"}})
+    assert c.post("/api/billing/pack/verify", json=ok).status_code == 402          # underpaid
+    assert c.get("/api/auth/me").json().get("pack") is None
+    _fake_rzp(monkeypatch, {"/payments/pay_9": {"id": "pay_9", "order_id": "order_1", "status": "captured", "amount": 999900, "currency": "INR"}})
     assert c.post("/api/billing/pack/verify", json=ok).status_code == 200
-    body = json.dumps({"event": "order.paid", "payload": {"order": {"entity": {"id": "order_1"}}}}).encode()
+    body = json.dumps({"event": "order.paid", "payload": {"order": {"entity": {"id": "order_1", "amount_paid": 999900, "notes": {"uid": user["uid"]}}}}}).encode()
     TestClient(prod).post("/api/billing/webhook", content=body,
                           headers={"X-Razorpay-Signature": hmac.new(b"whsec", body, hashlib.sha256).hexdigest()})
     me = c.get("/api/auth/me").json()
@@ -309,3 +331,34 @@ def test_free_plan_is_a_teaser(prod):
         if r.status_code == 402:
             assert r.json()["detail"]["code"] == "paid_only"
     assert c.post("/api/venues/find", json={"title": "x"}).status_code == 402
+    assert c.post("/api/assist", json={"action": "improve", "text": "hello"}).status_code == 402
+    assert c.post("/api/library/ideas", json={"topic": "graph learning"}).status_code in (402, 422)
+
+
+def test_founders_are_permanent_admins(prod, monkeypatch):
+    import base64
+    from backend.accounts import auth
+    from backend.cache.store import get_store
+    # someone squats a founder email before launch, and someone else got owner rights another way
+    squatter = TestClient(prod)
+    assert squatter.post("/api/auth/register", json={"email": "founder1@x.org", "password": "Squatter123"}).status_code == 200
+    stray = TestClient(prod)
+    stray.post("/api/auth/register", json={"email": "stray1@x.org", "password": "Stray12345"})
+    u = auth.get_user(get_store().get("user_email", "stray1@x.org")["uid"]); u.update(is_owner=True, plan="max"); get_store().put("user", u["uid"], u)
+
+    h = auth.hash_password("Founder2026x")
+    monkeypatch.setenv("FOUNDER_ACCOUNTS", base64.urlsafe_b64encode(json.dumps({"founder1@x.org": h}).encode()).decode().rstrip("="))
+    get_settings.cache_clear()
+    assert auth.ensure_founders() == ["founder1@x.org"]
+    assert squatter.get("/api/auth/me").status_code == 401                         # squatter's session revoked
+    assert TestClient(prod).post("/api/auth/login", json={"email": "founder1@x.org", "password": "Squatter123"}).status_code == 401
+    f = TestClient(prod)
+    assert f.post("/api/auth/login", json={"email": "founder1@x.org", "password": "Founder2026x"}).status_code == 200
+    me = f.get("/api/auth/me").json()
+    assert me["is_owner"] and me["plan"] == "max" and f.get("/api/admin/upi-claims").status_code == 200
+    s = auth.get_user(get_store().get("user_email", "stray1@x.org")["uid"])
+    assert not s["is_owner"] and s["plan"] == "free"
+    # a founder's own password change survives restarts
+    assert f.post("/api/account/password", json={"current": "Founder2026x", "new": "Changed2027y"}).status_code == 200
+    auth.ensure_founders()
+    assert TestClient(prod).post("/api/auth/login", json={"email": "founder1@x.org", "password": "Changed2027y"}).status_code == 200

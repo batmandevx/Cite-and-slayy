@@ -37,6 +37,12 @@ from backend.jury.verdict import RULES, run_jury
 from backend.llm import client as llm
 
 app = FastAPI(title="Cite and Slayy", version="0.1.0")
+
+
+@app.on_event("startup")
+async def _seed_founders() -> None:
+    if get_settings().auth_required:
+        auth.ensure_founders()
 app.add_middleware(CORSMiddleware, allow_origins=get_settings().cors_origins.split(","),
                    allow_methods=["*"], allow_headers=["*"], allow_credentials=True)
 
@@ -254,9 +260,9 @@ async def billing_upi_claim(body: UpiClaimRequest, request: Request):
     item = body.item.strip().lower()
     if item not in ("pro", "max", "pack"):
         raise HTTPException(400, "Unknown plan or pack")
-    utr = "".join(ch for ch in body.utr.strip() if ch.isalnum() or ch in ("-", "_"))
-    if len(utr) < 6 or len(utr) > 40:
-        raise HTTPException(400, "Enter a valid UPI UTR / reference number (6–40 characters)")
+    utr = "".join(ch for ch in body.utr if ch.isdigit())
+    if len(utr) != 12:
+        raise HTTPException(400, "Enter the 12-digit UPI transaction ID (UTR / UPI Ref No.) shown in your payment app")
     info = PAPER_PACK if item == "pack" else PLANS[item]
     user = me(request)                       # a claim must belong to a signed-in account so it can be activated
     store = get_store()
@@ -311,7 +317,7 @@ class ClaimDecision(BaseModel):
 async def admin_upi_decide(cid: str, decision: str, body: ClaimDecision, request: Request):
     from datetime import timedelta
     from backend.cache.store import now as store_now
-    _owner(request)
+    boss = _owner(request)
     if decision not in ("approve", "reject"):
         raise HTTPException(400, "decision must be approve or reject")
     store = get_store()
@@ -337,7 +343,8 @@ async def admin_upi_decide(cid: str, decision: str, body: ClaimDecision, request
                 pass
             user.update(plan=rec["item"], plan_expires=(base + timedelta(days=30)).isoformat(), plan_source="upi")
             store.put("user", user["uid"], user)
-    rec.update(status="approved" if decision == "approve" else "rejected", decided_at=store_now().isoformat(), note=body.note[:300])
+    rec.update(status="approved" if decision == "approve" else "rejected", decided_at=store_now().isoformat(), note=body.note[:300],
+               decided_by=boss.get("email"))
     store.put("upi_claim", cid, rec)
     return rec
 
@@ -359,7 +366,7 @@ class VerifyRequest(BaseModel):
 
 @app.post("/api/billing/verify")
 async def billing_verify(body: VerifyRequest, request: Request):
-    billing.verify_checkout(me(request), body.razorpay_payment_id, body.razorpay_subscription_id, body.razorpay_signature)
+    await billing.verify_checkout(me(request), body.razorpay_payment_id, body.razorpay_subscription_id, body.razorpay_signature)
     return {"ok": True}
 
 
@@ -376,7 +383,7 @@ class OrderVerify(BaseModel):
 
 @app.post("/api/billing/pack/verify")
 async def billing_pack_verify(body: OrderVerify, request: Request):
-    billing.verify_order(me(request), body.razorpay_order_id, body.razorpay_payment_id, body.razorpay_signature)
+    await billing.verify_order(me(request), body.razorpay_order_id, body.razorpay_payment_id, body.razorpay_signature)
     return {"ok": True}
 
 
@@ -388,7 +395,7 @@ async def billing_cancel(request: Request):
 
 @app.post("/api/billing/webhook")
 async def billing_webhook(request: Request):
-    billing.handle_webhook(await request.body(), request.headers.get("X-Razorpay-Signature"))
+    billing.handle_webhook(await request.body(), request.headers.get("X-Razorpay-Signature"), request.headers.get("X-Razorpay-Event-Id"))
     return {"ok": True}
 
 
@@ -570,6 +577,7 @@ async def gap_result(run_id: str, request: Request):
 
 @app.post("/api/gap-radar/runs/{run_id}/clusters/{cluster_id}/questions", response_model=QuestionsResult)
 async def gap_questions(run_id: str, cluster_id: int, request: Request):
+    auth.require_paid(me(request), "ideas")
     auth.check_access("gap_run", run_id, me(request))
     auth.consume(me(request), "assists_day")
     try:
@@ -736,6 +744,7 @@ class _Plan(BaseModel):
 
 @app.post("/api/assist")
 async def assist(req: AssistRequest, request: Request):
+    auth.require_paid(me(request), "ai_assist")
     auth.consume(me(request), "assists_day")
     if not llm.available():
         raise HTTPException(400, "AI is offline right now.")
@@ -1225,6 +1234,7 @@ class IdeasRequest(BaseModel):
 
 @app.post("/api/library/ideas")
 async def library_ideas(req: IdeasRequest, request: Request):
+    auth.require_paid(me(request), "ideas")
     auth.consume(me(request), "assists_day")
     if not llm.available():
         raise HTTPException(400, "Research ideas need an AI model (cloud key or local Ollama).")

@@ -285,8 +285,8 @@ export function PaperStudioTab({
   const [topic, setTopic] = usePersistent("studioTopic", "");
   const [angle, setAngle] = usePersistent("studioAngle", "");
   const [template, setTemplate] = usePersistent("studioTemplate", "ieee");
-  const [author, setAuthor] = usePersistent("paperAuthor", "Ayush");
-  const [affil, setAffil] = usePersistent("paperAffil", "Asia Pacific University");
+  const [author, setAuthor] = usePersistent("paperAuthor", "");
+  const [affil, setAffil] = usePersistent("paperAffil", "");
   const [disclose, setDisclose] = usePersistent("studioDisclose", true);
   const [seeds, setSeeds] = useState<{ id: string; name: string }[]>([]);
   const [kitVenue, setKitVenue] = useState<{ name: string; type: string } | null>(null);

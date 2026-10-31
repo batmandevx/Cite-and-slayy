@@ -1,5 +1,7 @@
 "use client";
 
+import { BUSINESS } from "@/lib/business";
+
 import clsx from "clsx";
 import { ArrowLeft, Eye, EyeOff, Lock, Mail, ShieldCheck, Sparkles, User } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -132,7 +134,7 @@ export function LoginScreen() {
               )}
               {msg && <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="rounded-xl border-2 border-crit bg-crit-soft px-3 py-2 text-sm text-crit-ink">{msg}</motion.p>}
               <Button variant="primary" type="submit" className="w-full !py-3 text-base" loading={busy}>{mode === "signin" ? "Sign in" : "Create my account"}</Button>
-              {mode === "signin" && <p className="text-center text-xs text-muted">Forgot your password? Email support from the <Link href="/contact" className="underline">contact page</Link> and we&apos;ll reset it.</p>}
+              {mode === "signin" && <p className="text-center text-xs text-muted">Forgot your password? Email <a href={`mailto:${BUSINESS.email}`} className="font-bold underline">{BUSINESS.email}</a> from your account email and we&apos;ll reset it.</p>}
             </motion.form>
           </AnimatePresence>
 

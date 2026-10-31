@@ -1,5 +1,7 @@
 "use client";
 
+import { BUSINESS } from "@/lib/business";
+
 import clsx from "clsx";
 import {
   ArrowRight, BadgeCheck, Compass, FilePen, Gavel, Quote, ShieldAlert, ShieldCheck, Sparkles, Wand2, Zap,
@@ -321,6 +323,7 @@ function LandingInner() {
         <nav className="flex flex-wrap gap-4 text-xs font-bold">
           <Link href="/pricing">Pricing</Link><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link>
           <Link href="/refund">Refunds</Link><Link href="/contact">Contact</Link>
+          <a href={`mailto:${BUSINESS.email}`}>Support: {BUSINESS.email}</a>
         </nav>
       </footer>
     </div>

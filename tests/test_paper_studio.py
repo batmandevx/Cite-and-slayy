@@ -123,15 +123,15 @@ def test_demo_showcase_papers_endpoints():
     res = c.get("/api/demo-papers")
     assert res.status_code == 200
     items = res.json()
-    assert [x["slug"] for x in items] == ["aditi", "aliza", "cast"]
-    pdf = c.get("/api/demo-papers/aditi/pdf")
+    assert [x["slug"] for x in items] == ["aliza", "cast"]
+    pdf = c.get("/api/demo-papers/aliza/pdf")
     assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
     imp = c.post("/api/demo-papers/aliza/import")
     assert imp.status_code == 200 and imp.json()["title"].startswith("ALIZA:")
     samples = c.get("/api/documents/samples")
     assert samples.status_code == 200
     titles = [s.get("title") or "" for s in samples.json()]
-    assert any("ADITI:" in t for t in titles) and any("ALIZA:" in t for t in titles) and any("Chiral Amplification" in t for t in titles)
+    assert not any("ADITI:" in t for t in titles) and any("ALIZA:" in t for t in titles) and any("Chiral Amplification" in t for t in titles)
 
 
 def test_venue_finder_handles_coined_camel_case_and_hyphenated_titles():

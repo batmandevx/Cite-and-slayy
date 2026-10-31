@@ -1,5 +1,8 @@
 "use client";
 
+import { usePaid } from "./auth/AuthProvider";
+import { ProChip } from "./billing/ProLock";
+
 import clsx from "clsx";
 import { Brain, ExternalLink, Gamepad2, Heart, Orbit, Plane, Rocket, RotateCcw, Shield, Shuffle, Sparkles, Target, Trophy } from "lucide-react";
 import { MeteorShield } from "./games3d/MeteorShield";
@@ -306,8 +309,12 @@ const GAMES = [
 ] as const;
 type GameId = (typeof GAMES)[number]["id"];
 
+const FREE_GAMES = new Set<string>(["runner", "quiz"]);
+
 export function PlayTab() {
-  const [game, setGame] = usePersistent<GameId>("playGame", "runner");
+  const { paid, gate } = usePaid();
+  const [pick, setGame] = usePersistent<GameId>("playGame", "runner");
+  const game: GameId = paid || FREE_GAMES.has(pick) ? pick : "runner";
   const [bq] = usePersistent("bestQuiz", 0);
   const [bm] = usePersistent<number | null>("bestMemory", null);
   const [bc] = usePersistent("bestCatch", 0);
@@ -318,11 +325,11 @@ export function PlayTab() {
   const [bmz] = usePersistent("best3dMaze", 0);
   const g = GAMES.find((x) => x.id === game) ?? GAMES[0];
   const tile = (x: (typeof GAMES)[number], i: number) => (
-    <motion.button key={x.id} onClick={() => setGame(x.id)} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}
+    <motion.button key={x.id} onClick={() => { if (paid || FREE_GAMES.has(x.id) || gate("arcade")) setGame(x.id); }} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}
       whileHover={{ y: -5, rotate: i % 2 ? 1 : -1 }} whileTap={{ scale: 0.97 }}
       className={clsx("btn-brut flex items-center gap-3 rounded-2xl p-3.5 text-left", g.id === x.id ? `${x.color} ${x.color === "bg-blue" || x.color === "bg-violet" ? "text-white" : "text-[#121212]"}` : "bg-surface")}>
       <span className={clsx("grid size-11 shrink-0 place-items-center rounded-xl border-[2.5px] border-edge bg-surface text-ink", g.id === x.id && "wobble")}><x.icon className="size-5" /></span>
-      <span className="min-w-0"><span className="block font-display text-base font-extrabold leading-tight">{x.name}</span><span className="block truncate text-xs font-semibold opacity-75">{x.desc}</span></span>
+      <span className="min-w-0"><span className="flex items-center gap-1.5 font-display text-base font-extrabold leading-tight">{x.name}{!paid && !FREE_GAMES.has(x.id) && <ProChip />}</span><span className="block truncate text-xs font-semibold opacity-75">{x.desc}</span></span>
     </motion.button>
   );
   return (

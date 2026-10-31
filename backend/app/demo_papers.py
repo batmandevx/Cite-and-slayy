@@ -13,31 +13,6 @@ SHOWCASE_DIR: Path = ROOT / "demo" / "showcase_papers"
 
 SHOWCASE_PAPERS: list[dict[str, Any]] = [
     {
-        "slug": "aditi",
-        "acronym": "ADITI",
-        "title": "ADITI: Adaptive Drift-aware Intervals for Time-series Inference",
-        "authors": "Ayush Upadhyay",
-        "affiliation": "Vellore Institute of Technology (VIT), Chennai",
-        "venue_style": "IEEE Monograph · Online Conformal Prediction",
-        "pages": 21,
-        "words": 12949,
-        "n_references": 25,
-        "filename": "ADITI_Drift_Aware_Conformal_Intervals.pdf",
-        "summary": (
-            "Distribution-free online conformal intervals combining dual-EMA volatility scale normalization "
-            "with multi-timescale quantile tracking, complete with finite-sample long-run coverage proofs, "
-            "O(1) per-step complexity, 12 tables, and explicit failure-mode bounds."
-        ),
-        "highlights": [
-            "Propositions 1–3 + formal proofs",
-            "Algorithm 1 · O(1) time & space",
-            "12 tables incl. notation & ablations",
-            "Explicit failure-mode analysis",
-        ],
-        "topic_seed": "Adaptive conformal prediction intervals under non-stationary concept drift in time series",
-        "angle_seed": "Combine volatility-normalized residual scoring with multi-timescale online quantile tracking and prove finite-sample coverage bounds alongside failure-mode conditions.",
-    },
-    {
         "slug": "aliza",
         "acronym": "ALIZA",
         "title": "ALIZA: Autonomous Learning Intelligence for Zero-trust Agents",

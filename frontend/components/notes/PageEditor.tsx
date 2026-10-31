@@ -5,7 +5,7 @@ import {
   AlignLeft, Bold, BookMarked, CalendarDays, Check, ClipboardCopy, Code2, Columns2, Eraser, Eye, FileCode2, Focus, Footprints,
   Heading1, Heading2, Heading3, Highlighter, History, Image as ImageIcon, Italic, Link2, List, ListChecks, ListOrdered, ListTree,
   Loader2, Mic, MicOff, Minus, Network, PenLine, Quote, Redo2, Replace, Search, Sigma, Strikethrough, Superscript, Table2, Underline,
-  Undo2, Volume2, VolumeX, Workflow, X, ZoomIn, ZoomOut,
+  Undo2, Volume2, VolumeX, Workflow, X, ZoomIn, ZoomOut, Lock,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -120,7 +120,7 @@ export function PageEditor({ page, edit, author, affil, previewRef }: {
   const [listening, setListening] = useState(false);
   const recog = useRef<{ stop(): void } | null>(null);
   const md = page.md;
-  const { paid } = usePaid();
+  const { paid, gate } = usePaid();
 
   // ---- text primitives (execCommand keeps the browser's own undo stack working) ----
   const replaceRange = useCallback((start: number, end: number, text: string, selStart?: number, selEnd?: number) => {
@@ -375,7 +375,7 @@ export function PageEditor({ page, edit, author, affil, previewRef }: {
       b: () => wrap("**"), i: () => wrap("*"), u: () => wrap("++"), k: () => setPop("link"), e: () => wrap("`", "`", "code"),
       f: () => { setFindOpen(true); setTimeout(() => document.getElementById("pe-find")?.focus(), 30); },
       h: () => { setFindOpen(true); setTimeout(() => document.getElementById("pe-repl")?.focus(), 30); },
-      s: () => snapshot(), "1": () => fixHeading(1), "2": () => fixHeading(2), "3": () => fixHeading(3), "0": () => fixHeading(0),
+      s: () => { if (gate("versions")) snapshot(); }, "1": () => fixHeading(1), "2": () => fixHeading(2), "3": () => fixHeading(3), "0": () => fixHeading(0),
     };
     if (e.shiftKey && k === "x") { e.preventDefault(); wrap("~~"); return; }
     if (e.shiftKey && k === "h") { e.preventDefault(); wrap("=="); return; }
@@ -484,7 +484,7 @@ export function PageEditor({ page, edit, author, affil, previewRef }: {
             </Pop>
           </div>
           <div className="relative">
-            <RBtn icon={BookMarked} label="Cite DOI" wide active={pop === "cite"} onClick={() => setPop(pop === "cite" ? null : "cite")} />
+            <span className="inline-flex items-center"><RBtn icon={BookMarked} label="Cite DOI" wide active={pop === "cite"} onClick={() => gate("cite") && setPop(pop === "cite" ? null : "cite")} />{!paid && <ProChip />}</span>
             <Pop open={pop === "cite"} onClose={() => setPop(null)} className="w-80">
               <p className="mb-1.5 text-[11px] text-muted">Paste a DOI: the reference is looked up on Crossref, numbered, and added to your References section.</p>
               <form onSubmit={(e) => { e.preventDefault(); cite(); }} className="flex gap-1.5">
@@ -506,13 +506,15 @@ export function PageEditor({ page, edit, author, affil, previewRef }: {
           <RBtn icon={Search} label="Find & replace" wide onClick={() => setFindOpen(!findOpen)} active={findOpen} />
         </Group>
         <Group label="Speech">
-          <RBtn icon={speaking ? VolumeX : Volume2} label={speaking ? "Stop reading" : "Read aloud"} wide active={speaking} onClick={readAloud} />
-          <RBtn icon={listening ? MicOff : Mic} label={listening ? "Stop dictation" : "Dictate"} wide active={listening} onClick={dictate} />
+          <RBtn icon={speaking ? VolumeX : Volume2} label={speaking ? "Stop reading" : "Read aloud"} wide active={speaking} onClick={() => gate("voice") && readAloud()} />
+          <RBtn icon={listening ? MicOff : Mic} label={listening ? "Stop dictation" : "Dictate"} wide active={listening} onClick={() => gate("voice") && dictate()} />
+          {!paid && <ProChip />}
         </Group>
         <Group label="Versions">
-          <RBtn icon={History} label="Save version" kbd="⌘S" wide onClick={() => snapshot()} />
+          <RBtn icon={History} label="Save version" kbd="⌘S" wide onClick={() => gate("versions") && snapshot()} />
           <div className="relative">
-            <RBtn icon={History} label={`History (${page.versions?.length ?? 0})`} wide active={pop === "history"} onClick={() => setPop(pop === "history" ? null : "history")} />
+            <RBtn icon={History} label={`History (${page.versions?.length ?? 0})`} wide active={pop === "history"} onClick={() => gate("versions") && setPop(pop === "history" ? null : "history")} />
+            {!paid && <ProChip />}
             <Pop open={pop === "history"} onClose={() => setPop(null)} className="max-h-72 w-80 overflow-y-auto">
               {(page.versions ?? []).length === 0 ? <p className="text-xs text-muted">No saved versions yet. Press ⌘S to save one.</p> : (page.versions ?? []).map((v, i) => (
                 <div key={v.at} className="flex items-center gap-2 border-b border-dashed border-line py-1.5 text-xs last:border-0">
@@ -525,14 +527,14 @@ export function PageEditor({ page, edit, author, affil, previewRef }: {
           </div>
         </Group>
         <Group label="AI">
-          <AssistMenu actions={["continue", "improve", "summarize", "outline", "explain"]}
+          {!paid ? <RBtn icon={Lock} label="AI assist · Pro" wide onClick={() => gate("ai_assist")} /> : <AssistMenu actions={["continue", "improve", "summarize", "outline", "explain"]}
             getText={() => sel().text || md.slice(-4000)}
             onResult={(t, a) => {
               const { s, e, text } = sel();
               if (a === "improve" && text) { replaceRange(s, e, t); return; }
               const label = { continue: "", summarize: "\n**Summary**\n", outline: "\n", explain: "\n> **Explained simply:** ", improve: "\n" }[a as "continue"] ?? "\n";
               insert(`\n${label}${t}\n`);
-            }} />
+            }} />}
         </Group>
       </>
     ),

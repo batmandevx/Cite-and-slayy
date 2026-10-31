@@ -1,5 +1,7 @@
 "use client";
 
+import { BUSINESS } from "@/lib/business";
+
 import clsx from "clsx";
 import { Crown, Lock, Sparkles } from "lucide-react";
 import { motion } from "motion/react";
@@ -38,7 +40,7 @@ export function UnlockPanel({ feature, title, perks, className }: { feature: str
           className="btn-brut mt-5 inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(120deg,var(--pink),var(--yellow))] px-6 py-3 font-display text-base font-extrabold text-[#121212]">
           <Lock className="size-4" />Unlock with Pro · from ₹6,999/mo
         </motion.button>
-        <p className="mt-2 text-[11px] text-muted">Or get one finished paper with the ₹9,999 Paper Pack. Cancel any time.</p>
+        <p className="mt-2 text-[11px] text-muted">Or get one finished paper with the ₹9,999 Paper Pack. Questions? <a href={`mailto:${BUSINESS.email}`} className="font-bold underline">{BUSINESS.email}</a></p>
       </div>
     </motion.div>
   );

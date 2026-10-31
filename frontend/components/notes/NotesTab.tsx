@@ -21,8 +21,8 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 function PagesView() {
   const [pages, update] = useWorkspace<Page>("pages");
   const [activeId, setActiveId] = usePersistent<string | null>("notesActive", null);
-  const [author, setAuthor] = usePersistent<string>("paperAuthor", "Ayush");
-  const [affil, setAffil] = usePersistent<string>("paperAffil", "Asia Pacific University");
+  const [author, setAuthor] = usePersistent<string>("paperAuthor", "");
+  const [affil, setAffil] = usePersistent<string>("paperAffil", "");
   const previewRef = useRef<HTMLDivElement>(null);
   const { paid, gate } = usePaid();
   const page = pages?.find((p) => p.id === activeId) ?? pages?.[0] ?? null;

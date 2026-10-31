@@ -477,6 +477,7 @@ export function AuroraChat({
 
   const toggleMic = () => {
     if (listening) { recog.current?.stop(); return; }
+    if (!gate("voice")) return;
     const Ctor = getSR();
     if (!Ctor) { toast({ title: "Voice input isn't supported in this browser", body: "Try Chrome, Edge or Safari.", tone: "accent" }); return; }
     const r = new Ctor();
@@ -499,6 +500,7 @@ export function AuroraChat({
   };
 
   const speak = (md: string, idx: number) => {
+    if (speakingIdx !== idx && !gate("voice")) return;
     const synth = typeof window !== "undefined" ? window.speechSynthesis : undefined;
     if (!synth) { toast({ title: "Read-aloud isn't supported in this browser", tone: "accent" }); return; }
     if (speakingIdx === idx) { synth.cancel(); setSpeakingIdx(null); return; }
@@ -544,7 +546,7 @@ export function AuroraChat({
           // keep this session's image thumbnails on the matching user turn (the server stores only a count)
           setMessages((prev) => c.messages.map((x, i) => (x.role === "user" && prev[i]?.previews ? { ...x, previews: prev[i].previews } : x)));
           const last = c.messages[c.messages.length - 1];
-          if (autoSpeak && !errBody && last?.role === "assistant") speak(last.content, c.messages.length - 1);
+          if (autoSpeak && paid && !errBody && last?.role === "assistant") speak(last.content, c.messages.length - 1);
         } catch {}
         setLive([]);
         setLiveThoughts([]);
@@ -908,7 +910,7 @@ export function AuroraChat({
               </div>
               <div className="mt-1.5 flex items-center justify-center gap-3 text-[10.5px] text-muted">
                 <span>Azora AI runs real scholarly &amp; workspace tools and reads images. It never fabricates papers or citations.</span>
-                <button type="button" onClick={() => { setAutoSpeak(!autoSpeak); if (autoSpeak) window.speechSynthesis?.cancel(); }}
+                <button type="button" onClick={() => { if (!autoSpeak && !gate("voice")) return; setAutoSpeak(!autoSpeak); if (autoSpeak) window.speechSynthesis?.cancel(); }}
                   className={clsx("inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 font-bold", autoSpeak ? "border-edge bg-lime text-[#121212]" : "border-line")}>
                   {autoSpeak ? <Volume2 className="size-3" /> : <VolumeX className="size-3" />}Auto-read</button>
               </div>

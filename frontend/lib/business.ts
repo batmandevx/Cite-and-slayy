@@ -3,7 +3,7 @@ export const BUSINESS = {
   brand: "Cite & Slayy",
   operator: "[Your registered business or full legal name]",
   address: "[Registered address, city, state, PIN]",
-  email: "[support@your-domain]",
+  email: "slayyhacks@gmail.com",
   phone: "[+91 phone number]",
   gstin: "[GSTIN, if registered]",
   updated: "30 October 2026",

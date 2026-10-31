@@ -1,5 +1,7 @@
 "use client";
 
+import { BUSINESS } from "@/lib/business";
+
 import clsx from "clsx";
 import { ArrowLeft, BookOpen, IndianRupee, Landmark, ScanSearch, Wand2, Wrench, Compass, FilePen, Gamepad2, Gavel, LayoutDashboard, NotebookPen, ShieldCheck, Zap } from "lucide-react";
 import Link from "next/link";
@@ -93,7 +95,7 @@ function Dashboard() {
   const PRO_TABS = new Set<Tab>(["explore", "draft", "audit", "verdict", "venues", "turnitin"]);
   const proBadges = <T extends { id: Tab; badge?: string }>(xs: T[]): T[] => (paid ? xs : xs.map((x) => (PRO_TABS.has(x.id) ? { ...x, badge: "🔒 pro" } : x)));
   const [savedName] = usePersistent<string>("displayName", "");
-  const name = savedName || me?.name?.split(" ")[0] || "Ayush";
+  const name = savedName || me?.name?.split(" ")[0] || "researcher";
   const [auroraOpen, setAuroraOpen] = useState(() => new URLSearchParams(window.location.search).get("aurora") === "1");
   const [, setStudioPaper] = usePersistent<string | null>("studioPaper", null);
   const [turnitinTarget, setTurnitinTarget] = useState<{ paperId?: string | null; documentId?: string | null }>({});
@@ -235,7 +237,7 @@ function Dashboard() {
             </AnimatePresence>
             <footer className="mt-12 border-t-2 border-dashed border-line pt-5 text-xs text-muted">
               <span className="mr-2 hidden sm:inline">Shortcuts: <kbd className="rounded border-2 border-edge px-1">1</kbd>–<kbd className="rounded border-2 border-edge px-1">4</kbd> steps · <kbd className="rounded border-2 border-edge px-1">S</kbd> slay it · <kbd className="rounded border-2 border-edge px-1">A</kbd> Azora AI · <kbd className="rounded border-2 border-edge px-1">H</kbd> home ·</span>
-              Data: OpenAlex, arXiv, Semantic Scholar, Crossref (incl. Retraction Watch).
+              Data: OpenAlex, arXiv, Semantic Scholar, Crossref (incl. Retraction Watch). Need help? <a href={`mailto:${BUSINESS.email}`} className="font-bold underline">{BUSINESS.email}</a>
             </footer>
           </div>
         </main>

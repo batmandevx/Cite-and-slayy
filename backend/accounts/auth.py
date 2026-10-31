@@ -6,6 +6,8 @@ tests) every request acts as one local user and ownership checks are skipped.
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import hashlib
 import hmac
 import secrets
@@ -23,7 +25,7 @@ from backend.common.config import get_settings
 
 COOKIE = "slayy_session"
 SESSION_DAYS = 30
-LOCAL_USER = {"uid": "local", "email": "local@localhost", "name": "Ayush", "plan": "max", "is_owner": True, "picture": None}
+LOCAL_USER = {"uid": "local", "email": "local@localhost", "name": "Researcher", "plan": "max", "is_owner": True, "picture": None}
 
 
 def owner_emails() -> set[str]:
@@ -35,10 +37,55 @@ def owner_emails() -> set[str]:
     return items
 
 
+def founder_accounts() -> dict[str, str]:
+    """{email: password hash} from FOUNDER_ACCOUNTS (base64url JSON). Only hashes are ever configured."""
+    raw = (get_settings().founder_accounts or "").strip()
+    if not raw:
+        return {}
+    try:
+        data = json.loads(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)))
+        return {e.strip().lower(): h for e, h in data.items() if "@" in e and str(h).startswith("scrypt$")}
+    except (ValueError, TypeError):
+        return {}
+
+
+def ensure_founders() -> list[str]:
+    """Create or repair the founder accounts at startup: Max plan, owner/admin, no expiry.
+    A pre-existing account on a founder email gets the founder password (and its sessions revoked) unless a founder
+    already set their own password after the configured one was applied."""
+    store = get_store()
+    done = []
+    for email, h in founder_accounts().items():
+        idx = store.get("user_email", email)
+        user = get_user(idx["uid"]) if idx else None
+        if not user:
+            user = {"uid": uuid.uuid4().hex[:16], "email": email, "name": email.split("@")[0], "picture": None,
+                    "provider": "password", "sess_ver": 0, "created_at": now().isoformat()}
+            store.put("user_email", email, {"uid": user["uid"]})
+        if user.get("founder_hash_applied") != h:
+            user["password_hash"] = h
+            user["founder_hash_applied"] = h
+            user["sess_ver"] = int(user.get("sess_ver") or 0) + 1
+        user.update(founder=True, is_owner=True, plan="max", email_verified=True, disabled=False, plan_expires=None)
+        store.put("user", user["uid"], user)
+        done.append(email)
+    if done:   # founders are the only permanent admins: revoke owner rights handed out any other way (e.g. an old access key)
+        keep = set(founder_accounts()) | owner_emails()
+        for u in store.list("user", 100000):
+            if u.get("is_owner") and (u.get("email") or "").lower() not in keep:
+                u["is_owner"] = False
+                if u.get("plan") == "max" and not u.get("subscription_id") and not u.get("plan_expires"):
+                    u["plan"] = "free"
+                store.put("user", u["uid"], u)
+    return done
+
+
 def is_owner(user: dict | None) -> bool:
     if not user:
         return False
     if not get_settings().auth_required or user.get("uid") == "local" or user.get("is_owner"):
+        return True
+    if user.get("founder") and (user.get("email") or "").lower() in founder_accounts():
         return True
     verified = user.get("email_verified", user.get("provider") in ("google", "email"))
     return bool(verified) and (user.get("email") or "").strip().lower() in owner_emails()
