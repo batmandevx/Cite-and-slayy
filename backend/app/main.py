@@ -637,7 +637,8 @@ async def autoclaw_result(run_id: str, request: Request):
 @app.get("/api/autoclaw/latest", response_model=AutoClawRun | None)
 async def autoclaw_latest(request: Request):
     runs = auth.visible("autoclaw_run", get_store().list("autoclaw_run", 200), "run_id", me(request))
-    return AutoClawRun.model_validate(runs[0]) if runs else None
+    live = next((r for r in runs if not r.get("demo") and r.get("status") == "running"), None)   # a run in progress wins
+    return AutoClawRun.model_validate(live or runs[0]) if runs else None
 
 
 # ---------- citeguard ----------

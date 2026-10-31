@@ -78,14 +78,11 @@ async def _run_worker(req: AutoClawRequest, ctx, uid: str) -> str:
     run = _new_run(req.topic, demo=False)
     key = llm_bridge.issue_key(uid, run.run_id, s.claw_run_budget_inr)
     run.log_tail.append(f"[bridge] Live AutoResearchClaw run · Pro engine · budget ₹{s.claw_run_budget_inr:.0f}")
-    _save(run)
     async with httpx.AsyncClient(base_url=s.claw_url, headers={"Authorization": f"Bearer {s.claw_token}"}, timeout=60) as c:
         r = await c.post("/runs", json={"topic": req.topic, "llm_key": key, "llm_base_url": "http://backend:8000/internal/llm/v1"})
     if r.status_code != 200:
-        llm_bridge.revoke_key(key)
-        run.status = "error"
-        _save(run)
-        raise BridgeError(f"worker refused the run: {r.json().get('error', r.status_code)}")
+        llm_bridge.revoke_key(key)          # nothing started: leave no run record behind
+        raise BridgeError(r.json().get("error", f"worker refused the run ({r.status_code})"))
     run.worker_run_id = r.json()["id"]
     _save(run)
     return await follow(run, key, ctx)

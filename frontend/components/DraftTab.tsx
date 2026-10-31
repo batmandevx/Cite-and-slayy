@@ -79,8 +79,8 @@ export function DraftTab({
               <option value="express">Express</option>
             </Select>
           </Field>
-          <Button variant="primary" onClick={start} loading={job.running} disabled={!topic.trim()}>
-            <Play className="size-4" /> {demo ? "Replay demo run" : "Run drafting engine"}
+          <Button variant="primary" onClick={start} loading={job.running || (liveRunning && !demo)} disabled={!topic.trim() || (liveRunning && !demo)}>
+            <Play className="size-4" /> {demo ? "Replay demo run" : liveRunning ? "Live run in progress…" : "Run drafting engine"}
           </Button>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-4 text-sm">
