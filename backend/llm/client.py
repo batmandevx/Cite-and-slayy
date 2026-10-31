@@ -70,11 +70,15 @@ async def complete_long(system: str, prompt: str, max_tokens: int = 32000) -> tu
     provider, model = chain("main")[0]
     if provider != "bedrock":
         return await complete(system, prompt, max_tokens=min(max_tokens, 16000)), "stop"
-    text, usage = await asyncio.to_thread(_converse_sync, system, prompt, None, max_tokens, model, True)
+    def call() -> tuple[str, tuple[int, int] | None, str]:
+        text, usage = _converse_sync(system, prompt, None, max_tokens, model, True)
+        return text, usage, _last_stop.get()        # read in the worker thread, where the call set it
+
+    text, usage, stop = await asyncio.to_thread(call)
     if usage:
         _note_usage(*usage)
     _charge(provider, model, system, prompt, text)
-    return text, ("length" if _last_stop.get() == "max_tokens" else "stop")
+    return text, ("length" if stop == "max_tokens" else "stop")
 
 
 def set_meter(uid: str | None) -> None:
