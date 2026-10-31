@@ -142,3 +142,30 @@ def test_strict_schema_closes_objects():
     assert sch["additionalProperties"] is False
     assert set(sch["required"]) == {"score", "weaknesses", "fixes", "confidence", "summary"}
     assert "maximum" not in str(sch)  # range constraints are re-checked by Pydantic instead
+
+
+async def test_gap_radar_retries_a_misspelled_query_then_explains(monkeypatch):
+    import pytest
+    from backend.common.schemas import GapRadarRequest
+    from backend.gap_radar import pipeline
+    seen = []
+
+    async def fake_ingest(req, ctx):
+        seen.append((req.query, req.from_year))
+        return [], {"openalex": 0, "arxiv": 0}
+
+    async def fake_refine(q):
+        return "artificial intelligence in medicine"
+
+    class Ctx:
+        async def update(self, *a, **k):
+            pass
+
+    monkeypatch.setattr(pipeline, "ingest", fake_ingest)
+    monkeypatch.setattr(pipeline, "refine_query", fake_refine)
+    with pytest.raises(ValueError) as e:
+        await pipeline.run(GapRadarRequest(query="artifical intellegence in medical", from_year=2023), Ctx())
+    assert seen[0][0] == "artifical intellegence in medical"
+    assert seen[1][0] == "artificial intelligence in medicine"          # retried with corrected wording
+    assert seen[2][1] < 2023                                             # then a wider year range
+    assert "spelling" in str(e.value) and "artificial intelligence in medicine" in str(e.value)

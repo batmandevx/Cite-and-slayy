@@ -172,12 +172,49 @@ def classify(m: dict, size: int, base: dict) -> tuple[str, list[str]]:
 
 # ---------- run ----------
 
+MIN_PAPERS = 60
+
+
+class _Query(BaseModel):
+    query: str
+
+
+async def refine_query(query: str) -> str | None:
+    """Correct spelling and normalise a field name into standard academic search terms (no new topics)."""
+    if not llm.available():
+        return None
+    try:
+        out = await llm.complete_json(
+            "You fix research search queries. Correct spelling and turn the text into the standard academic phrase a "
+            "database like OpenAlex would match (e.g. 'ai in medical' -> 'artificial intelligence in medicine'). "
+            "Keep the same topic; do not add or narrow concepts. At most 8 words.",
+            f"Query: {query}", _Query, effort="low", max_tokens=200, tier="fast")
+        q = " ".join(out.query.split())[:120]
+        return q or None
+    except llm.LLMError:
+        return None
+
+
 async def run(req: GapRadarRequest, ctx) -> str:
     today = date.today()
     await ctx.update("ingest", f"Searching OpenAlex/arXiv for “{req.query}”", 0.02)
     papers, used = await ingest(req, ctx)
-    if len(papers) < 60:
-        raise ValueError(f"Only {len(papers)} papers with abstracts found; broaden the query or lower from_year.")
+    if len(papers) < MIN_PAPERS:
+        # Too few hits: usually a typo or an unusual phrasing. Fix the wording first, then widen the years.
+        better = await refine_query(req.query)
+        if better and better.lower() != req.query.lower():
+            await ctx.update("ingest", f"Only {len(papers)} papers for “{req.query}”; retrying as “{better}”", 0.05)
+            req = req.model_copy(update={"query": better})
+            papers, used = await ingest(req, ctx)
+        if len(papers) < MIN_PAPERS and req.from_year > today.year - 8:
+            wider = max(today.year - 8, req.from_year - 3)
+            await ctx.update("ingest", f"Still {len(papers)} papers; widening the range to {wider}–{today.year}", 0.08)
+            req = req.model_copy(update={"from_year": wider})
+            papers, used = await ingest(req, ctx)
+    if len(papers) < MIN_PAPERS:
+        raise ValueError(f"Found only {len(papers)} papers with abstracts for “{req.query}” (a scan needs {MIN_PAPERS}). "
+                         "Check the spelling, use a broader field name, or pick an earlier start year. "
+                         "If even common topics return 0, the scholarly API is temporarily rate-limiting us: try again in a few minutes.")
 
     await ctx.update("embed", f"Embedding {len(papers)} titles + abstracts (all-MiniLM-L6-v2)", 0.35)
     X = await embed_async([f"{p.title}. {p.abstract or ''}" for p in papers])

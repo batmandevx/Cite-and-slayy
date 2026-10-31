@@ -269,6 +269,7 @@ case "${1:-help}" in
           awsr ec2 describe-instances --instance-ids "$(state_get INSTANCE_ID)" --query 'Reservations[0].Instances[0].State.Name' --output text
           curl -s -m 10 -u "slayy:$(state_get SITE_PASSWORD)" "https://$(site)/api/health" | head -c 300; echo ;;
   logs) ssm_run 'cd /home/ubuntu/app && docker compose -f deploy/docker-compose.yml logs --tail 60 2>&1' ;;
+  exec) shift; ssm_run "cd /home/ubuntu/app && docker compose -f deploy/docker-compose.yml exec -T backend $*" ;;   # e.g. exec python -c '...'
   shell) awsr ssm start-session --target "$(state_get INSTANCE_ID)" ;;
   reboot) awsr ec2 reboot-instances --instance-ids "$(state_get INSTANCE_ID)" && say "Rebooting" ;;
   stop) awsr ec2 stop-instances --instance-ids "$(state_get INSTANCE_ID)" >/dev/null && say "Stopped (disk and IP kept; compute billing paused)" ;;
