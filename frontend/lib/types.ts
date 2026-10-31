@@ -110,6 +110,6 @@ export interface AutoClawRun {
 }
 
 export interface Health {
-  ok: boolean; llm: LlmInfo; demo_mode: boolean;
+  ok: boolean; llm: LlmInfo; demo_mode: boolean; drafting_live?: boolean;
   s2_key: boolean; contact_email: boolean; tortured_phrases: number; verdict_rules: string[];
 }

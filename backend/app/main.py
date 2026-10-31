@@ -428,7 +428,9 @@ def _get(kind: str, id: str, model):
 @app.get("/api/health")
 async def health():
     s = get_settings()
+    import shutil as _shutil
     return {"ok": True, "llm": llm.public_describe(), "demo_mode": s.demo_mode,
+            "drafting_live": bool(_shutil.which(s.autoclaw_bin)),
             "s2_key": bool(s.s2_api_key), "contact_email": bool(s.contact_email),
             "tortured_phrases": len(load_phrases()), "verdict_rules": RULES}
 

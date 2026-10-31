@@ -6,7 +6,7 @@ import clsx from "clsx";
 import { ArrowRight, Check, FileText, Play, Terminal } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
-import { API, api, useJob } from "@/lib/api";
+import { API, api, useJob, writePersistent } from "@/lib/api";
 import type { AutoClawRun, Health } from "@/lib/types";
 import { Badge, Button, Callout, Card, Empty, Field, Input, JobProgress, SectionTitle, Select } from "./ui";
 
@@ -22,7 +22,8 @@ export function DraftTab({
   const founder = !config?.auth_required || !!me?.is_owner;
   const [mode, setMode] = useState<"auto" | "co-pilot" | "gate-only" | "express">("auto");
   const [demoChoice, setDemo] = useState<boolean | null>(null);
-  const demo = demoChoice ?? health?.demo_mode ?? true;
+  const live = !!health?.drafting_live;                 // is the external drafting CLI installed on this server?
+  const demo = live ? (demoChoice ?? health?.demo_mode ?? true) : true;
   const [run, setRun] = useState<AutoClawRun | null>(null);
   const job = useJob();
 
@@ -81,11 +82,14 @@ export function DraftTab({
           </Button>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-4 text-sm">
-          <label className="inline-flex cursor-pointer items-center gap-2">
-            <input type="checkbox" checked={demo} onChange={(e) => setDemo(e.target.checked)} className="size-4 accent-[var(--accent)]" />
+          <label className={clsx("inline-flex items-center gap-2", live ? "cursor-pointer" : "cursor-not-allowed opacity-70")}>
+            <input type="checkbox" checked={demo} disabled={!live} onChange={(e) => setDemo(e.target.checked)} className="size-4 accent-[var(--accent)]" />
             <span>Demo mode</span>
-            <span className="text-xs text-muted">replays a real cached run instead of a ~1h live run</span>
+            <span className="text-xs text-muted">{live ? "replays a real cached run instead of a ~1h live run" : "live runs aren't installed on this server, so this replays a real cached run"}</span>
           </label>
+          <Button variant="lime" className="!py-1.5 text-xs" onClick={() => { writePersistent("studioTopic", topic); onStudio?.(); }} disabled={!topic.trim()}>
+            <Play className="size-3.5" />Write it live in Paper Studio
+          </Button>
         </div>
         {!demo && (
           <div className="mt-3">
