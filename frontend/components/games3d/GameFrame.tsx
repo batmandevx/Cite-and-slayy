@@ -9,8 +9,8 @@ import { isMuted, setMuted, sfx } from "@/lib/sfx";
 export type Phase = "idle" | "play" | "over";
 
 /** Shared chrome for the 3D games: HUD, start / game-over overlay, best score. */
-export function GameFrame({ title, emoji, how, phase, score, best, lives, extra, onStart, children, height = 480 }: {
-  title: string; emoji: string; how: ReactNode; phase: Phase; score: number; best: number; lives?: number; extra?: ReactNode;
+export function GameFrame({ title, emoji, how, phase, score, best, lives, extra, summary, onStart, children, height = 480 }: {
+  title: string; emoji: string; how: ReactNode; phase: Phase; score: number; best: number; lives?: number; extra?: ReactNode; summary?: ReactNode;
   onStart: () => void; children: ReactNode; height?: number;
 }) {
   const [muted, setM] = useState(isMuted);
@@ -48,6 +48,7 @@ export function GameFrame({ title, emoji, how, phase, score, best, lives, extra,
               <div className="mx-auto mt-2 max-w-sm text-sm text-white/75">
                 {phase === "over" ? (score >= best && score > 0 ? "New personal best!" : `Best: ${best}. One more go?`) : how}
               </div>
+              {phase === "over" && summary}
               <button onClick={() => { sfx("start"); onStart(); }} className="btn-brut mt-5 rounded-2xl bg-[#ff4fa3] px-6 py-3 font-display text-lg font-extrabold text-[#121212]">
                 {phase === "over" ? "Play again" : "Start"}
               </button>

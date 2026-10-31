@@ -2,13 +2,14 @@
 /* eslint-disable react-hooks/immutability -- game state lives in a ref and is mutated per frame inside useFrame (the standard R3F loop), never during render */
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { ContactShadows } from "@react-three/drei";
+import { ContactShadows, Sky } from "@react-three/drei";
 import { useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { usePersistent } from "@/lib/api";
 import { sfx } from "@/lib/sfx";
 import { useSparks } from "./fx";
 import { GameFrame, type Phase } from "./GameFrame";
+import { Cloud, Flowers, Hills, lawnTexture, RoundTree, sandTexture, useTex } from "./scenery";
 
 const G = 9.8, ARROWS = 10, EYE = new THREE.Vector3(0, 1.55, 0), FACE_R = 0.62;
 const RINGS = ["#f5f2e8", "#f5f2e8", "#1b1b1f", "#1b1b1f", "#2e86de", "#2e86de", "#e63946", "#e63946", "#ffd23f", "#ffd23f"];
@@ -175,14 +176,28 @@ function Range({ st, phase, onHud, onEnd }: { st: React.RefObject<State>; phase:
     if (hud.current > 0.08) { hud.current = 0; onHud({ ...s }); }
   });
 
+  const lawn = useTex(lawnTexture, 40, 40), path = useTex(sandTexture, 2, 20), hay = useTex(sandTexture, 2, 2);
   return (
     <>
-      <color attach="background" args={["#8ccfff"]} />
-      <fog attach="fog" args={["#cfeaff", 25, 90]} />
+      <Sky sunPosition={[30, 18, -40]} turbidity={3} rayleigh={0.9} mieCoefficient={0.004} mieDirectionalG={0.85} />
+      <fog attach="fog" args={["#d6ecf8", 30, 110]} />
+      <Hills radius={60} count={12} color="#5f9f4b" />
+      {[[-20, 14, -50, 3, 0.5], [18, 17, -60, 3.6, 0.35], [40, 12, -35, 2.4, 0.45], [-45, 16, -30, 3, 0.4]].map(([x, y, z, sc, sp], i) => (
+        <Cloud key={i} position={[x, y, z]} scale={sc} speed={sp} span={120} />
+      ))}
       <hemisphereLight args={["#dff1ff", "#5b7a3a", 0.9]} />
       <directionalLight position={[20, 25, 10]} intensity={2.4} castShadow shadow-mapSize={[1024, 1024]} shadow-camera-left={-20} shadow-camera-right={20} shadow-camera-top={20} shadow-camera-bottom={-40} />
-      <mesh rotation-x={-Math.PI / 2} position={[0, 0, -30]} receiveShadow><planeGeometry args={[120, 120]} /><meshStandardMaterial color="#6aa84f" roughness={1} /></mesh>
-      <mesh rotation-x={-Math.PI / 2} position={[0, 0.005, -15]} receiveShadow><planeGeometry args={[3, 34]} /><meshStandardMaterial color="#d9c49a" roughness={1} /></mesh>
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0, -30]} receiveShadow><planeGeometry args={[160, 160]} /><meshStandardMaterial map={lawn} roughness={1} /></mesh>
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0.005, -15]} receiveShadow><planeGeometry args={[3, 34]} /><meshStandardMaterial map={path} roughness={1} /></mesh>
+      {/* range dressing: hay bales, flowers and a few round trees */}
+      {[[-2.6, -16], [2.7, -17.5], [-3.2, -9], [3.4, -6]].map(([x, z], i) => (
+        <mesh key={i} position={[x, 0.45, z]} rotation={[0, i * 0.7, Math.PI / 2]} castShadow receiveShadow>
+          <cylinderGeometry args={[0.45, 0.45, 0.9, 24]} /><meshStandardMaterial map={hay} color="#e2c06a" roughness={1} />
+        </mesh>
+      ))}
+      <Flowers center={[-3.5, -3]} radius={1.4} count={60} seed={3} />
+      <Flowers center={[3.8, -12]} radius={1.2} count={50} seed={8} />
+      {[[-9, -26, 1.4], [11, -30, 1.6], [-14, -14, 1.2], [13, -10, 1.3]].map(([x, z, sc], i) => <RoundTree key={i} position={[x, 0, z]} scale={sc} color={i % 2 ? "#5aa845" : "#4f9a3c"} />)}
       {trees.map((t, i) => (
         <group key={i} position={[t.x, 0, t.z]} scale={t.s}>
           <mesh position={[0, 0.8, 0]} castShadow><cylinderGeometry args={[0.12, 0.16, 1.6, 8]} /><meshStandardMaterial color="#6b4a2f" /></mesh>

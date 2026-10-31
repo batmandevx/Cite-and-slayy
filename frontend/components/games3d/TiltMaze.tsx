@@ -9,6 +9,11 @@ import { usePersistent } from "@/lib/api";
 import { sfx } from "@/lib/sfx";
 import { Glow, useSparks } from "./fx";
 import { GameFrame, type Phase } from "./GameFrame";
+import { useTex, woodTexture } from "./scenery";
+
+const tableWood = () => woodTexture("#3a2a1c");
+const trayWood = () => woodTexture("#6b4428");
+const wallWood = () => woodTexture("#9a6a40");
 
 type Wall = [number, number, number, number];   // center x, center z, width (x), depth (z)
 const T = 0.16, BALL = 0.22, G = 11, MAX_V = 5.5, STEP = 0.04;   // STEP: max distance per physics sub-step (< wall thickness)
@@ -110,6 +115,7 @@ function Board({ st, maze, phase, onHud, onLevel, onDie }: {
     starRefs.current.forEach((g, k) => { if (g) { g.visible = !s.stars[k]; g.rotation.y += dt * 2.5; g.position.y = 0.45 + Math.sin(state.clock.elapsedTime * 3 + k) * 0.08; } });
     state.camera.lookAt(0, 0, 0.6);
   });
+  const table = useTex(tableWood, 10, 10), tray = useTex(trayWood, 2, 2), wall = useTex(wallWood, 1, 1);
   return (
     <>
       <color attach="background" args={["#1a1410"]} />
@@ -122,12 +128,12 @@ function Board({ st, maze, phase, onHud, onLevel, onDie }: {
         <Lightformer intensity={0.8} position={[5, 2, 0]} rotation-y={-Math.PI / 2} scale={[6, 2, 1]} color="#a8d8ff" />
       </Environment>
       {/* table */}
-      <mesh position={[0, -1.6, 0]} rotation-x={-Math.PI / 2} receiveShadow><planeGeometry args={[40, 40]} /><meshStandardMaterial color="#2a1f17" roughness={0.9} /></mesh>
+      <mesh position={[0, -1.6, 0]} rotation-x={-Math.PI / 2} receiveShadow><planeGeometry args={[40, 40]} /><meshStandardMaterial map={table} roughness={0.55} /></mesh>
       <ContactShadows position={[0, -1.55, 0]} opacity={0.55} scale={n + 6} blur={2.5} far={3} />
       <group ref={board}>
         {/* walnut tray with a raised frame */}
         <RoundedBox args={[n + 0.7, 0.24, n + 0.7]} radius={0.08} position={[0, -0.13, 0]} receiveShadow castShadow>
-          <meshStandardMaterial color="#6b4428" roughness={0.45} metalness={0.05} />
+          <meshStandardMaterial map={tray} roughness={0.4} metalness={0.05} />
         </RoundedBox>
         <mesh position={[0, -0.005, 0]} rotation-x={-Math.PI / 2} receiveShadow>
           <planeGeometry args={[n, n]} /><meshStandardMaterial color="#e9dcc3" roughness={0.75} />
@@ -137,7 +143,7 @@ function Board({ st, maze, phase, onHud, onLevel, onDie }: {
         ))}
         {maze.walls.map(([cx, cz, w, d], k) => (
           <RoundedBox key={k} args={[w, 0.42, d]} radius={0.03} smoothness={2} position={[cx, 0.2, cz]} castShadow receiveShadow>
-            <meshStandardMaterial color={k < 4 ? "#5a361f" : "#8a5a36"} roughness={0.4} metalness={0.05} />
+            <meshStandardMaterial map={k < 4 ? tray : wall} roughness={0.4} metalness={0.05} />
           </RoundedBox>
         ))}
         {/* goal: a real hole with a brass rim */}

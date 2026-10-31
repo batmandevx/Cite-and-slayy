@@ -9,6 +9,99 @@ import { usePersistent } from "@/lib/api";
 import { sfx } from "@/lib/sfx";
 import { useSparks } from "./fx";
 import { GameFrame, type Phase } from "./GameFrame";
+import { hash, useTex, woodTexture } from "./scenery";
+
+const darkWood = () => woodTexture("#6b4a2f");
+const floorWood = () => woodTexture("#b98a5e");
+const shelfWood = () => woodTexture("#8a5f3a");
+
+/** A furnished office: plank floor, rug, window with a city view, bookshelf, plant, lamp, posters and a clock. */
+function Office() {
+  const floor = useTex(floorWood, 6, 14), shelf = useTex(shelfWood, 1, 2);
+  const clock = useRef<THREE.Group>(null);
+  useFrame(({ clock: c }) => { if (clock.current) { clock.current.children[0].rotation.z = -c.elapsedTime * 0.5; clock.current.children[1].rotation.z = -c.elapsedTime * 0.04; } });
+  const bookColors = ["#e63946", "#4d7cff", "#ffd23f", "#2a9d8f", "#ff8a3d", "#8f7bff", "#f4f1ea", "#ff4fa3"];
+  return (
+    <group>
+      {/* floor planks and a rug */}
+      <mesh rotation-x={-Math.PI / 2} receiveShadow><planeGeometry args={[14, 16]} /><meshStandardMaterial map={floor} roughness={0.55} /></mesh>
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0.004, -0.6]} receiveShadow><planeGeometry args={[4.6, 3.4]} /><meshStandardMaterial color="#3b4a7a" roughness={1} /></mesh>
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0.005, -0.6]}><ringGeometry args={[1.25, 1.35, 64]} /><meshStandardMaterial color="#ffd23f" roughness={1} /></mesh>
+      {/* walls with skirting */}
+      <mesh position={[0, 3, -6]} receiveShadow><planeGeometry args={[14, 6]} /><meshStandardMaterial color="#efe7da" /></mesh>
+      <mesh position={[-7, 3, 0]} rotation-y={Math.PI / 2} receiveShadow><planeGeometry args={[16, 6]} /><meshStandardMaterial color="#e6dccb" /></mesh>
+      <mesh position={[7, 3, 0]} rotation-y={-Math.PI / 2} receiveShadow><planeGeometry args={[16, 6]} /><meshStandardMaterial color="#e6dccb" /></mesh>
+      <mesh position={[0, 0.08, -5.98]}><boxGeometry args={[14, 0.16, 0.03]} /><meshStandardMaterial color="#fffaf0" /></mesh>
+      {/* window: sky, city skyline, frame and mullions */}
+      <group position={[2.6, 2.5, -5.97]}>
+        <mesh><planeGeometry args={[2.6, 1.8]} /><meshBasicMaterial color="#9fd3ff" /></mesh>
+        {Array.from({ length: 9 }, (_, i) => (
+          <mesh key={i} position={[-1.15 + i * 0.29, -0.9 + (0.25 + hash(i, 3) * 0.55) / 2, 0.005]}>
+            <planeGeometry args={[0.24, 0.25 + hash(i, 3) * 0.55]} /><meshBasicMaterial color={i % 2 ? "#6f86a8" : "#5c7396"} />
+          </mesh>
+        ))}
+        <mesh position={[0.75, 0.55, 0.004]}><circleGeometry args={[0.16, 24]} /><meshBasicMaterial color="#fff3b0" /></mesh>
+        {[[0, 0.93, 2.76, 0.08], [0, -0.93, 2.76, 0.08], [-1.34, 0, 0.08, 1.94], [1.34, 0, 0.08, 1.94], [0, 0, 0.05, 1.8], [0, 0.1, 2.6, 0.05]].map(([x, y, w, h], i) => (
+          <mesh key={i} position={[x, y, 0.02]}><boxGeometry args={[w, h, 0.06]} /><meshStandardMaterial color="#fafafa" roughness={0.4} /></mesh>
+        ))}
+        <mesh position={[0, -1.02, 0.08]}><boxGeometry args={[2.9, 0.06, 0.2]} /><meshStandardMaterial color="#fafafa" /></mesh>
+      </group>
+      <pointLight position={[2.6, 2.5, -4.6]} intensity={6} distance={6} color="#dff0ff" />
+      {/* framed posters */}
+      {[[-2.4, 2.4, 1.2, 1.6, "#ff4fa3"], [-0.7, 2.7, 0.9, 0.7, "#4d7cff"]].map(([x, y, w, h, c], i) => (
+        <group key={i} position={[x as number, y as number, -5.97]}>
+          <mesh><boxGeometry args={[(w as number) + 0.1, (h as number) + 0.1, 0.03]} /><meshStandardMaterial color="#1f1f1f" /></mesh>
+          <mesh position={[0, 0, 0.02]}><planeGeometry args={[w as number, h as number]} /><meshStandardMaterial color={c as string} /></mesh>
+          <mesh position={[0, 0, 0.025]}><circleGeometry args={[(w as number) * 0.25, 24]} /><meshStandardMaterial color="#ffd23f" /></mesh>
+        </group>
+      ))}
+      {/* wall clock */}
+      <group position={[0.6, 4.2, -5.95]}>
+        <mesh rotation-x={Math.PI / 2}><cylinderGeometry args={[0.32, 0.32, 0.05, 40]} /><meshStandardMaterial color="#fffdf7" /></mesh>
+        <mesh position={[0, 0, 0.02]}><torusGeometry args={[0.32, 0.025, 8, 40]} /><meshStandardMaterial color="#222" /></mesh>
+        <group ref={clock} position={[0, 0, 0.035]}>
+          <group><mesh position={[0, 0.11, 0]}><boxGeometry args={[0.015, 0.22, 0.01]} /><meshBasicMaterial color="#e63946" /></mesh></group>
+          <group><mesh position={[0, 0.07, 0]}><boxGeometry args={[0.03, 0.15, 0.01]} /><meshBasicMaterial color="#222" /></mesh></group>
+        </group>
+      </group>
+      {/* bookshelf against the left wall */}
+      <group position={[-6.6, 0, -2]} rotation-y={Math.PI / 2}>
+        <mesh position={[0, 1.3, 0]} castShadow receiveShadow><boxGeometry args={[2.2, 2.6, 0.6]} /><meshStandardMaterial map={shelf} roughness={0.7} /></mesh>
+        <mesh position={[0, 1.3, 0.04]}><boxGeometry args={[2.05, 2.45, 0.56]} /><meshStandardMaterial color="#3a2616" /></mesh>
+        {[0.45, 1.1, 1.75, 2.4].map((y, r) => (
+          <group key={r} position={[-0.95, y - 0.3, 0.1]}>
+            <mesh position={[0.95, -0.03, 0]}><boxGeometry args={[2.05, 0.05, 0.5]} /><meshStandardMaterial map={shelf} /></mesh>
+            {Array.from({ length: 14 }, (_, i) => {
+              const h = 0.38 + hash(i, r * 9) * 0.18, w = 0.09 + hash(i, r * 9 + 1) * 0.05;
+              return <mesh key={i} position={[0.08 + i * 0.13, h / 2, 0]} rotation-z={hash(i, r) > 0.9 ? 0.2 : 0} castShadow>
+                <boxGeometry args={[w, h, 0.32]} /><meshStandardMaterial color={bookColors[(i + r * 3) % bookColors.length]} roughness={0.7} />
+              </mesh>;
+            })}
+          </group>
+        ))}
+      </group>
+      {/* potted plant */}
+      <group position={[5.6, 0, -4.8]}>
+        <mesh position={[0, 0.35, 0]} castShadow><cylinderGeometry args={[0.4, 0.3, 0.7, 24]} /><meshStandardMaterial color="#d96c4a" roughness={0.8} /></mesh>
+        {Array.from({ length: 11 }, (_, i) => {
+          const a = (i / 11) * Math.PI * 2, tilt = 0.35 + hash(i, 2) * 0.5;
+          return (
+            <group key={i} position={[0, 0.7, 0]} rotation={[Math.cos(a) * tilt, a, Math.sin(a) * tilt]}>
+              <mesh position={[0, 0.55, 0]} scale={[0.22, 0.6, 0.05]} castShadow><sphereGeometry args={[1, 12, 10]} /><meshStandardMaterial color={i % 2 ? "#2f8f46" : "#3fa857"} roughness={0.6} /></mesh>
+            </group>
+          );
+        })}
+      </group>
+      {/* floor lamp */}
+      <group position={[5.8, 0, 1.5]}>
+        <mesh position={[0, 0.02, 0]}><cylinderGeometry args={[0.3, 0.32, 0.04, 24]} /><meshStandardMaterial color="#222" metalness={0.7} roughness={0.3} /></mesh>
+        <mesh position={[0, 1.2, 0]}><cylinderGeometry args={[0.025, 0.025, 2.4]} /><meshStandardMaterial color="#222" metalness={0.7} roughness={0.3} /></mesh>
+        <mesh position={[0, 2.45, 0]}><cylinderGeometry args={[0.22, 0.38, 0.4, 24, 1, true]} /><meshStandardMaterial color="#fff1c9" emissive="#ffd88a" emissiveIntensity={0.7} side={THREE.DoubleSide} /></mesh>
+        <pointLight position={[0, 2.3, 0]} intensity={5} distance={7} color="#ffd9a0" />
+      </group>
+    </group>
+  );
+}
 
 const G = 9.8, R = 0.11, RIM_R = 0.26, RIM_H = 0.52, BALLS = 10, START = new THREE.Vector3(0, 1.15, 2.6);
 const ANGLE = 0.86, DOTS = 26;
@@ -45,6 +138,8 @@ function Room({ st, phase, onHud, onEnd }: { st: React.RefObject<State>; phase: 
   const ball = useRef<THREE.Mesh>(null);
   const bin = useRef<THREE.Group>(null);
   const flag = useRef<THREE.Mesh>(null);
+  const fanBlades = useRef<THREE.Group>(null);
+  const deskWood = useTex(darkWood, 2, 1);
   const hud = useRef(0);
   const geo = usePaperGeometry();
   const dots = useRef<(THREE.Mesh | null)[]>([]);
@@ -135,6 +230,7 @@ function Room({ st, phase, onHud, onEnd }: { st: React.RefObject<State>; phase: 
       if (s.flying) { ball.current.rotation.x -= dt * 9; ball.current.rotation.z += dt * 3; }
     }
     if (bin.current) bin.current.position.lerp(s.bin, 0.12);
+    if (fanBlades.current) fanBlades.current.rotation.z += dt * (2 + Math.abs(s.wind) * 9) * Math.sign(s.wind || 1);
     if (flag.current) { flag.current.rotation.y = s.wind > 0 ? 0 : Math.PI; flag.current.scale.x = 0.25 + Math.min(1, Math.abs(s.wind) / 2.5) * 0.9; flag.current.rotation.z = Math.sin(s.t * 12) * 0.08; }
     hud.current += dt;
     if (hud.current > 0.1) { hud.current = 0; onHud({ ...s }); }
@@ -149,27 +245,32 @@ function Room({ st, phase, onHud, onEnd }: { st: React.RefObject<State>; phase: 
         <Lightformer intensity={2} position={[0, 4, 4]} scale={[8, 3, 1]} />
         <Lightformer intensity={1.2} position={[-5, 2, 0]} rotation-y={Math.PI / 2} scale={[6, 2, 1]} color="#ffe2c4" />
       </Environment>
-      {/* floor: warm wooden boards */}
-      <mesh rotation-x={-Math.PI / 2} receiveShadow><planeGeometry args={[14, 16]} /><meshStandardMaterial color="#b98a5e" roughness={0.65} /></mesh>
-      {Array.from({ length: 14 }, (_, i) => (
-        <mesh key={i} rotation-x={-Math.PI / 2} position={[-7 + i, 0.001, 0]}><planeGeometry args={[0.02, 16]} /><meshBasicMaterial color="#8d6440" /></mesh>
-      ))}
-      {/* back wall with window and a poster */}
-      <mesh position={[0, 3, -6]} receiveShadow><planeGeometry args={[14, 6]} /><meshStandardMaterial color="#efe7da" /></mesh>
-      <mesh position={[2.6, 2.4, -5.98]}><planeGeometry args={[2.2, 1.6]} /><meshStandardMaterial color="#bfe3ff" emissive="#bfe3ff" emissiveIntensity={0.6} /></mesh>
-      <mesh position={[-2.4, 2.3, -5.98]}><planeGeometry args={[1.2, 1.6]} /><meshStandardMaterial color="#ff4fa3" /></mesh>
+      <Office />
       {/* desk you throw from */}
-      <RoundedBox args={[1.2, 0.06, 0.45]} radius={0.02} position={[0, 0.98, 3.35]} castShadow receiveShadow><meshStandardMaterial color="#6b4a2f" roughness={0.5} /></RoundedBox>
-      {/* fan / wind flag */}
-      <group position={[-2.6, 1.6, -3]}>
-        <mesh position={[0, -0.8, 0]}><cylinderGeometry args={[0.02, 0.02, 1.6]} /><meshStandardMaterial color="#555" metalness={0.8} roughness={0.3} /></mesh>
-        <mesh ref={flag} position={[0, 0, 0]}><boxGeometry args={[0.6, 0.3, 0.01]} /><meshStandardMaterial color="#ff4fa3" side={THREE.DoubleSide} /></mesh>
+      <RoundedBox args={[1.2, 0.06, 0.45]} radius={0.02} position={[0, 0.98, 3.35]} castShadow receiveShadow><meshStandardMaterial map={deskWood} roughness={0.5} /></RoundedBox>
+      {/* desk fan: blades spin with the wind, the ribbon shows which way it blows */}
+      <group position={[-2.6, 0, -3]}>
+        <mesh position={[0, 0.02, 0]}><cylinderGeometry args={[0.28, 0.32, 0.05, 32]} /><meshStandardMaterial color="#2b2f36" metalness={0.6} roughness={0.35} /></mesh>
+        <mesh position={[0, 0.8, 0]}><cylinderGeometry args={[0.025, 0.025, 1.6]} /><meshStandardMaterial color="#c9ced6" metalness={0.9} roughness={0.25} /></mesh>
+        <group position={[0, 1.6, 0]} rotation-y={Math.PI / 2}>
+          <mesh rotation-x={Math.PI / 2}><cylinderGeometry args={[0.09, 0.11, 0.22, 20]} /><meshStandardMaterial color="#2b2f36" metalness={0.6} roughness={0.35} /></mesh>
+          <mesh position={[0, 0, 0.16]}><torusGeometry args={[0.36, 0.012, 8, 48]} /><meshStandardMaterial color="#c9ced6" metalness={0.9} roughness={0.25} /></mesh>
+          <group ref={fanBlades} position={[0, 0, 0.16]}>
+            {[0, 1, 2, 3].map((i) => (
+              <group key={i} rotation-z={(i * Math.PI) / 2}>
+                <mesh position={[0.17, 0, 0]} rotation-x={0.35}><boxGeometry args={[0.28, 0.12, 0.01]} /><meshStandardMaterial color="#4fc3ff" transparent opacity={0.85} side={THREE.DoubleSide} /></mesh>
+              </group>
+            ))}
+            <mesh rotation-x={Math.PI / 2}><cylinderGeometry args={[0.05, 0.05, 0.06, 16]} /><meshStandardMaterial color="#e63946" /></mesh>
+          </group>
+        </group>
+        <mesh ref={flag} position={[0, 1.95, 0]}><boxGeometry args={[0.6, 0.12, 0.01]} /><meshStandardMaterial color="#ff4fa3" side={THREE.DoubleSide} /></mesh>
       </group>
       {/* the bin: brushed metal, open top */}
       <group ref={bin}>
         <mesh position={[0, RIM_H / 2, 0]} castShadow receiveShadow>
           <cylinderGeometry args={[RIM_R, RIM_R * 0.82, RIM_H, 40, 1, true]} />
-          <meshStandardMaterial color="#9aa3ad" metalness={0.85} roughness={0.32} side={THREE.DoubleSide} />
+          <meshStandardMaterial color="#b9c2cc" metalness={0.55} roughness={0.35} side={THREE.DoubleSide} />
         </mesh>
         <mesh position={[0, 0.01, 0]} rotation-x={-Math.PI / 2}><circleGeometry args={[RIM_R * 0.82, 32]} /><meshStandardMaterial color="#6f7780" metalness={0.8} roughness={0.4} /></mesh>
         <mesh position={[0, RIM_H, 0]} rotation-x={Math.PI / 2}><torusGeometry args={[RIM_R, 0.012, 12, 48]} /><meshStandardMaterial color="#d7dde3" metalness={1} roughness={0.2} /></mesh>
