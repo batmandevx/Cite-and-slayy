@@ -37,10 +37,13 @@ class BridgeError(Exception):
     pass
 
 
-def _new_run(topic: str, demo: bool) -> AutoClawRun:
-    return AutoClawRun(run_id=uuid.uuid4().hex[:12], topic=topic, demo=demo, status="running",
-                       stages=[AutoClawStage(number=i + 1, name=n, status="pending") for i, n in enumerate(STAGES)],
-                       log_tail=[], created_at=now())
+def _new_run(topic: str, demo: bool, uid: str | None = None) -> AutoClawRun:
+    run = AutoClawRun(run_id=uuid.uuid4().hex[:12], topic=topic, demo=demo, status="running",
+                      stages=[AutoClawStage(number=i + 1, name=n, status="pending") for i, n in enumerate(STAGES)],
+                      log_tail=[], created_at=now())
+    if uid and uid != "local":
+        get_store().set_owner("autoclaw_run", run.run_id, uid)     # so the starter can find it again after a reload
+    return run
 
 
 def _advance(run: AutoClawRun, number: int) -> None:
@@ -64,10 +67,10 @@ async def run(req: AutoClawRequest, ctx, uid: str | None = None) -> str:
     s = get_settings()
     demo = s.demo_mode if req.demo is None else req.demo
     if demo:
-        return await _run_demo(req, ctx)
+        return await _run_demo(req, ctx, uid)
     if s.claw_url and s.claw_token:
         return await _run_worker(req, ctx, uid or "local")
-    return await _run_live(req, ctx)
+    return await _run_live(req, ctx, uid)
 
 
 async def _run_worker(req: AutoClawRequest, ctx, uid: str) -> str:
@@ -75,14 +78,17 @@ async def _run_worker(req: AutoClawRequest, ctx, uid: str) -> str:
     import httpx
     from backend.autoclaw_bridge import llm_bridge
     s = get_settings()
-    run = _new_run(req.topic, demo=False)
+    run = _new_run(req.topic, demo=False, uid=uid)
     key = llm_bridge.issue_key(uid, run.run_id, s.claw_run_budget_inr)
     run.log_tail.append(f"[bridge] Live AutoResearchClaw run · Pro engine · budget ₹{s.claw_run_budget_inr:.0f}")
+    _save(run)
     async with httpx.AsyncClient(base_url=s.claw_url, headers={"Authorization": f"Bearer {s.claw_token}"}, timeout=60) as c:
         r = await c.post("/runs", json={"topic": req.topic, "llm_key": key, "llm_base_url": "http://backend:8000/internal/llm/v1"})
     if r.status_code != 200:
-        llm_bridge.revoke_key(key)          # nothing started: leave no run record behind
-        raise BridgeError(r.json().get("error", f"worker refused the run ({r.status_code})"))
+        llm_bridge.revoke_key(key)
+        run.status = "error"
+        _save(run)
+        raise BridgeError(f"worker refused the run: {r.json().get('error', r.status_code)}")
     run.worker_run_id = r.json()["id"]
     _save(run)
     return await follow(run, key, ctx)
@@ -157,6 +163,9 @@ def resume_live_runs() -> int:
     store = get_store()
     keys = {k.get("run_id"): k for k in store.list("claw_key", 200)}
     key_ids = {rid: k.get("key") for rid, k in keys.items() if k.get("key")}
+    for rid, k in keys.items():          # older runs were saved without an owner; their run key records who started them
+        if rid and k.get("uid") and not store.owner_of("autoclaw_run", rid):
+            store.set_owner("autoclaw_run", rid, k["uid"])
     n = 0
     for raw in store.list("autoclaw_run", 50):
         run = AutoClawRun.model_validate(raw)
@@ -182,13 +191,13 @@ async def _follow_quietly(run: AutoClawRun, key: str) -> None:
         pass
 
 
-async def _run_demo(req: AutoClawRequest, ctx) -> str:
+async def _run_demo(req: AutoClawRequest, ctx, uid: str | None = None) -> str:
     meta_path = DEMO_DIR / "run.json"
     pdf = DEMO_DIR / "deliverables" / "paper.pdf"
     if not meta_path.exists() or not pdf.exists():
         raise BridgeError("Demo run missing: expected demo/autoclaw_run/run.json and deliverables/paper.pdf")
     meta = json.loads(meta_path.read_text())
-    run = _new_run(req.topic, demo=True)
+    run = _new_run(req.topic, demo=True, uid=uid)
     run.provenance = meta["provenance"]
     if req.topic.strip().lower() != meta["topic"].strip().lower():
         run.log_tail.append(f"[demo] Demo mode returns the cached run for “{meta['topic']}”, not the requested topic.")
@@ -206,7 +215,7 @@ async def _run_demo(req: AutoClawRequest, ctx) -> str:
     return run.run_id
 
 
-async def _run_live(req: AutoClawRequest, ctx) -> str:
+async def _run_live(req: AutoClawRequest, ctx, uid: str | None = None) -> str:
     s = get_settings()
     exe = shutil.which(s.autoclaw_bin)
     if not exe:
@@ -220,7 +229,7 @@ async def _run_live(req: AutoClawRequest, ctx) -> str:
         cmd += ["--auto-approve"]
     else:
         cmd += ["--mode", req.mode]
-    run = _new_run(req.topic, demo=False)
+    run = _new_run(req.topic, demo=False, uid=uid)
     run.log_tail.append("$ " + " ".join(cmd))
     if req.mode != "auto":
         run.log_tail.append(f"[bridge] mode '{req.mode}' pauses for human input: use `researchclaw attach` / "
