@@ -3,8 +3,7 @@ export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://citeslayy.
 export const SITE_NAME = "Cite & Slayy";
 export const SITE_TITLE = "Cite & Slayy: AI Research Paper Writer with Real, Verified Citations";
 export const SITE_DESCRIPTION =
-  "Turn a topic into a complete research paper with real, verified citations, figures, equations and IEEE or Springer LaTeX. " +
-  "Find research gaps, check references for retractions, run a plagiarism and AI check, and pick the right journal.";
+  "AI research paper writer: topic to full paper with verified citations, figures and IEEE/Springer LaTeX. Plus gap finder, plagiarism check and journal match.";
 export const SITE_KEYWORDS = [
   "Cite and Slayy", "citeslayy", "AI research paper writer", "research paper generator", "citation checker",
   "reference checker", "retraction checker", "research gap finder", "literature review AI", "plagiarism checker",
