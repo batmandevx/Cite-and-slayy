@@ -24,6 +24,16 @@ async def search(query: str, start: int = 0, max_results: int = 100) -> Fetched:
     }, as_text=True)
 
 
+async def search_relevant(query: str, max_results: int = 40) -> Fetched:
+    """Relevance-ranked search matching all the query's words (not the exact phrase)."""
+    stop = {"the", "and", "for", "with", "from", "into", "onto", "under", "over", "its", "their", "impact", "effect", "effects",
+            "role", "study", "analysis", "approach", "using", "based", "towards", "toward", "via", "new", "novel"}
+    words = [w for w in re.findall(r"[A-Za-z0-9-]+", query) if len(w) > 2 and w.lower() not in stop][:4]
+    q = " AND ".join(f"all:{w}" for w in words) or f'all:"{query}"'
+    return await client().get(BASE, {"search_query": q, "start": 0, "max_results": max_results,
+                                     "sortBy": "relevance", "sortOrder": "descending"}, as_text=True)
+
+
 async def by_id(arxiv_id: str) -> Fetched:
     return await client().get(BASE, {"id_list": arxiv_id}, as_text=True)
 

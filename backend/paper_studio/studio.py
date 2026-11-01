@@ -46,7 +46,8 @@ from backend.documents.parser import Paragraph
 from backend.embeddings.model import embed_async
 from backend.llm import client as llm
 from backend.paper_studio import experiments, figures
-from backend.sources import openalex
+from backend.sources import arxiv, openalex
+from backend.sources import semantic_scholar as s2
 from backend.sources.http import SourceError
 
 N_REFS = 32
@@ -498,10 +499,38 @@ async def run(req: StudioRequest, ctx) -> str:
             p = openalex.to_paper(w)
             if p.title and p.abstract and len(p.abstract) > 180 and p.id not in cands:
                 cands[p.id] = p
+    # OpenAlex can be rate-limited or thin on a topic: top up from Semantic Scholar, then arXiv.
+    def _take(p: Paper) -> None:
+        if p.title and p.abstract and len(p.abstract) > 180 and p.id not in cands \
+                and not any(c.title.strip().lower() == p.title.strip().lower() for c in cands.values()):
+            cands[p.id] = p
+    if len(cands) < 24:
+        for q in [topic] + queries[:3]:
+            await say("scout", "run", f"Searching Semantic Scholar: “{q}”", 0.06)
+            try:
+                f = await s2.search(q, limit=40)
+            except SourceError:
+                break
+            for w in (f.data or {}).get("data", []) or []:
+                _take(s2.to_paper(w))
+            if len(cands) >= 40:
+                break
+    if len(cands) < 24:
+        for q in [topic] + queries[:2]:
+            await say("scout", "run", f"Searching arXiv: “{q}”", 0.07)
+            try:
+                f = await arxiv.search_relevant(q, max_results=40)
+            except SourceError:
+                break
+            for p in arxiv.parse_feed(f.data):
+                _take(p)
+            if len(cands) >= 40:
+                break
     for p in seeds:
         cands.pop(p.id, None)
     if len(cands) + len(seeds) < 6:
-        raise RuntimeError("Not enough literature with abstracts was found for this topic. Try a broader topic.")
+        raise RuntimeError("The scholarly databases returned too few papers just now (they may be busy). "
+                           "Please try again in a few minutes, or rephrase the topic with more specific keywords.")
     pool = list(cands.values())
     tv, av = await embed_async([f"{topic}. {angle}"]), await embed_async([f"{p.title}. {p.abstract}" for p in pool])
     sims = (av @ tv.T).ravel()

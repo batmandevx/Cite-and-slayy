@@ -31,6 +31,11 @@ async def match_title(title: str) -> Fetched:
     return await client().get(f"{BASE}/paper/search/match", {"query": title[:300], "fields": FIELDS})
 
 
+async def search(query: str, limit: int = 40) -> Fetched:
+    """Keyword search over papers (relevance-ranked)."""
+    return await client().get(f"{BASE}/paper/search", {"query": query[:300], "fields": FIELDS, "limit": limit})
+
+
 async def recommendations(paper_id: str, limit: int = 10) -> Fetched:
     return await client().get(f"{REC}/papers/forpaper/{quote(paper_id, safe=':/')}",
                               {"fields": FIELDS, "limit": limit})
