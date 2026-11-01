@@ -12,8 +12,8 @@ export const metadata: Metadata = {
 };
 
 const TEAM = [
-  { name: "Ayush Upadhyay", role: "Founder", initials: "AU", color: "bg-pink" },
-  { name: "Team member", role: "Chief Executive Officer (CEO)", initials: "AB", color: "bg-lime" },
+  { name: "Ayush Upadhyay", role: "Founder", initials: "AU", color: "bg-pink", email: "ayush@citeslayy.com" },
+  { name: "Team member", role: "Chief Executive Officer (CEO)", initials: "AB", color: "bg-lime", email: "hello@citeslayy.com" },
 ];
 
 const HELP = [
@@ -30,8 +30,8 @@ export default function About() {
         "@context": "https://schema.org", "@type": "AboutPage", url: `${SITE_URL}/about`,
         mainEntity: {
           "@type": "Organization", name: BUSINESS.brand, url: SITE_URL, email: BUSINESS.email,
-          founder: { "@type": "Person", name: "Ayush Upadhyay", jobTitle: "Founder" },
-          employee: [{ "@type": "Person", name: "Team member", jobTitle: "Chief Executive Officer" }],
+          founder: { "@type": "Person", name: "Ayush Upadhyay", jobTitle: "Founder", email: "ayush@citeslayy.com" },
+          employee: [{ "@type": "Person", name: "Team member", jobTitle: "Chief Executive Officer", email: "hello@citeslayy.com" }],
         },
       }} />
 
@@ -50,6 +50,7 @@ export default function About() {
             <div>
               <div className="font-display text-lg font-extrabold">{t.name}</div>
               <div className="text-sm text-ink-2">{t.role}</div>
+              <a href={`mailto:${t.email}`} className="text-sm font-bold underline">{t.email}</a>
             </div>
           </div>
         ))}
@@ -58,7 +59,9 @@ export default function About() {
       <h2>Contact &amp; support</h2>
       <p>
         Email us at <a className="font-bold underline" href={`mailto:${BUSINESS.email}`}>{BUSINESS.email}</a> for help with your account,
-        payments, papers or anything else. We reply within 2 business days.
+        payments, papers or anything else. We reply within 2 business days. For partnerships or press, write to our founder at{" "}
+        <a className="font-bold underline" href="mailto:ayush@citeslayy.com">ayush@citeslayy.com</a> or our CEO at{" "}
+        <a className="font-bold underline" href="mailto:hello@citeslayy.com">hello@citeslayy.com</a>.
       </p>
       <p>Please write from your registered email address and include any payment ID, paper title or screenshot that helps us understand the issue.</p>
 
