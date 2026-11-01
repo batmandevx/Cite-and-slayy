@@ -2,11 +2,12 @@
 export interface Resource { name: string; url: string; what: string; tag: string; color: string }
 
 export const RESOURCES: Resource[] = [
-  { name: "Consensus", url: "https://consensus.app", what: "AI search engine that answers questions from peer-reviewed papers.", tag: "Search", color: "bg-yellow" },
+  { name: "Consensus", url: "https://consensus.app", what: "AI search engine that answers yes/no and how questions from peer-reviewed papers, with a consensus meter.", tag: "Search", color: "bg-yellow" },
   { name: "Elicit", url: "https://elicit.com", what: "AI research assistant for literature reviews and data extraction.", tag: "Search", color: "bg-yellow" },
-  { name: "Semantic Scholar", url: "https://www.semanticscholar.org", what: "Free AI-powered paper search with citation graphs.", tag: "Search", color: "bg-yellow" },
+  { name: "Semantic Scholar", url: "https://www.semanticscholar.org", what: "Free AI-powered search over 200M+ papers with TLDRs, citation graphs and research feeds.", tag: "Search", color: "bg-yellow" },
   { name: "Connected Papers", url: "https://www.connectedpapers.com", what: "Visual graph of papers related to a seed paper.", tag: "Discover", color: "bg-pink" },
   { name: "Research Rabbit", url: "https://www.researchrabbit.ai", what: "Discover papers and authors through citation networks.", tag: "Discover", color: "bg-pink" },
+  { name: "Litmaps", url: "https://www.litmaps.com", what: "Visual literature maps: grow a map of related papers from a few seeds and track new ones.", tag: "Discover", color: "bg-pink" },
   { name: "Zotero", url: "https://www.zotero.org", what: "Free, open-source reference manager with Word and LaTeX plugins.", tag: "Manage", color: "bg-lime" },
   { name: "LaTeX / Overleaf", url: "https://www.overleaf.com", what: "Write and format academic papers in LaTeX; open our IEEE / Springer exports here.", tag: "Write", color: "bg-lime" },
   { name: "VOSviewer", url: "https://www.vosviewer.com", what: "Visualize citation networks, research themes and collaborations.", tag: "Bibliometrics", color: "bg-orange" },

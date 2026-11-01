@@ -117,7 +117,7 @@ export function FeaturePage({ slug }: { slug: string }) {
           <div className="space-y-3">
             <FeatureLinks exclude={p.slug} className="flex flex-wrap gap-x-4 gap-y-2 font-bold" />
             <nav className="flex flex-wrap gap-x-4 gap-y-2 text-xs">
-              <Link href="/pricing">Pricing</Link><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link>
+              <Link href="/about">About &amp; support</Link><Link href="/pricing">Pricing</Link><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link>
               <Link href="/refund">Refunds</Link><Link href="/contact">Contact</Link><a href={`mailto:${BUSINESS.email}`}>{BUSINESS.email}</a>
             </nav>
           </div>

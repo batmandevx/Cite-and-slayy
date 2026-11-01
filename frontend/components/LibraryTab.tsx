@@ -5,6 +5,7 @@ import { BookOpen, Download, ExternalLink, Flame, Lightbulb, Search, Sparkles, Z
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { api, toast } from "@/lib/api";
+import { ExternalSearch } from "./ExternalSearch";
 import { Button, Card, Callout } from "./ui";
 
 interface LibPaper {
@@ -119,6 +120,7 @@ export function LibraryTab() {
                 className={clsx("rounded-full border-2 border-edge px-2.5 py-0.5 text-xs font-bold transition hover:-translate-y-0.5", query === t ? "bg-lime text-[#121212]" : "bg-surface")}>{t}</button>
             ))}
           </div>
+          <ExternalSearch query={query} className="mt-4" />
         </div>
       </Card>
 

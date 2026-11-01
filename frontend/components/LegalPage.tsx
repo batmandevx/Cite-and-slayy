@@ -18,7 +18,7 @@ export function LegalPage({ title, children }: { title: string; children: ReactN
         {children}
       </div>
       <footer className="mt-12 flex flex-wrap gap-4 border-t-2 border-dashed border-line pt-5 text-sm text-ink-2">
-        <Link href="/pricing">Pricing</Link><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link>
+        <Link href="/about">About &amp; support</Link><Link href="/pricing">Pricing</Link><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link>
         <Link href="/refund">Cancellation &amp; refunds</Link><Link href="/contact">Contact</Link>
         <FeatureLinks className="flex w-full flex-wrap gap-x-4 gap-y-2 text-xs font-bold" />
       </footer>

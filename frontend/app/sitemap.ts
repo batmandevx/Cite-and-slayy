@@ -9,7 +9,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const pages: [string, number, MetadataRoute.Sitemap[number]["changeFrequency"]][] = [
     ["", 1, "weekly"], ["/pricing", 0.9, "weekly"],
     ...SEO_PAGES.map((p) => [`/${p.slug}`, 0.8, "monthly"] as [string, number, "monthly"]),
-    ["/contact", 0.5, "monthly"], ["/terms", 0.3, "yearly"], ["/privacy", 0.3, "yearly"], ["/refund", 0.3, "yearly"],
+    ["/about", 0.6, "monthly"], ["/contact", 0.5, "monthly"], ["/terms", 0.3, "yearly"], ["/privacy", 0.3, "yearly"], ["/refund", 0.3, "yearly"],
   ];
   return pages.map(([path, priority, changeFrequency]) => ({ url: `${SITE_URL}${path}`, lastModified: UPDATED, changeFrequency, priority }));
 }

@@ -9,6 +9,7 @@ import type { GapClass, GapRadarResult, QuestionsResult } from "@/lib/types";
 import { BubbleChart, CLASS_COLORS, CLASS_LABEL, YearHeatmap } from "./charts";
 import { useTheme } from "./theme";
 import { Badge, Button, Callout, Card, Empty, ExtLink, Field, Input, JobProgress, SectionTitle, Select, type Tone } from "./ui";
+import { ExternalSearch } from "./ExternalSearch";
 
 const ResearchGalaxy = lazy(() => import("./three/ResearchGalaxy"));
 
@@ -124,6 +125,7 @@ export function ExploreTab({
             ))}
           </div>
         )}
+        <ExternalSearch query={run?.query ?? query} className="mt-4 border-t-2 border-dashed border-line pt-3" />
       </Card>
 
       <JobProgress state={job} label="Gap Radar" />
