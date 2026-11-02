@@ -5,7 +5,7 @@ Every plan also has a hard monthly AI budget (`ai_budget_inr`), charged from the
 more expensive than estimated:
 
     plan  price  net after GST (18%) & gateway (~2.4%)  max AI spend  min contribution to AWS + profit
-    Pro   6,999  ~5,766                                  900           ~4,866 (84%)
+    Pro   6,999  ~5,766                                  750           ~5,016 (87%)
     Max  12,999  ~10,709                                 4,000         ~6,709 (63%)
 
 Fixed AWS cost (one t3.large + disk + IP, roughly ₹7–8k/month; check the AWS bill) is covered by about 2 Pro subscribers.
@@ -22,14 +22,14 @@ PLANS: dict[str, dict] = {
                   "Notes editor, library, research toolbox & 2 arcade games"],
     },
     "pro": {
-        "name": "Pro", "price_inr": 6999, "engine": "premium", "ai_budget_inr": 900,
-        "limits": {"papers": 4, "revisions": 10, "kits": 3, "decks": 4, "reviews": 2, "audits": 8, "fixes": 3,
-                   "integrity_scans": 25, "humanize_fixes": 15, "scans": 8, "drafts": 2,
-                   "chats_day": 50, "assists_day": 100},
-        "perks": ["4 papers / month on the Azora Pro engine",
-                  "25 Turnitin-style AI & Plagiarism line-highlighted reports",
-                  "15 AI & Plagiarism Reducer / Humanizer rewrites + 3 audit fixes",
-                  "10 AI revisions · 3 submission kits · 2 reviewer verdicts"],
+        "name": "Pro", "price_inr": 6999, "engine": "premium", "ai_budget_inr": 750,
+        "limits": {"papers": 3, "revisions": 8, "kits": 2, "decks": 3, "reviews": 2, "audits": 6, "fixes": 2,
+                   "integrity_scans": 20, "humanize_fixes": 12, "scans": 6, "drafts": 1,
+                   "chats_day": 40, "assists_day": 80},
+        "perks": ["3 papers / month on the Azora Pro engine",
+                  "20 Turnitin-style AI & Plagiarism line-highlighted reports",
+                  "12 AI & Plagiarism Reducer / Humanizer rewrites + 2 audit fixes",
+                  "8 AI revisions · 2 submission kits · 2 reviewer verdicts"],
     },
     "max": {
         "name": "Max", "price_inr": 12999, "engine": "premium", "ai_budget_inr": 4000,

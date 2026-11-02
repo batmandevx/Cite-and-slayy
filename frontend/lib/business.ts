@@ -11,7 +11,7 @@ export const BUSINESS = {
       tagline: "The architect behind Azora AI",
     },
     {
-      name: "Team member", role: "Co-founder & CEO", email: "hello@citeslayy.com", initials: "AB", color: "bg-lime",
+      name: "Team member", role: "Founder & CEO", email: "hello@citeslayy.com", initials: "AB", color: "bg-lime",
       tagline: "The vision and voice of Cite & Slayy",
     },
   ],
