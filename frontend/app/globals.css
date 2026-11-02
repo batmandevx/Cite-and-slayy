@@ -334,3 +334,14 @@ h1, h2, h3, .font-display { font-family: var(--font-display); letter-spacing: -0
 .paper-preview .md a { color: #1d4ed8; text-decoration: underline; text-decoration-thickness: 1px; }
 
 @media (prefers-reduced-motion: reduce) { .aurora-orb::before, .aurora-orb::after, .aurora-orbit, .aurora-eye, .beam-flow, .typing-dot { animation: none !important; } }
+
+/* Policy and support pages */
+.prose-policy ul { list-style: disc; padding-left: 1.25rem; }
+.prose-policy ol { list-style: decimal; padding-left: 1.25rem; }
+.prose-policy li { margin: 0.35rem 0; }
+.prose-policy li::marker { color: var(--color-pink); }
+.prose-policy b, .prose-policy strong { color: var(--color-ink); }
+.prose-policy a { font-weight: 700; text-decoration: underline; text-underline-offset: 3px; color: var(--color-ink); }
+.prose-policy table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14px; }
+.prose-policy th, .prose-policy td { padding: 0.6rem 0.75rem; border-bottom: 2px dashed var(--color-line); text-align: left; vertical-align: top; }
+.prose-policy th { color: var(--color-ink); font-weight: 800; }

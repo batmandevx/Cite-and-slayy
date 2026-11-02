@@ -26,7 +26,7 @@ PLANS: dict[str, dict] = {
         "limits": {"papers": 4, "revisions": 10, "kits": 3, "decks": 4, "reviews": 2, "audits": 8, "fixes": 3,
                    "integrity_scans": 25, "humanize_fixes": 15, "scans": 8, "drafts": 2,
                    "chats_day": 50, "assists_day": 100},
-        "perks": ["4 papers / month on the Pro engine (Claude on Bedrock)",
+        "perks": ["4 papers / month on the Azora Pro engine",
                   "25 Turnitin-style AI & Plagiarism line-highlighted reports",
                   "15 AI & Plagiarism Reducer / Humanizer rewrites + 3 audit fixes",
                   "10 AI revisions · 3 submission kits · 2 reviewer verdicts"],

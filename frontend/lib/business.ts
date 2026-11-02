@@ -1,11 +1,12 @@
-/** Business details shown on the legal pages. Razorpay checks these before activating payments: fill in every field. */
+/** Public business details shown on the policy pages. Only real, confirmed details belong here. */
 export const BUSINESS = {
   brand: "Cite & Slayy",
-  operator: "[Your registered business or full legal name]",
-  address: "[Registered address, city, state, PIN]",
-  email: "slayyhacks@gmail.com",
-  phone: "[+91 phone number]",
-  gstin: "[GSTIN, if registered]",
-  updated: "30 October 2026",
+  website: "https://citeslayy.com",
+  email: "slayyhacks@gmail.com",          // support
+  country: "India",
+  updated: "2 November 2026",
+  team: [
+    { name: "Ayush Upadhyay", role: "Founder & CTO", email: "ayush@citeslayy.com", initials: "AU", color: "bg-pink" },
+    { name: "Team member", role: "Co-founder & CEO", email: "hello@citeslayy.com", initials: "AB", color: "bg-lime" },
+  ],
 };
-export const isPlaceholder = (v: string) => v.startsWith("[");
