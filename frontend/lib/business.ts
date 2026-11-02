@@ -7,10 +7,6 @@ export const BUSINESS = {
   updated: "2 November 2026",
   team: [
     {
-      name: "Ayush Upadhyay", role: "Founder & CTO", email: "ayush@citeslayy.com", initials: "AU", color: "bg-pink",
-      tagline: "The architect behind Azora AI",
-    },
-    {
       name: "Team member", role: "Co-founder & CEO", email: "hello@citeslayy.com", initials: "AB", color: "bg-lime",
       tagline: "The vision and voice of Cite & Slayy",
     },

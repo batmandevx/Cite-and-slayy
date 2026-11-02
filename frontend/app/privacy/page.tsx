@@ -16,7 +16,6 @@ const TOC = [
 ].map(([id, title]) => ({ id, title }));
 
 export default function Privacy() {
-  const cto = BUSINESS.team[0];
   return (
     <PolicyShell current="/privacy" eyebrow="Legal" title="Privacy Policy" heroColor="bg-lime" icon={<Lock className="size-12" />} toc={TOC}
       intro={<>Your research is yours. This policy explains what {BUSINESS.brand} collects, why, and the control you have over it.</>}
@@ -81,8 +80,7 @@ export default function Privacy() {
       </Section>
       <Section id="contact" n={8} title="Privacy contact" icon={<Mail className="size-5" />}>
         <p>
-          For privacy questions or grievances, email <a href={`mailto:${BUSINESS.email}`}>{BUSINESS.email}</a>. Security or data-protection concerns can also go to{" "}
-          <a href={`mailto:${cto.email}`}>{cto.email}</a> ({cto.name}, {cto.role}). We reply within 2 business days. See also our <Link href="/terms">Terms</Link>.
+          For privacy questions or grievances, email <a href={`mailto:${BUSINESS.email}`}>{BUSINESS.email}</a>; security and data-protection concerns go there too. We reply within 2 business days. See also our <Link href="/terms">Terms</Link>.
         </p>
       </Section>
     </PolicyShell>

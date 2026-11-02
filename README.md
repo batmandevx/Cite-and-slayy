@@ -535,7 +535,7 @@ cite-and-slayy/
 - **Data:** OpenAlex, arXiv, Semantic Scholar and Crossref, used through their free public APIs.
 - Sample papers in `demo/` are openly licensed and remain under their original licences.
 
-Built for the **GDGOC APU Hackathon** (*Data-Driven Research & Intelligent Decision Making*) by Ayush Upadhyay and team.
+Built for the **GDGOC APU Hackathon** (*Data-Driven Research & Intelligent Decision Making*) by the Cite & Slayy team.
 Questions or support: **slayyhacks@gmail.com**.
 
 ## License

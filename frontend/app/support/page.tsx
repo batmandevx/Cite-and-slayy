@@ -22,7 +22,7 @@ const QUICK = [
 ];
 
 export default function Support() {
-  const [cto, ceo] = BUSINESS.team;
+  const [ceo] = BUSINESS.team;
   return (
     <PolicyShell current="/support" eyebrow="Help centre" title="How can we help?" heroColor="bg-lime" icon={<LifeBuoy className="size-12" />}
       intro={<>Search answers, fix billing questions in minutes, or write to the team that builds {BUSINESS.brand}. A real person replies to every message.</>}>
@@ -52,8 +52,7 @@ export default function Support() {
       <Section id="who" n={3} title="Talk to the right person" icon={<UsersRound className="size-5" />}>
         <div className="grid gap-3 md:grid-cols-3">
           {[
-            { t: "Support team", d: "Account, payments, refunds, papers, bugs", e: BUSINESS.email, c: "bg-lime" },
-            { t: `${cto.name} · ${cto.role}`, d: "Product, technology & security reports", e: cto.email, c: "bg-pink" },
+            { t: "Support team", d: "Account, payments, refunds, papers, bugs and security", e: BUSINESS.email, c: "bg-lime" },
             { t: `${ceo.name} · ${ceo.role}`, d: "Partnerships, institutions & press", e: ceo.email, c: "bg-yellow" },
           ].map((x) => (
             <a key={x.e} href={`mailto:${x.e}`} className={`rounded-2xl border-2 border-edge p-4 text-[#121212] no-underline transition hover:-translate-y-0.5 hover:shadow-[3px_3px_0_var(--shadow-c)] ${x.c}`}>
@@ -63,7 +62,7 @@ export default function Support() {
             </a>
           ))}
         </div>
-        <p className="flex items-center gap-2"><ShieldCheck className="size-4 shrink-0" /> Found a security issue? Email {cto.email} privately before sharing it anywhere.</p>
+        <p className="flex items-center gap-2"><ShieldCheck className="size-4 shrink-0" /> Found a security issue? Email {BUSINESS.email} privately before sharing it anywhere.</p>
         <p>Want to know more about us? <Link href="/about">Meet the team</Link>.</p>
       </Section>
     </PolicyShell>

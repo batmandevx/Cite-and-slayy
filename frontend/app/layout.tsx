@@ -48,7 +48,7 @@ const jsonLd = {
   "@context": "https://schema.org",
   "@graph": [
     { "@type": "Organization", "@id": `${SITE_URL}/#org`, name: SITE_NAME, url: SITE_URL, logo: `${SITE_URL}/slayy-icon-192.png`,
-      email: "slayyhacks@gmail.com", founder: { "@type": "Person", name: "Ayush Upadhyay" }, contactPoint: { "@type": "ContactPoint", contactType: "customer support", email: "slayyhacks@gmail.com" } },
+      email: "slayyhacks@gmail.com", contactPoint: { "@type": "ContactPoint", contactType: "customer support", email: "slayyhacks@gmail.com" } },
     { "@type": "WebSite", "@id": `${SITE_URL}/#website`, name: SITE_NAME, alternateName: ["Cite and Slayy", "CiteSlayy", "citeslayy"],
       url: SITE_URL, publisher: { "@id": `${SITE_URL}/#org` }, inLanguage: "en" },
     { "@type": "SoftwareApplication", name: SITE_NAME, url: SITE_URL, applicationCategory: "EducationalApplication",

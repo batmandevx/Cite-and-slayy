@@ -14,9 +14,10 @@ const HorseRide = dynamic(() => import("./easter/HorseRide"), { ssr: false });
 
 // Per-founder colours from the Slay Pop palette (flat fills, black outlines, hard shadows).
 const LOOK = [
-  { banner: "bg-pink", tile: "bg-yellow", sticker: "bg-lime", tilt: -2, Icon: Rocket },
   { banner: "bg-lime", tile: "bg-mint", sticker: "bg-yellow", tilt: 2, Icon: Crown },
+  { banner: "bg-pink", tile: "bg-yellow", sticker: "bg-lime", tilt: -2, Icon: Rocket },
 ];
+const RIDER = "Team member";   // her card hides the horse-ride easter egg
 
 /** "Meet the founders" in the site's neo-brutalist style. `compact` is the home-page version. */
 export function FoundersSpotlight({ compact = false }: { compact?: boolean }) {
@@ -28,24 +29,24 @@ export function FoundersSpotlight({ compact = false }: { compact?: boolean }) {
       <div className="text-center">
         <motion.span initial={{ opacity: 0, y: 20, rotate: -8 }} whileInView={{ opacity: 1, y: 0, rotate: -3 }} viewport={{ once: true }} transition={pop}
           className="sticker bg-yellow">
-          <Crown className="size-4" /> Meet the founders
+          <Crown className="size-4" /> {BUSINESS.team.length > 1 ? "Meet the founders" : "Meet the team"}
         </motion.span>
         <motion.h2 initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ ...pop, delay: 0.08 }}
           className="mx-auto mt-5 max-w-3xl font-display text-4xl font-extrabold leading-[1.02] tracking-tight md:text-6xl">
-          The minds behind <span className="gradient-text">Cite &amp; Slayy</span>
+          {BUSINESS.team.length > 1 ? "The minds" : "The mind"} behind <span className="gradient-text">Cite &amp; Slayy</span>
         </motion.h2>
-        <p className="mx-auto mt-3 max-w-xl text-lg text-ink-2">Two founders, one mission: research you can trust, for everyone.</p>
+        <p className="mx-auto mt-3 max-w-xl text-lg text-ink-2">One mission: research you can trust, for everyone.</p>
       </div>
 
-      <div className="mx-auto mt-12 grid max-w-5xl gap-10 md:grid-cols-2 md:gap-12">
+      <div className={`mx-auto mt-12 grid gap-10 md:gap-12 ${BUSINESS.team.length > 1 ? "max-w-5xl md:grid-cols-2" : "max-w-md"}`}>
         {BUSINESS.team.map((f, i) => {
           const l = LOOK[i];
           return (
             <motion.article key={f.name} initial={{ opacity: 0, y: 50, rotate: l.tilt * 3, scale: 0.94 }}
               whileInView={{ opacity: 1, y: 0, rotate: l.tilt, scale: 1 }} viewport={{ once: true, margin: "-60px" }}
               transition={{ ...pop, delay: 0.12 * i }} whileHover={reduce ? undefined : { rotate: 0, y: -6 }}
-              onClick={i === 1 ? (e) => { if (!(e.target as HTMLElement).closest("a")) setRide(true); } : undefined}
-              className={`card card-pop overflow-hidden p-0 ${i === 1 ? "cursor-pointer" : ""}`}>
+              onClick={f.name === RIDER ? (e) => { if (!(e.target as HTMLElement).closest("a")) setRide(true); } : undefined}
+              className={`card card-pop overflow-hidden p-0 ${f.name === RIDER ? "cursor-pointer" : ""}`}>
               {/* banner with halftone dots */}
               <div className={`relative h-32 border-b-[2.5px] border-edge ${l.banner}`}
                 style={{ backgroundImage: "radial-gradient(rgba(18,18,18,.18) 1.4px, transparent 1.6px)", backgroundSize: "14px 14px" }}>

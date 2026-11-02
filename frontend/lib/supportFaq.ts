@@ -37,5 +37,5 @@ export const FAQS: { topic: FaqTopic; q: string; a: string }[] = [
   { topic: "privacy", q: "Who can see my papers?", a: "Only you. Your papers, notes and chats are tied to your account and hidden from everyone else." },
   { topic: "privacy", q: "Do you sell my data?", a: "Never. We don't sell data and we don't show ads." },
   { topic: "privacy", q: "Is my uploaded paper added to a database?", a: "No. Uploads are used only to run your checks and features, never added to a public or shared database." },
-  { topic: "privacy", q: "Where can I report a security issue?", a: "Please email ayush@citeslayy.com privately before sharing it anywhere. We take every report seriously." },
+  { topic: "privacy", q: "Where can I report a security issue?", a: "Please email slayyhacks@gmail.com privately before sharing it anywhere. We take every report seriously." },
 ];

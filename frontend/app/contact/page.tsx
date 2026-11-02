@@ -1,4 +1,4 @@
-import { Briefcase, Clock, Globe, LifeBuoy, Mail, MessageCircle, ShieldCheck } from "lucide-react";
+import { Briefcase, Clock, Globe, LifeBuoy, Mail, MessageCircle } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PolicyShell, Section } from "@/components/legal/PolicyShell";
@@ -7,15 +7,14 @@ import { BUSINESS } from "@/lib/business";
 
 export const metadata: Metadata = {
   title: "Contact",
-  description: "Contact Cite & Slayy: support at slayyhacks@gmail.com, or reach our Founder & CTO and Co-founder & CEO directly.",
+  description: "Contact Cite & Slayy: support at slayyhacks@gmail.com, or reach our Co-founder & CEO directly.",
   alternates: { canonical: "/contact" },
 };
 
 export default function Contact() {
-  const [cto, ceo] = BUSINESS.team;
+  const [ceo] = BUSINESS.team;
   const CARDS = [
     { icon: <LifeBuoy className="size-6" />, t: "Support", d: "Account, payments, refunds, papers and bugs", email: BUSINESS.email, color: "bg-lime" },
-    { icon: <ShieldCheck className="size-6" />, t: `${cto.name} · ${cto.role}`, d: "Product, technology and security", email: cto.email, color: "bg-pink" },
     { icon: <Briefcase className="size-6" />, t: `${ceo.name} · ${ceo.role}`, d: "Partnerships, institutions and press", email: ceo.email, color: "bg-yellow" },
   ];
   return (
