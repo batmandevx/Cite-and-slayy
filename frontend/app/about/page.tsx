@@ -1,9 +1,9 @@
-import { ArrowRight, BadgeCheck, BookOpenCheck, Compass, FileText, Gavel, HeartHandshake, Mail, Rocket, ShieldCheck, Sparkles, Target } from "lucide-react";
+import { ArrowRight, BadgeCheck, BookOpenCheck, Compass, FileText, Gavel, HeartHandshake, Rocket, ShieldCheck, Sparkles, Target } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PolicyShell, Section } from "@/components/legal/PolicyShell";
 import { Reveal } from "@/components/legal/Reveal";
-import { TiltCard } from "@/components/motion";
+import { FoundersSpotlight } from "@/components/FoundersSpotlight";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { BUSINESS } from "@/lib/business";
 import { SITE_URL } from "@/lib/site";
@@ -91,34 +91,11 @@ export default function About() {
         </ol>
       </Section>
 
-      <Section id="team" n={3} title="Meet the founders" icon={<HeartHandshake className="size-5" />}>
-        <div className="grid gap-5 md:grid-cols-2">
-          {BUSINESS.team.map((t, i) => (
-            <Reveal key={t.name} delay={i * 0.1}>
-              <TiltCard className="card h-full overflow-hidden p-0">
-                <div className={`relative h-24 border-b-[2.5px] border-edge ${t.color}`}>
-                  <div className="absolute -bottom-10 left-6 grid size-20 place-items-center rounded-3xl border-[3px] border-edge bg-surface font-display text-3xl font-extrabold text-ink shadow-[4px_4px_0_var(--shadow-c)]">
-                    {t.initials}
-                  </div>
-                  <span className="absolute right-4 top-4 rounded-full border-2 border-edge bg-surface px-3 py-1 text-xs font-extrabold text-ink">{t.role}</span>
-                </div>
-                <div className="px-6 pb-6 pt-12">
-                  <div className="font-display text-2xl font-extrabold text-ink">{t.name}</div>
-                  <p className="mt-1 text-sm">
-                    {i === 0 ? "Leads the product and technology: Azora AI's research agents, citation checking and the platform's security."
-                      : "Leads the company: strategy, partnerships with universities and institutions, and the people we build for."}
-                  </p>
-                  <a href={`mailto:${t.email}`} className="mt-3 inline-flex items-center gap-1.5 rounded-xl border-2 border-edge bg-surface px-3 py-1.5 text-sm font-bold no-underline hover:-translate-y-0.5">
-                    <Mail className="size-4" />{t.email}
-                  </a>
-                </div>
-              </TiltCard>
-            </Reveal>
-          ))}
-        </div>
-      </Section>
+      <Reveal>
+        <div id="team" className="scroll-mt-6"><FoundersSpotlight /></div>
+      </Reveal>
 
-      <Section id="values" n={4} title="What we stand for" icon={<ShieldCheck className="size-5" />}>
+      <Section id="values" n={3} title="What we stand for" icon={<ShieldCheck className="size-5" />}>
         <div className="grid gap-3 sm:grid-cols-2">
           {VALUES.map((v) => (
             <div key={v.t} className={`rounded-2xl border-2 border-edge p-4 text-[#121212] transition hover:-translate-y-0.5 hover:shadow-[3px_3px_0_var(--shadow-c)] ${v.c}`}>

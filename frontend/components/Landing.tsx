@@ -18,6 +18,7 @@ import { AnimatedNumber } from "./motion";
 import { ThemeProvider, ThemeToggle } from "./theme";
 import { faqJsonLd, JsonLd } from "./seo/JsonLd";
 import { FeatureLinks } from "./seo/SiteFooterLinks";
+import { FoundersSpotlight } from "./FoundersSpotlight";
 import { FAQ_HOME } from "@/lib/seoPages";
 
 interface Stats { papers_mapped: number; references_checked: number; papers_audited: number; retractions_caught: number; verdicts: number }
@@ -299,6 +300,11 @@ function LandingInner() {
           <p className="mx-auto mt-2 max-w-xl text-ink-2">Start free with one full paper a month. Go Pro for the Pro engine, AI revisions and more.</p>
         </div>
         <Pricing onChoose={() => { window.location.href = "/pricing"; return false; }} onBuyPack={async () => { window.location.href = "/pricing"; return false; }} />
+      </section>
+
+      {/* ---------- founders ---------- */}
+      <section id="founders" className="mx-auto max-w-[1240px] scroll-mt-24 px-5 py-16">
+        <FoundersSpotlight compact />
       </section>
 
       {/* ---------- FAQ ---------- */}
