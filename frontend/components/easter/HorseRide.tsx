@@ -8,7 +8,10 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Volume2, VolumeX } from "lucide-react";
 import { type RideSound, startRideSound } from "./rideSound";
-import { Flowers, Hills, Pine, RoundTree, hash, lawnTexture, sandTexture, useTex, woodTexture } from "../games3d/scenery";
+import { Bloom, EffectComposer, N8AO, SMAA, ToneMapping, Vignette } from "@react-three/postprocessing";
+import { ToneMappingMode } from "postprocessing";
+import { Flowers, sandTexture, useTex, woodTexture } from "../games3d/scenery";
+import { GrassField, heightAt, Pond, Ridge, setRoute, Terrain, Woods } from "./realScenery";
 
 // A hidden treat on the team's founder card: a girl gallops in on her horse, leaps a fence and rides off into the sunset.
 // Models: "Horse" and "Woman" by Quaternius, CC0 1.0 (see public/models/easter/CREDITS.txt).
@@ -23,6 +26,8 @@ const PATH = new THREE.CatmullRomCurve3([
   new THREE.Vector3(-7.5, 0, 1.9), new THREE.Vector3(-3, 0, 1.9), new THREE.Vector3(FENCE_X, 0, FENCE_Z), new THREE.Vector3(4.2, 0, 1.4),
   new THREE.Vector3(6.4, 0, -2), new THREE.Vector3(7.8, 0, -11), new THREE.Vector3(8.4, 0, -30),
 ]);
+
+setRoute(PATH.getSpacedPoints(90));
 
 /** Position along the path for time t: a steady gallop past the camera, then accelerating away. */
 function progress(t: number) {
@@ -191,43 +196,6 @@ function Fence() {
   );
 }
 
-/** Instanced grass blades around the path, swaying in the breeze. */
-function Grass() {
-  const N = 4200;
-  const mesh = useRef<THREE.InstancedMesh>(null);
-  const geo = useMemo(() => {
-    const g = new THREE.ConeGeometry(0.022, 0.2, 3, 1);
-    g.translate(0, 0.1, 0);
-    return g;
-  }, []);
-  const blades = useMemo(() => Array.from({ length: N }, (_, i) => ({
-    x: (hash(i, 1) - 0.5) * 26, z: -8 + hash(i, 2) * 12, s: 0.6 + hash(i, 3) * 0.9, r: hash(i, 4) * 6, lean: (hash(i, 5) - 0.5) * 0.4,
-  })), []);
-  const colors = useMemo(() => {
-    const c = new Float32Array(N * 3), col = new THREE.Color();
-    for (let i = 0; i < N; i++) { col.setHSL(0.25 + hash(i, 6) * 0.05, 0.5, 0.2 + hash(i, 7) * 0.1); c.set([col.r, col.g, col.b], i * 3); }
-    return c;
-  }, []);
-  const o = useMemo(() => new THREE.Object3D(), []);
-  useFrame(({ clock }) => {
-    const m = mesh.current;
-    if (!m) return;
-    const t = clock.elapsedTime;
-    blades.forEach((b, i) => {
-      o.position.set(b.x, 0, b.z);
-      o.rotation.set(Math.sin(t * 1.6 + b.x * 0.6) * 0.12 + b.lean, b.r, 0);
-      o.scale.set(1, b.s, 1);
-      o.updateMatrix(); m.setMatrixAt(i, o.matrix);
-    });
-    m.instanceMatrix.needsUpdate = true;
-  });
-  return (
-    <instancedMesh ref={mesh} args={[geo, undefined, N]} receiveShadow>
-      <instancedBufferAttribute attach="instanceColor" args={[colors, 3]} />
-      <meshStandardMaterial roughness={0.9} />
-    </instancedMesh>
-  );
-}
 
 /** Dust kicked up by the hooves. */
 function Dust({ api }: { api: React.RefObject<((x: number, z: number) => void) | null> }) {
@@ -259,7 +227,7 @@ function Dust({ api }: { api: React.RefObject<((x: number, z: number) => void) |
   return (
     <instancedMesh ref={mesh} args={[undefined, undefined, N]}>
       <icosahedronGeometry args={[1, 1]} />
-      <meshStandardMaterial color="#e3cfa9" emissive="#a88a60" emissiveIntensity={0.3} transparent opacity={0.32} roughness={1} depthWrite={false} />
+      <meshStandardMaterial color="#e3cfa9" emissive="#a88a60" emissiveIntensity={0.3} transparent opacity={0.16} roughness={1} depthWrite={false} />
     </instancedMesh>
   );
 }
@@ -289,39 +257,7 @@ function SoftClouds() {
   );
 }
 
-/** Hazy, snow-capped mountains on the horizon. */
-function Mountains() {
-  return (
-    <group>
-      {Array.from({ length: 9 }, (_, i) => {
-        const x = -70 + i * 17 + hash(i, 81) * 8, z = -95 - hash(i, 82) * 25, h = 16 + hash(i, 83) * 14, r = 14 + hash(i, 84) * 10;
-        return (
-          <group key={i} position={[x, -1, z]}>
-            <mesh position={[0, h / 2, 0]}><coneGeometry args={[r, h, 7]} /><meshStandardMaterial color="#8a93a8" roughness={1} flatShading /></mesh>
-            <mesh position={[0, h * 0.86, 0]}><coneGeometry args={[r * 0.28, h * 0.28, 7]} /><meshStandardMaterial color="#f4efe8" roughness={1} flatShading /></mesh>
-          </group>
-        );
-      })}
-    </group>
-  );
-}
 
-/** Pines and broadleaf trees along the hills, plus a few close to the meadow. */
-function Trees() {
-  const far = useMemo(() => Array.from({ length: 46 }, (_, i) => ({
-    x: -42 + hash(i, 91) * 84, z: -22 - hash(i, 92) * 18, s: 1.6 + hash(i, 93) * 1.6, pine: hash(i, 94) > 0.4,
-  })), []);
-  return (
-    <group>
-      {far.map((t, i) => t.pine
-        ? <Pine key={i} position={[t.x, 0, t.z]} scale={t.s} />
-        : <RoundTree key={i} position={[t.x, 0, t.z]} scale={t.s} color={["#4f8a3c", "#5a9845", "#3f7a35"][i % 3]} />)}
-      <RoundTree position={[-9.5, 0, -4]} scale={2.2} color="#4f8f3c" />
-      <RoundTree position={[11, 0, -7]} scale={2.6} color="#5a9845" />
-      <Pine position={[-12, 0, -9]} scale={2.4} />
-    </group>
-  );
-}
 
 /** A dirt riding trail following their route. */
 function Trail() {
@@ -352,7 +288,7 @@ function FenceLine() {
   return (
     <group position={[0, 0, -1.4]}>
       {Array.from({ length: 13 }, (_, i) => (
-        <mesh key={i} position={[-12 + i * 2, 0.5, 0]} castShadow><boxGeometry args={[0.1, 1, 0.1]} /><meshStandardMaterial map={wood} roughness={0.85} /></mesh>
+        <mesh key={i} position={[-12 + i * 2, heightAt(-12 + i * 2, -1.4) + 0.5, 0]} castShadow><boxGeometry args={[0.1, 1, 0.1]} /><meshStandardMaterial map={wood} roughness={0.85} /></mesh>
       ))}
       {[0.45, 0.82].map((y) => (
         <mesh key={y} position={[0, y, 0.05]} castShadow><boxGeometry args={[24, 0.08, 0.05]} /><meshStandardMaterial map={wood} roughness={0.85} /></mesh>
@@ -368,7 +304,8 @@ function Barn() {
     return new THREE.ExtrudeGeometry(sh, { depth: 5.4, bevelEnabled: false });
   }, []);
   return (
-    <group position={[-17, 0, -19]} rotation-y={0.5}>
+    <group position={[-17, heightAt(-17, -19), -19]} rotation-y={0.5}>
+      <mesh position={[0, 0.5, 0]} receiveShadow><boxGeometry args={[4.6, 5, 5.2]} /><meshStandardMaterial color="#6d6457" roughness={1} /></mesh>
       <mesh position={[0, 1.5, 0]} castShadow receiveShadow><boxGeometry args={[4.4, 3, 5]} /><meshStandardMaterial color="#b3342b" roughness={0.8} /></mesh>
       <mesh geometry={roof} position={[0, 3, -2.7]} castShadow><meshStandardMaterial color="#4a3a33" roughness={0.7} /></mesh>
       <mesh position={[0, 1.1, 2.51]}><planeGeometry args={[1.8, 2.2]} /><meshStandardMaterial color="#f4ece0" /></mesh>
@@ -404,27 +341,26 @@ function Birds() {
 
 function Scene({ sound }: { sound: React.RefObject<RideSound | null> }) {
   const dust = useRef<((x: number, z: number) => void) | null>(null);
-  const grass = useTex(lawnTexture, 40, 40);
   return (
     <>
       <Sky sunPosition={[30, 4, -60]} turbidity={7} rayleigh={2.6} mieCoefficient={0.012} mieDirectionalG={0.92} />
-      <fog attach="fog" args={["#f2c79c", 22, 140]} />
-      <hemisphereLight args={["#fff0dc", "#6b8a4a", 1.25]} />
-      <directionalLight position={[10, 9, -4]} intensity={2.6} color="#ffcf95" castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004}
+      <fog attach="fog" args={["#efc7a0", 30, 190]} />
+      <hemisphereLight args={["#fff0dc", "#7d9a5a", 1.6]} />
+      <directionalLight position={[10, 9, -4]} intensity={3.4} color="#ffcf95" castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004}
         shadow-camera-left={-12} shadow-camera-right={12} shadow-camera-top={8} shadow-camera-bottom={-8} shadow-camera-far={40} />
       <directionalLight position={[-6, 5, 9]} intensity={1.3} color="#ffe9d0" />
       <Environment resolution={128} environmentIntensity={1.4}>
         <Lightformer intensity={1.4} color="#ffd9a8" position={[10, 4, -8]} scale={[10, 5, 1]} />
         <Lightformer intensity={0.5} color="#bcd7ff" position={[-8, 6, 6]} scale={[8, 4, 1]} />
       </Environment>
-      <mesh rotation-x={-Math.PI / 2} receiveShadow><planeGeometry args={[200, 200]} /><meshStandardMaterial map={grass} color="#b5cf8a" roughness={1} /></mesh>
-      <Grass />
-      <Hills radius={46} count={13} color="#6f9b4c" />
+      <Terrain />
+      <GrassField />
+      <Pond />
       <Flowers center={[-4.5, -1.5]} radius={1.6} count={70} seed={4} />
       <Flowers center={[4.6, -3.5]} radius={1.3} count={55} seed={9} />
       <SoftClouds />
-      <Mountains />
-      <Trees />
+      <Ridge />
+      <Woods />
       <Barn />
       <Birds />
       <Trail />
@@ -436,6 +372,13 @@ function Scene({ sound }: { sound: React.RefObject<RideSound | null> }) {
       </Suspense>
       <Dust api={dust} />
       <ContactShadows position={[0, 0.01, 0]} opacity={0.35} scale={30} blur={2.6} far={2.5} />
+      <EffectComposer multisampling={0}>
+        <N8AO aoRadius={0.9} intensity={1.1} distanceFalloff={1} quality="medium" />
+        <Bloom mipmapBlur intensity={0.55} luminanceThreshold={0.82} luminanceSmoothing={0.2} />
+        <Vignette eskil={false} offset={0.3} darkness={0.32} />
+        <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+        <SMAA />
+      </EffectComposer>
     </>
   );
 }
@@ -461,7 +404,7 @@ export default function HorseRide({ onDone }: { onDone: () => void }) {
       {open && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.45 }}
           className="fixed inset-0 z-[100] cursor-pointer bg-[#f2c79c]" onClick={() => setOpen(false)} role="dialog" aria-label="Easter egg: a horse ride">
-          <Canvas shadows camera={{ position: [0, 1.6, 7.2], fov: 40 }} dpr={[1, 1.75]} gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}>
+          <Canvas shadows camera={{ position: [0, 1.6, 7.2], fov: 40, far: 400 }} dpr={[1, 1.5]} gl={{ antialias: false, toneMapping: THREE.NoToneMapping }}>
             <Scene sound={sound} />
           </Canvas>
           <motion.div initial={{ y: -30, opacity: 0, rotate: -6 }} animate={{ y: 0, opacity: 1, rotate: -3 }} transition={{ delay: 0.5, type: "spring", stiffness: 220, damping: 16 }}
