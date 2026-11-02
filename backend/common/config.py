@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     claw_token: str | None = None
     claw_run_budget_inr: float = 1500.0  # Bedrock spend cap per live run
     # AutoResearchClaw makes hundreds of long calls, so it runs on cheaper models than Paper Studio (tried in order).
-    claw_models: str = "us.anthropic.claude-sonnet-4-6,us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    claw_models: str = "moonshotai.kimi-k2.5,us.anthropic.claude-haiku-4-5-20251001-v1:0,us.anthropic.claude-sonnet-4-6"
 
     # App
     demo_mode: bool = False
@@ -71,9 +71,17 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     mail_from: str | None = None
     dev_show_magic_link: bool = False  # local testing only: return the login link in the API response
-    premium_model: str = "us.anthropic.claude-opus-4-6-v1"            # Pro/Max engine via Amazon Bedrock (no Anthropic API key needed)
-    premium_model_fast: str = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
-    premium_fallback_model: str = "us.anthropic.claude-sonnet-4-6"   # separate Bedrock quota; used when Opus is throttled
+    # Cost-aware model routing on Amazon Bedrock (comma lists, tried in order; later ones are fallbacks).
+    # USD per 1M tokens in/out: Nova Lite 0.06/0.24 · Kimi K2.5 0.60/3.00 · Nova Pro 0.80/3.20 · Haiku 4.5 1/5 · Sonnet 4.6 3/15.
+    # Claude is the expensive option, so it is kept for paid users' complex work.
+    chat_models: str = "amazon.nova-pro-v1:0,moonshotai.kimi-k2.5"                       # Azora AI chat, everyone
+    standard_models: str = "amazon.nova-pro-v1:0,moonshotai.kimi-k2.5"                   # free users: everything
+    standard_fast_models: str = "amazon.nova-lite-v1:0,amazon.nova-pro-v1:0"             # free users: bulk/simple steps
+    premium_models: str = ("us.anthropic.claude-sonnet-4-6,moonshotai.kimi-k2.5,"         # paid users: complex work
+                           "us.anthropic.claude-haiku-4-5-20251001-v1:0,amazon.nova-pro-v1:0")
+    premium_fast_models: str = ("moonshotai.kimi-k2.5,us.anthropic.claude-haiku-4-5-20251001-v1:0,"   # paid: bulk/simple steps
+                                "amazon.nova-pro-v1:0")
+    vision_models: str = "amazon.nova-pro-v1:0,us.anthropic.claude-haiku-4-5-20251001-v1:0"
     price_overrides: dict[str, list[float]] | None = None   # USD per 1M tokens per model id, e.g. Bedrock rates
     usd_inr: float = 88.0               # conversion for budgets; update to the current rate
     razorpay_key_id: str | None = None

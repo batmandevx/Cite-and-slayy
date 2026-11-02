@@ -123,7 +123,7 @@ async def run_turn(chat_id: str, user_message: str, ctx, images: list[tuple[str,
                   + ("Tool results so far this turn:\n" + "\n".join(scratch) + "\n\n" if scratch else "")
                   + ("You have used all tool calls: give your final answer now." if step == MAX_STEPS else "Next action?"))
         try:
-            act = await llm.complete_json(SYSTEM, prompt, _Step, effort="medium")
+            act = await llm.complete_json(SYSTEM, prompt, _Step, effort="medium", tier="chat")   # Nova Pro: cheap and quick
         except llm.LLMError as e:
             reply = f"Sorry, my AI call failed ({llm.scrub(str(e))[:160]}). Please try again in a moment."
             break

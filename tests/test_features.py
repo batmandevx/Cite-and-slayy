@@ -93,11 +93,12 @@ def test_fast_tier_routes_bulk_work_to_cheaper_models(monkeypatch):
     s = Settings(llm_provider="bedrock", bedrock_region="us-east-1", llm_fallback="gemini", gemini_api_key="k",
                  llm_model=None, llm_model_fast=None)
     monkeypatch.setattr(llm, "get_settings", lambda: s)
-    assert llm.chain("main") == [("bedrock", "moonshotai.kimi-k2.5"), ("gemini", "gemini-2.5-flash")]
-    assert llm.chain("fast") == [("bedrock", "moonshotai.kimi-k2.5"), ("gemini", "gemini-2.5-flash")]
+    assert llm.chain("main") == [("bedrock", "amazon.nova-pro-v1:0"), ("bedrock", "moonshotai.kimi-k2.5"), ("gemini", "gemini-2.5-flash")]
+    assert llm.chain("fast") == [("bedrock", "amazon.nova-lite-v1:0"), ("bedrock", "amazon.nova-pro-v1:0"), ("gemini", "gemini-2.5-flash")]
+    assert all("claude" not in m for _, m in llm.chain("main") + llm.chain("fast") + llm.chain("chat"))   # free users never hit Claude
     s.llm_model, s.llm_model_fast = "anthropic.claude-sonnet-5-5", "anthropic.claude-haiku-5-5"   # Claude tiering
-    assert llm.chain("main")[0] == ("bedrock", "anthropic.claude-sonnet-5-5")
-    assert llm.chain("fast")[0] == ("bedrock", "anthropic.claude-haiku-5-5")
+    assert llm.chain("main")[0] == ("bedrock", "us.anthropic.claude-sonnet-5-5")
+    assert llm.chain("fast")[0] == ("bedrock", "us.anthropic.claude-haiku-5-5")
 
 
 async def test_bedrock_routes_non_claude_models_to_converse(monkeypatch):

@@ -27,7 +27,7 @@ from backend.common.config import get_settings
 
 T = TypeVar("T", bound=BaseModel)
 Effort = Literal["low", "medium", "high"]
-Tier = Literal["main", "fast"]
+Tier = Literal["main", "fast", "chat"]
 
 
 class LLMError(Exception):
@@ -51,6 +51,9 @@ _last_usage: ContextVar[tuple[int, int] | None] = ContextVar("last_usage", defau
 # USD per 1M tokens (input, output). Claude runs exclusively on Amazon Bedrock; rates match Bedrock cross-region pricing.
 # Override any model rate via PRICE_OVERRIDES='{"moonshotai.kimi-k2.5": [in, out]}'.
 PRICES = {
+    "amazon.nova-pro-v1:0": (0.80, 3.20),
+    "amazon.nova-lite-v1:0": (0.06, 0.24),
+    "moonshotai.kimi-k2.5": (0.60, 3.00),
     "claude-opus-4-6-v1": (5.0, 25.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-haiku-4-5-20251001-v1:0": (1.0, 5.0),
@@ -103,6 +106,7 @@ def _price(model: str) -> tuple[float, float]:
     if model in over:
         return tuple(over[model])  # type: ignore[return-value]
     bare = re.sub(r"^(?:(?:us|global|eu|ap)\.)?anthropic\.", "", model or "")
+    bare = re.sub(r"^(?:us|global|eu|ap)\.(?=amazon\.)", "", bare)
     return PRICES.get(bare, DEFAULT_PRICE if model else (0.0, 0.0))
 
 
@@ -195,14 +199,28 @@ def chain(tier: Tier = "main") -> list[tuple[str, str]]:
         u = _usable(p)
         if u and all(u[0] != q for q, _ in out):
             out.append(u)
+    if bregion and (primary[0] == "bedrock" or _premium.get()):
+        # Cost-aware routing on Bedrock: cheap Amazon Nova for chat and free users, Kimi for bulk paid work,
+        # Claude Sonnet only for paid users' complex tasks. Each list falls back in order.
+        if tier == "chat":
+            csv = s.chat_models
+        elif _premium.get():
+            csv = s.premium_models if tier == "main" else s.premium_fast_models
+        else:
+            csv = s.standard_models if tier == "main" else s.standard_fast_models
+            pinned = s.llm_model_fast if tier == "fast" and s.llm_model_fast else s.llm_model   # an explicit LLM_MODEL wins
+            if pinned and s.llm_provider in ("bedrock", "anthropic"):
+                csv = f"{pinned},{csv}"
+        routed = [("bedrock", _bedrock_model_id(m, bregion)) for m in _models(csv)]
+        rest = [x for x in out if x[0] != "bedrock"]          # e.g. a local Ollama or other cloud fallback
+        return [x for i, x in enumerate(routed) if x not in routed[:i]] + rest
     if tier == "fast":
         out = [(p, m if p == "ollama" else s.fast_model_for("anthropic" if "claude" in m and s.llm_provider == "anthropic" else p)) for p, m in out]
-    if _premium.get() and bregion:
-        prem_model = _bedrock_model_id(s.premium_model if tier == "main" else s.premium_model_fast, bregion)
-        prem = ("bedrock", prem_model)
-        backup = [("bedrock", _bedrock_model_id(s.premium_fallback_model, bregion))] if tier == "main" and s.premium_fallback_model else []
-        out = [prem] + [x for x in backup if x != prem] + [x for x in out if x != prem and x not in backup]   # Sonnet, then the standard engine
     return out
+
+
+def _models(csv: str) -> list[str]:
+    return [m.strip() for m in (csv or "").split(",") if m.strip()]
 
 
 def resolve() -> tuple[str, str]:
@@ -375,7 +393,7 @@ def _converse_sync(system: str, prompt: str, schema: dict | None, max_tokens: in
 
     region = get_settings().bedrock_region
     mid = _bedrock_model_id(model, region)
-    token_cap = (32000 if long else 16000) if "claude" in mid else 8192
+    token_cap = (32000 if long else 16000) if ("claude" in mid or "kimi" in mid) else 10000 if "nova" in mid else 8192
     if schema:
         system += ("\nRespond with a single JSON object (no code fences, no prose) matching this JSON schema:\n"
                    + json.dumps(schema))
@@ -537,7 +555,7 @@ async def describe_images(images: list[tuple[str, bytes]], question: str) -> str
     errors = []
     candidates = []
     if s.bedrock_region:
-        candidates += [m for m in (s.premium_model, "moonshotai.kimi-k2.5") if m]
+        candidates += _models(s.vision_models)
     for model in candidates:
         try:
             return await asyncio.to_thread(_vision_converse_sync, prompt, images, model)

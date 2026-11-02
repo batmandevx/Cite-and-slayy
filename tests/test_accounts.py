@@ -138,8 +138,9 @@ def test_paid_plans_route_to_premium_engine(prod, monkeypatch):
     llm.set_premium(False)
     assert llm.chain()[0][0] == "gemini"
     llm.set_premium(True)
-    assert llm.chain()[0] == ("bedrock", "us.anthropic.claude-opus-4-6-v1")
-    assert llm.chain("fast")[0] == ("bedrock", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+    assert llm.chain()[0] == ("bedrock", "us.anthropic.claude-sonnet-4-6")          # complex paid work: Sonnet
+    assert llm.chain("fast")[0] == ("bedrock", "moonshotai.kimi-k2.5")              # bulk paid work: Kimi (cheaper)
+    assert llm.chain("chat")[0] == ("bedrock", "amazon.nova-pro-v1:0")              # chat: Nova Pro for everyone
     assert llm.premium_available() is True
     assert ("gemini", "gemini-2.5-flash") in llm.chain()   # standard engine stays as fallback
     llm.set_premium(False)
