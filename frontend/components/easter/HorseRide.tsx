@@ -2,13 +2,13 @@
 /* eslint-disable react-hooks/immutability -- animation state lives in refs and is mutated per frame inside useFrame */
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Cloud, Clouds, ContactShadows, Environment, Lightformer, Sky, Sparkles, useAnimations, useGLTF } from "@react-three/drei";
+import { Cloud, Clouds, Environment, Lightformer, Sky, useAnimations, useGLTF } from "@react-three/drei";
 import { AnimatePresence, motion } from "motion/react";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Volume2, VolumeX } from "lucide-react";
 import { type RideSound, startRideSound } from "./rideSound";
-import { Bloom, EffectComposer, N8AO, SMAA, ToneMapping, Vignette } from "@react-three/postprocessing";
+import { Bloom, EffectComposer, ToneMapping, Vignette } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { Flowers, sandTexture, useTex, woodTexture } from "../games3d/scenery";
 import { GrassField, heightAt, Pond, Ridge, setRoute, Terrain, Woods } from "./realScenery";
@@ -269,7 +269,9 @@ function Trail() {
       const u = i / n;
       PATH.getPointAt(u, p); PATH.getTangentAt(u, tng);
       const nx = -tng.z, nz = tng.x, len = Math.hypot(nx, nz) || 1, ww = w * (1 - u * 0.5);
-      pos.push(p.x + (nx / len) * ww / 2, 0.012, p.z + (nz / len) * ww / 2, p.x - (nx / len) * ww / 2, 0.012, p.z - (nz / len) * ww / 2);
+      // drape the trail on the ground with a small lift so it never z-fights the terrain (that flickers)
+      const ax = p.x + (nx / len) * ww / 2, az = p.z + (nz / len) * ww / 2, bx = p.x - (nx / len) * ww / 2, bz = p.z - (nz / len) * ww / 2;
+      pos.push(ax, heightAt(ax, az) + 0.04, az, bx, heightAt(bx, bz) + 0.04, bz);
       uv.push(0, u, 1, u);
       if (i < n) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
     }
@@ -279,7 +281,7 @@ function Trail() {
     g.setIndex(idx); g.computeVertexNormals();
     return g;
   }, []);
-  return <mesh geometry={geo} receiveShadow><meshStandardMaterial map={dirt} color="#b08a5e" roughness={1} polygonOffset polygonOffsetFactor={-2} /></mesh>;
+  return <mesh geometry={geo} receiveShadow><meshStandardMaterial map={dirt} color="#b08a5e" roughness={1} polygonOffset polygonOffsetFactor={-4} polygonOffsetUnits={-4} /></mesh>;
 }
 
 /** A post-and-rail fence running alongside the trail. */
@@ -346,7 +348,7 @@ function Scene({ sound }: { sound: React.RefObject<RideSound | null> }) {
       <Sky sunPosition={[30, 4, -60]} turbidity={7} rayleigh={2.6} mieCoefficient={0.012} mieDirectionalG={0.92} />
       <fog attach="fog" args={["#efc7a0", 30, 190]} />
       <hemisphereLight args={["#fff0dc", "#7d9a5a", 1.6]} />
-      <directionalLight position={[10, 9, -4]} intensity={3.4} color="#ffcf95" castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004}
+      <directionalLight position={[10, 9, -4]} intensity={3.4} color="#ffcf95" castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0006} shadow-normalBias={0.05}
         shadow-camera-left={-12} shadow-camera-right={12} shadow-camera-top={8} shadow-camera-bottom={-8} shadow-camera-far={40} />
       <directionalLight position={[-6, 5, 9]} intensity={1.3} color="#ffe9d0" />
       <Environment resolution={128} environmentIntensity={1.4}>
@@ -365,19 +367,16 @@ function Scene({ sound }: { sound: React.RefObject<RideSound | null> }) {
       <Birds />
       <Trail />
       <FenceLine />
-      <Sparkles count={70} scale={[16, 4, 8]} position={[0, 2, 0]} size={2.2} speed={0.25} color="#fff2c8" opacity={0.7} />
       <Fence />
       <Suspense fallback={null}>
         <HorseAndRider onDust={(x, z) => dust.current?.(x, z)} sound={sound} />
       </Suspense>
       <Dust api={dust} />
-      <ContactShadows position={[0, 0.01, 0]} opacity={0.35} scale={30} blur={2.6} far={2.5} />
-      <EffectComposer multisampling={0}>
-        <N8AO aoRadius={0.9} intensity={1.1} distanceFalloff={1} quality="medium" />
-        <Bloom mipmapBlur intensity={0.55} luminanceThreshold={0.82} luminanceSmoothing={0.2} />
+      {/* steady, flicker-free finish: MSAA for the thin grass, gentle bloom and vignette (no screen-space AO, which shimmers) */}
+      <EffectComposer multisampling={4}>
+        <Bloom mipmapBlur intensity={0.4} luminanceThreshold={0.9} luminanceSmoothing={0.15} />
         <Vignette eskil={false} offset={0.3} darkness={0.32} />
         <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-        <SMAA />
       </EffectComposer>
     </>
   );

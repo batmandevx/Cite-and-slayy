@@ -50,7 +50,7 @@ export function heightAt(x: number, z: number) {
 // ---------------------------------------------------------------- terrain
 
 export function Terrain() {
-  const detail = useTex(lawnTexture, 60, 60);
+  const detail = useTex(lawnTexture, 22, 22);   // coarse repeat: fine speckle shimmers as the camera pans
   const geo = useMemo(() => {
     const g = new THREE.PlaneGeometry(200, 200, 230, 230);
     g.rotateX(-Math.PI / 2);
@@ -159,12 +159,12 @@ export function Woods() {
 // ---------------------------------------------------------------- grass
 
 /** A dense field of curved blades, coloured dark at the root and sunlit at the tip, swaying in rolling gusts (GPU). */
-export function GrassField({ count = 16000 }: { count?: number }) {
+export function GrassField({ count = 10000 }: { count?: number }) {
   const mesh = useRef<THREE.InstancedMesh>(null);
   const uniforms = useMemo(() => ({ uTime: { value: 0 } }), []);
   const geo = useMemo(() => {
     // 4-segment curved blade with a vertex-colour gradient
-    const segs = 4, w = 0.03, h = 0.3, pos: number[] = [], col: number[] = [], idx: number[] = [];
+    const segs = 4, w = 0.05, h = 0.3, pos: number[] = [], col: number[] = [], idx: number[] = [];
     const base = new THREE.Color("#25461c"), tip = new THREE.Color("#a8c46a"), c = new THREE.Color();
     for (let i = 0; i <= segs; i++) {
       const t = i / segs, ww = w * (1 - t * 0.85), bend = t * t * 0.12;
@@ -186,9 +186,11 @@ export function GrassField({ count = 16000 }: { count?: number }) {
         #include <begin_vertex>
         #ifdef USE_INSTANCING
           vec3 ip = vec3(instanceMatrix[3]);
-          float gust = sin(uTime * 1.7 + ip.x * 0.35 + ip.z * 0.22) * 0.5 + sin(uTime * 3.1 + ip.x * 1.3) * 0.18;
-          transformed.x += gust * 0.16 * position.y * position.y * 6.0;
-          transformed.z += gust * 0.06 * position.y;
+          // slow, smooth gusts that roll across the field together (fast per-blade jitter made the grass glitter)
+          float gust = sin(uTime * 1.1 - ip.x * 0.12 - ip.z * 0.07) * 0.5 + 0.5;
+          float bend = (0.25 + gust * 0.75) * position.y * position.y * 1.6;
+          transformed.x += bend;
+          transformed.z += bend * 0.3;
         #endif`);
     };
     return m;
@@ -202,16 +204,19 @@ export function GrassField({ count = 16000 }: { count?: number }) {
       const x = (hash(i, 201) - 0.5) * 34, z = -10 + hash(i, 202) * 17;
       if (routeDistance(x, z) < 0.9) continue;                                  // the trail is worn bare
       if (((x - POND.x) / POND.rx) ** 2 + ((z - POND.z) / POND.rz) ** 2 < 1.1) continue;
+      // blades far from the camera get wider (and sparser) so they never shrink below a pixel and shimmer
+      const dist = Math.hypot(x, z - 7.2), wide = 1 + Math.max(0, dist - 5) * 0.22;
+      if (dist > 9 && hash(i, 206) < Math.min(0.6, (dist - 9) * 0.06)) continue;
       o.position.set(x, heightAt(x, z), z);
       o.rotation.set(0, hash(i, 203) * Math.PI * 2, (hash(i, 204) - 0.5) * 0.3);
-      o.scale.set(1, 0.6 + hash(i, 205) * 0.9, 1);
+      o.scale.set(wide, 0.6 + hash(i, 205) * 0.9, wide);
       o.updateMatrix(); m.setMatrixAt(n++, o.matrix);
     }
     m.count = n;
     m.instanceMatrix.needsUpdate = true;
   };
   useFrame(({ clock }) => { uniforms.uTime.value = clock.elapsedTime; });
-  return <instancedMesh ref={setup} args={[geo, material, count]} receiveShadow />;
+  return <instancedMesh ref={setup} args={[geo, material, count]} />;   // no shadow on thin blades: it speckles and shimmers
 }
 
 // ---------------------------------------------------------------- water
@@ -225,8 +230,8 @@ export function Pond() {
         <MeshReflectorMaterial resolution={512} mixBlur={1} mixStrength={2.2} blur={[300, 80]} mirror={0.75} color="#4f7f96" roughness={0.6} metalness={0.2} depthScale={0} />
       </mesh>
       {/* muddy, reedy bank */}
-      <mesh rotation-x={-Math.PI / 2} position={[0, -0.01, 0]} scale={[POND.rx + 0.45, POND.rz + 0.35, 1]}>
-        <circleGeometry args={[1, 64]} /><meshStandardMaterial color="#5d5236" roughness={1} />
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0.005, 0]} scale={[POND.rx + 0.45, POND.rz + 0.35, 1]}>
+        <circleGeometry args={[1, 64]} /><meshStandardMaterial color="#5d5236" roughness={1} polygonOffset polygonOffsetFactor={-2} polygonOffsetUnits={-2} />
       </mesh>
       {Array.from({ length: 26 }, (_, i) => {
         const a = (i / 26) * Math.PI * 2 + hash(i, 301) * 0.2, r = 1.02 + hash(i, 302) * 0.12;
