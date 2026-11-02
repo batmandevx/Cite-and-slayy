@@ -7,7 +7,7 @@ export const BUSINESS = {
   updated: "2 November 2026",
   team: [
     {
-      name: "Team member", role: "Co-founder & CEO", email: "hello@citeslayy.com", initials: "AB", color: "bg-lime",
+      name: "Team member", role: "Founder & CEO", email: "hello@citeslayy.com", initials: "AB", color: "bg-lime",
       tagline: "The vision and voice of Cite & Slayy",
     },
   ],

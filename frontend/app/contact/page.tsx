@@ -7,7 +7,7 @@ import { BUSINESS } from "@/lib/business";
 
 export const metadata: Metadata = {
   title: "Contact",
-  description: "Contact Cite & Slayy: support at slayyhacks@gmail.com, or reach our Co-founder & CEO directly.",
+  description: "Contact Cite & Slayy: support at slayyhacks@gmail.com, or reach our Founder & CEO directly.",
   alternates: { canonical: "/contact" },
 };
 
