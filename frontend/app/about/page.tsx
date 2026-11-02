@@ -10,7 +10,7 @@ import { SITE_URL } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "About us",
-  description: "Cite & Slayy is an AI research workspace built by founders Ayush Upadhyay (CTO) and Team member (CEO). Real, verified citations for every student and researcher.",
+  description: "Cite & Slayy is an AI research workspace built by Founder & CTO Ayush Upadhyay and Co-founder & CEO Team member. Real, verified citations for every student and researcher.",
   alternates: { canonical: "/about" },
 };
 
@@ -47,7 +47,7 @@ export default function About() {
           "@type": "Organization", name: BUSINESS.brand, url: SITE_URL, email: BUSINESS.email,
           founder: [
             { "@type": "Person", name: cto.name, jobTitle: "Founder & Chief Technology Officer", email: cto.email },
-            { "@type": "Person", name: ceo.name, jobTitle: "Founder & Chief Executive Officer", email: ceo.email },
+            { "@type": "Person", name: ceo.name, jobTitle: "Co-founder & Chief Executive Officer", email: ceo.email },
           ],
         },
       }} />

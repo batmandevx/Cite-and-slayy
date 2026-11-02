@@ -2,11 +2,13 @@
 /* eslint-disable react-hooks/immutability -- animation state lives in refs and is mutated per frame inside useFrame */
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { ContactShadows, Environment, Lightformer, Sky, useAnimations, useGLTF } from "@react-three/drei";
+import { Cloud, Clouds, ContactShadows, Environment, Lightformer, Sky, Sparkles, useAnimations, useGLTF } from "@react-three/drei";
 import { AnimatePresence, motion } from "motion/react";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { Cloud, Flowers, Hills, hash, lawnTexture, useTex, woodTexture } from "../games3d/scenery";
+import { Volume2, VolumeX } from "lucide-react";
+import { type RideSound, startRideSound } from "./rideSound";
+import { Flowers, Hills, Pine, RoundTree, hash, lawnTexture, sandTexture, useTex, woodTexture } from "../games3d/scenery";
 
 // A hidden treat on the team's founder card: a girl gallops in on her horse, leaps a fence and rides off into the sunset.
 // Models: "Horse" and "Woman" by Quaternius, CC0 1.0 (see public/models/easter/CREDITS.txt).
@@ -38,7 +40,41 @@ const FORWARD = 0.18;         // ...and this far towards the withers
 const LEAN = 0.22;            // forward lean into the gallop (radians)
 const STRADDLE = 0.62;        // how far her thighs open to sit astride (radians)
 
-function HorseAndRider({ onDust }: { onDust: (x: number, z: number) => void }) {
+// Her riding outfit (applied to the model's materials by name).
+const OUTFIT: Record<string, string> = {
+  Shirt: "#f7f1ea", Jacket: "#ff4f9a", LightJacket: "#ff8cc0", Pants: "#3d5f9e", Shoes: "#6b3f22",
+  HairBase: "#3b2416", Hair: "#3b2416", Eyebrows: "#2a1a10",
+};
+const HAIR = "#3b2416";
+
+/** Long hair and a swinging ponytail, built in her head's frame (+Z forward, +Y up). Returns the ponytail joints. */
+function makeHair(): { group: THREE.Group; joints: THREE.Group[] } {
+  const mat = new THREE.MeshStandardMaterial({ color: HAIR, roughness: 0.75 });
+  const group = new THREE.Group();
+  const add = (geo: THREE.BufferGeometry, pos: [number, number, number], scale: [number, number, number] = [1, 1, 1], parent: THREE.Object3D = group) => {
+    const m = new THREE.Mesh(geo, mat); m.position.set(...pos); m.scale.set(...scale); m.castShadow = true; parent.add(m); return m;
+  };
+  add(new THREE.SphereGeometry(0.118, 24, 18), [0, 0.1, -0.012], [1.05, 0.98, 1.08]);           // crown
+  add(new THREE.SphereGeometry(0.11, 20, 16), [0, -0.02, -0.07], [1.02, 1.55, 0.62]);          // long hair down her back
+  for (const sx of [-1, 1]) add(new THREE.CapsuleGeometry(0.03, 0.14, 4, 10), [sx * 0.098, 0.0, 0.0]);   // strands framing her face
+  add(new THREE.SphereGeometry(0.06, 16, 12), [0, 0.17, 0.065], [1.6, 0.55, 0.8]);             // fringe
+  // ponytail: a chain of segments that streams back and bounces
+  const joints: THREE.Group[] = [];
+  let parent: THREE.Object3D = new THREE.Group();
+  parent.position.set(0, 0.12, -0.12);
+  group.add(parent);
+  const tie = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.011, 8, 18), new THREE.MeshStandardMaterial({ color: "#ff4f9a" }));
+  tie.rotation.x = Math.PI / 2.4; parent.add(tie);
+  for (let i = 0; i < 6; i++) {
+    const j = new THREE.Group();
+    j.position.set(0, i === 0 ? 0 : -0.07, 0);
+    add(new THREE.CapsuleGeometry(0.042 - i * 0.005, 0.05, 4, 10), [0, -0.035, 0], [1, 1, 1], j);
+    parent.add(j); joints.push(j); parent = j;
+  }
+  return { group, joints };
+}
+
+function HorseAndRider({ onDust, sound }: { onDust: (x: number, z: number) => void; sound: React.RefObject<RideSound | null> }) {
   const horse = useGLTF(HORSE_URL), rider = useGLTF(RIDER_URL);
   const root = useRef<THREE.Group>(null), horseGroup = useRef<THREE.Group>(null), riderGroup = useRef<THREE.Group>(null);
   const { actions: hAct } = useAnimations(horse.animations, horseGroup);
@@ -49,6 +85,9 @@ function HorseAndRider({ onDust }: { onDust: (x: number, z: number) => void }) {
   const hips = useMemo(() => rider.scene.getObjectByName("Hips") ?? rider.scene, [rider.scene]);
   const thighs = useMemo(() => ["UpperLeg.L", "UpperLeg.R"].map((n) => rider.scene.getObjectByName(n)), [rider.scene]);
   const hipPos = useMemo(() => new THREE.Vector3(), []);
+  const head = useMemo(() => rider.scene.getObjectByName("Head") ?? rider.scene, [rider.scene]);
+  const hair = useMemo(() => makeHair(), []);
+  const headPos = useMemo(() => new THREE.Vector3(), []), riderQ = useMemo(() => new THREE.Quaternion(), []);
   const state = useRef({ t0: -1, jumped: false, lastStep: 0 });
   const p = useMemo(() => new THREE.Vector3(), []), ahead = useMemo(() => new THREE.Vector3(), []), bone = useMemo(() => new THREE.Vector3(), []);
   const lookTarget = useMemo(() => new THREE.Vector3(), []);
@@ -58,6 +97,17 @@ function HorseAndRider({ onDust }: { onDust: (x: number, z: number) => void }) {
   useEffect(() => {
     for (const o of [horse.scene, rider.scene]) o.traverse((m) => {
       if ((m as THREE.Mesh).isMesh) { m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; }
+    });
+    // dress her for the ride
+    rider.scene.traverse((m) => {
+      const mesh = m as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.material = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).map((mt) => {
+        const c = (mt as THREE.MeshStandardMaterial).clone();
+        if (OUTFIT[c.name]) c.color.set(OUTFIT[c.name]);
+        return c;
+      }) as unknown as THREE.Material;
+      if (Array.isArray(mesh.material) && mesh.material.length === 1) mesh.material = mesh.material[0];
     });
     hAct.Gallop?.reset().setEffectiveTimeScale(1.15).play();
     Object.values(rAct)[0]?.reset().play();
@@ -80,6 +130,7 @@ function HorseAndRider({ onDust }: { onDust: (x: number, z: number) => void }) {
     if (!s.jumped && jump && gallop && p.x > FENCE_X - 1.9) {
       s.jumped = true;
       jump.reset().setLoop(THREE.LoopOnce, 1).setEffectiveTimeScale(1.1).crossFadeFrom(gallop, 0.15, false).play();
+      sound.current?.jump();
       window.setTimeout(() => { gallop.reset().crossFadeFrom(jump, 0.2, false).play(); }, (jump.getClip().duration / 1.1) * 1000 - 180);
     }
     // seat the rider: her hips go just above the horse's spine bone, so she rises and falls with every stride
@@ -93,12 +144,22 @@ function HorseAndRider({ onDust }: { onDust: (x: number, z: number) => void }) {
       bone.y += SADDLE; bone.x += Math.cos(yaw) * FORWARD; bone.z -= Math.sin(yaw) * FORWARD;
       hips.getWorldPosition(hipPos);
       riderGroup.current.position.add(bone.sub(hipPos));
+      // her hair follows her head; the ponytail streams back with the wind and bounces with each stride
+      riderGroup.current.updateMatrixWorld(true);
+      head.getWorldPosition(headPos);
+      riderGroup.current.getWorldQuaternion(riderQ);
+      hair.group.position.copy(headPos);
+      hair.group.quaternion.copy(riderQ);
+      const w = clock.elapsedTime * 13;
+      hair.joints.forEach((j, i) => { j.rotation.x = -0.55 - i * 0.05 + Math.sin(w - i * 0.7) * 0.22; j.rotation.z = Math.sin(w * 0.5 - i) * 0.08; });
     }
     // cinematic camera: pans to follow, then holds while they ride away
     lookTarget.set(THREE.MathUtils.clamp(p.x, -3.5, 4.5), 1.0, Math.max(p.z, -6));
     look.current.lerp(lookTarget, Math.min(1, dt * 2.5));
     camera.position.x = THREE.MathUtils.lerp(camera.position.x, THREE.MathUtils.clamp(p.x * 0.45, -2.2, 2.6), Math.min(1, dt * 1.5));
     camera.lookAt(look.current);
+    // hooves get quieter as she rides away from the camera
+    sound.current?.setDistance(Math.min(1, Math.hypot(p.x - camera.position.x, p.z - camera.position.z) / 30));
     // a puff of dust every few strides
     if (clock.elapsedTime - s.lastStep > 0.22 && t < DURATION) { s.lastStep = clock.elapsedTime; onDust(p.x, p.z); }
   });
@@ -109,6 +170,7 @@ function HorseAndRider({ onDust }: { onDust: (x: number, z: number) => void }) {
         <group ref={horseGroup} rotation-y={Math.PI / 2} scale={hScale}><primitive object={horse.scene} /></group>
       </group>
       <group ref={riderGroup} scale={rScale}><primitive object={rider.scene} /></group>
+      <primitive object={hair.group} />
     </>
   );
 }
@@ -202,13 +264,151 @@ function Dust({ api }: { api: React.RefObject<((x: number, z: number) => void) |
   );
 }
 
-function Scene() {
+// ---------------------------------------------------------------- scenery
+
+/** Soft round puff used as the cloud sprite (generated here, so nothing loads from another site). */
+let puffUrl = "";
+function cloudPuff() {
+  if (puffUrl || typeof document === "undefined") return puffUrl;
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const g = c.getContext("2d")!, grd = g.createRadialGradient(64, 64, 4, 64, 64, 62);
+  grd.addColorStop(0, "rgba(255,255,255,1)"); grd.addColorStop(0.55, "rgba(255,255,255,0.55)"); grd.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+  puffUrl = c.toDataURL();
+  return puffUrl;
+}
+
+function SoftClouds() {
+  const tex = useMemo(() => cloudPuff(), []);
+  return (
+    <Clouds material={THREE.MeshLambertMaterial} texture={tex} limit={260}>
+      <Cloud seed={1} segments={28} bounds={[14, 2.5, 3]} volume={10} color="#ffe6d0" position={[-22, 15, -55]} speed={0.15} opacity={0.85} />
+      <Cloud seed={2} segments={24} bounds={[12, 2, 3]} volume={9} color="#ffd8c0" position={[20, 18, -62]} speed={0.12} opacity={0.8} />
+      <Cloud seed={3} segments={18} bounds={[9, 1.6, 2]} volume={6} color="#fff0e2" position={[0, 22, -70]} speed={0.1} opacity={0.7} />
+    </Clouds>
+  );
+}
+
+/** Hazy, snow-capped mountains on the horizon. */
+function Mountains() {
+  return (
+    <group>
+      {Array.from({ length: 9 }, (_, i) => {
+        const x = -70 + i * 17 + hash(i, 81) * 8, z = -95 - hash(i, 82) * 25, h = 16 + hash(i, 83) * 14, r = 14 + hash(i, 84) * 10;
+        return (
+          <group key={i} position={[x, -1, z]}>
+            <mesh position={[0, h / 2, 0]}><coneGeometry args={[r, h, 7]} /><meshStandardMaterial color="#8a93a8" roughness={1} flatShading /></mesh>
+            <mesh position={[0, h * 0.86, 0]}><coneGeometry args={[r * 0.28, h * 0.28, 7]} /><meshStandardMaterial color="#f4efe8" roughness={1} flatShading /></mesh>
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+/** Pines and broadleaf trees along the hills, plus a few close to the meadow. */
+function Trees() {
+  const far = useMemo(() => Array.from({ length: 46 }, (_, i) => ({
+    x: -42 + hash(i, 91) * 84, z: -22 - hash(i, 92) * 18, s: 1.6 + hash(i, 93) * 1.6, pine: hash(i, 94) > 0.4,
+  })), []);
+  return (
+    <group>
+      {far.map((t, i) => t.pine
+        ? <Pine key={i} position={[t.x, 0, t.z]} scale={t.s} />
+        : <RoundTree key={i} position={[t.x, 0, t.z]} scale={t.s} color={["#4f8a3c", "#5a9845", "#3f7a35"][i % 3]} />)}
+      <RoundTree position={[-9.5, 0, -4]} scale={2.2} color="#4f8f3c" />
+      <RoundTree position={[11, 0, -7]} scale={2.6} color="#5a9845" />
+      <Pine position={[-12, 0, -9]} scale={2.4} />
+    </group>
+  );
+}
+
+/** A dirt riding trail following their route. */
+function Trail() {
+  const dirt = useTex(sandTexture, 1, 30);
+  const geo = useMemo(() => {
+    const n = 140, w = 1.5, pos: number[] = [], uv: number[] = [], idx: number[] = [];
+    const p = new THREE.Vector3(), tng = new THREE.Vector3();
+    for (let i = 0; i <= n; i++) {
+      const u = i / n;
+      PATH.getPointAt(u, p); PATH.getTangentAt(u, tng);
+      const nx = -tng.z, nz = tng.x, len = Math.hypot(nx, nz) || 1, ww = w * (1 - u * 0.5);
+      pos.push(p.x + (nx / len) * ww / 2, 0.012, p.z + (nz / len) * ww / 2, p.x - (nx / len) * ww / 2, 0.012, p.z - (nz / len) * ww / 2);
+      uv.push(0, u, 1, u);
+      if (i < n) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx); g.computeVertexNormals();
+    return g;
+  }, []);
+  return <mesh geometry={geo} receiveShadow><meshStandardMaterial map={dirt} color="#b08a5e" roughness={1} polygonOffset polygonOffsetFactor={-2} /></mesh>;
+}
+
+/** A post-and-rail fence running alongside the trail. */
+function FenceLine() {
+  const wood = useTex(fenceWood, 6, 1);
+  return (
+    <group position={[0, 0, -1.4]}>
+      {Array.from({ length: 13 }, (_, i) => (
+        <mesh key={i} position={[-12 + i * 2, 0.5, 0]} castShadow><boxGeometry args={[0.1, 1, 0.1]} /><meshStandardMaterial map={wood} roughness={0.85} /></mesh>
+      ))}
+      {[0.45, 0.82].map((y) => (
+        <mesh key={y} position={[0, y, 0.05]} castShadow><boxGeometry args={[24, 0.08, 0.05]} /><meshStandardMaterial map={wood} roughness={0.85} /></mesh>
+      ))}
+    </group>
+  );
+}
+
+/** A little red barn on the far side of the meadow. */
+function Barn() {
+  const roof = useMemo(() => {
+    const sh = new THREE.Shape(); sh.moveTo(-2.4, 0); sh.lineTo(0, 1.7); sh.lineTo(2.4, 0); sh.lineTo(-2.4, 0);
+    return new THREE.ExtrudeGeometry(sh, { depth: 5.4, bevelEnabled: false });
+  }, []);
+  return (
+    <group position={[-17, 0, -19]} rotation-y={0.5}>
+      <mesh position={[0, 1.5, 0]} castShadow receiveShadow><boxGeometry args={[4.4, 3, 5]} /><meshStandardMaterial color="#b3342b" roughness={0.8} /></mesh>
+      <mesh geometry={roof} position={[0, 3, -2.7]} castShadow><meshStandardMaterial color="#4a3a33" roughness={0.7} /></mesh>
+      <mesh position={[0, 1.1, 2.51]}><planeGeometry args={[1.8, 2.2]} /><meshStandardMaterial color="#f4ece0" /></mesh>
+      <mesh position={[0, 1.1, 2.52]}><planeGeometry args={[1.5, 1.9]} /><meshStandardMaterial color="#8f2a22" /></mesh>
+      <mesh position={[0, 2.5, 2.51]}><planeGeometry args={[0.7, 0.5]} /><meshStandardMaterial color="#f4ece0" /></mesh>
+    </group>
+  );
+}
+
+/** A small flock gliding across the evening sky. */
+function Birds() {
+  const g = useRef<THREE.Group>(null);
+  const wings = useRef<(THREE.Group | null)[]>([]);
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime;
+    if (g.current) g.current.position.set(-30 + t * 4.2, 13 + Math.sin(t * 0.6) * 0.6, -34);
+    wings.current.forEach((w, i) => { if (w) w.rotation.z = Math.sin(t * 9 + i) * 0.55; });
+  });
+  return (
+    <group ref={g}>
+      {[[0, 0, 0], [-1.6, -0.6, 0.5], [-1.4, 0.7, -0.4], [-3, -1.1, 0.8], [-3.2, 1.2, -0.6]].map((p, i) => (
+        <group key={i} position={p as [number, number, number]}>
+          {[-1, 1].map((sx) => (
+            <group key={sx} ref={(el) => { wings.current[i * 2 + (sx > 0 ? 1 : 0)] = el; }} scale={[sx, 1, 1]}>
+              <mesh position={[0.25, 0, 0]} rotation-z={-0.2}><boxGeometry args={[0.5, 0.03, 0.12]} /><meshBasicMaterial color="#3b2d2a" /></mesh>
+            </group>
+          ))}
+        </group>
+      ))}
+    </group>
+  );
+}
+
+function Scene({ sound }: { sound: React.RefObject<RideSound | null> }) {
   const dust = useRef<((x: number, z: number) => void) | null>(null);
   const grass = useTex(lawnTexture, 40, 40);
   return (
     <>
       <Sky sunPosition={[30, 4, -60]} turbidity={7} rayleigh={2.6} mieCoefficient={0.012} mieDirectionalG={0.92} />
-      <fog attach="fog" args={["#f2c79c", 16, 70]} />
+      <fog attach="fog" args={["#f2c79c", 22, 140]} />
       <hemisphereLight args={["#fff0dc", "#6b8a4a", 1.25]} />
       <directionalLight position={[10, 9, -4]} intensity={2.6} color="#ffcf95" castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004}
         shadow-camera-left={-12} shadow-camera-right={12} shadow-camera-top={8} shadow-camera-bottom={-8} shadow-camera-far={40} />
@@ -222,10 +422,17 @@ function Scene() {
       <Hills radius={46} count={13} color="#6f9b4c" />
       <Flowers center={[-4.5, -1.5]} radius={1.6} count={70} seed={4} />
       <Flowers center={[4.6, -3.5]} radius={1.3} count={55} seed={9} />
-      {[[-18, 10, -38, 3, 0.4], [16, 12, -46, 3.6, 0.3], [-2, 14, -52, 2.6, 0.35]].map(([x, y, z, sc, sp], i) => <Cloud key={i} position={[x, y, z]} scale={sc} speed={sp} span={110} />)}
+      <SoftClouds />
+      <Mountains />
+      <Trees />
+      <Barn />
+      <Birds />
+      <Trail />
+      <FenceLine />
+      <Sparkles count={70} scale={[16, 4, 8]} position={[0, 2, 0]} size={2.2} speed={0.25} color="#fff2c8" opacity={0.7} />
       <Fence />
       <Suspense fallback={null}>
-        <HorseAndRider onDust={(x, z) => dust.current?.(x, z)} />
+        <HorseAndRider onDust={(x, z) => dust.current?.(x, z)} sound={sound} />
       </Suspense>
       <Dust api={dust} />
       <ContactShadows position={[0, 0.01, 0]} opacity={0.35} scale={30} blur={2.6} far={2.5} />
@@ -236,6 +443,13 @@ function Scene() {
 /** Full-screen easter egg overlay; closes itself after the ride (or on click / Escape). */
 export default function HorseRide({ onDone }: { onDone: () => void }) {
   const [open, setOpen] = useState(true);
+  const [muted, setMuted] = useState(false);
+  const sound = useRef<RideSound | null>(null);
+  useEffect(() => {
+    sound.current = startRideSound();
+    return () => { sound.current?.stop(); sound.current = null; };
+  }, []);
+  useEffect(() => { if (!open) sound.current?.stop(); }, [open]);
   useEffect(() => {
     const t = window.setTimeout(() => setOpen(false), DURATION * 1000 + 500);
     const key = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
@@ -248,12 +462,16 @@ export default function HorseRide({ onDone }: { onDone: () => void }) {
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.45 }}
           className="fixed inset-0 z-[100] cursor-pointer bg-[#f2c79c]" onClick={() => setOpen(false)} role="dialog" aria-label="Easter egg: a horse ride">
           <Canvas shadows camera={{ position: [0, 1.6, 7.2], fov: 40 }} dpr={[1, 1.75]} gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}>
-            <Scene />
+            <Scene sound={sound} />
           </Canvas>
           <motion.div initial={{ y: -30, opacity: 0, rotate: -6 }} animate={{ y: 0, opacity: 1, rotate: -3 }} transition={{ delay: 0.5, type: "spring", stiffness: 220, damping: 16 }}
             className="sticker pointer-events-none absolute left-1/2 top-8 -translate-x-1/2 bg-yellow text-lg">
             🐎 Giddy up!
           </motion.div>
+          <button onClick={(e) => { e.stopPropagation(); if (muted) { sound.current = startRideSound(); setMuted(false); } else { sound.current?.stop(); sound.current = null; setMuted(true); } }}
+            aria-label={muted ? "Sound on" : "Mute"} className="btn-brut absolute right-5 top-6 grid size-10 place-items-center rounded-xl bg-surface text-ink">
+            {muted ? <VolumeX className="size-5" /> : <Volume2 className="size-5" />}
+          </button>
           <div className="pointer-events-none absolute bottom-5 inset-x-0 text-center text-xs font-bold text-[#121212]/60">You found a secret · click to close</div>
         </motion.div>
       )}
