@@ -347,3 +347,8 @@ h1, h2, h3, .font-display { font-family: var(--font-display); letter-spacing: -0
   .prose-policy :where(th, td) { padding: 0.6rem 0.75rem; border-bottom: 2px dashed var(--color-line); text-align: left; vertical-align: top; }
   .prose-policy :where(th) { color: var(--color-ink); font-weight: 800; }
 }
+
+/* Slowly sweeping gradient for headline text (gradient + bg-clip-text). */
+.shimmer-text { background-size: 220% auto; animation: shimmer-text 5s ease-in-out infinite; }
+@keyframes shimmer-text { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+@media (prefers-reduced-motion: reduce) { .shimmer-text { animation: none; } }
