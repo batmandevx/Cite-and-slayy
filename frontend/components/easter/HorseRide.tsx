@@ -1,230 +1,234 @@
 "use client";
 /* eslint-disable react-hooks/immutability -- animation state lives in refs and is mutated per frame inside useFrame */
 
-import { Canvas, useFrame } from "@react-three/fiber";
-import { ContactShadows, Sky } from "@react-three/drei";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { ContactShadows, Environment, Lightformer, Sky, useAnimations, useGLTF } from "@react-three/drei";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { Cloud, Flowers, Hills, lawnTexture, useTex } from "../games3d/scenery";
+import { Cloud, Flowers, Hills, hash, lawnTexture, useTex, woodTexture } from "../games3d/scenery";
 
-// A hidden treat on the team's founder card: a girl gallops past on a horse and rides off into the sunset.
+// A hidden treat on the team's founder card: a girl gallops in on her horse, leaps a fence and rides off into the sunset.
+// Models: "Horse" and "Woman" by Quaternius, CC0 1.0 (see public/models/easter/CREDITS.txt).
 
-const DURATION = 6.2;          // seconds
-const STRIDE = Math.PI * 2 * 2.1;  // gallop rate (rad/s)
+const HORSE_URL = "/models/easter/horse.glb", RIDER_URL = "/models/easter/rider.glb";
+const DURATION = 7.4;                  // seconds until the fade-out starts
+const FENCE_X = 0.6, FENCE_Z = 1.9;
+const HORSE_HEIGHT = 2.05, RIDER_HEIGHT = 1.62;   // metres, ears-to-hooves and head-to-toe
 
-const COAT = "#8a5528", DARK = "#2a1810", HOOF = "#1d1612", SKIN = "#f1c7a3", HAIR = "#2b1810", JACKET = "#ff4fa3", JEANS = "#2f4f8f";
+// Gallop path: in from the left, side-on past the camera and over the fence, then away into the sunset.
+const PATH = new THREE.CatmullRomCurve3([
+  new THREE.Vector3(-7.5, 0, 1.9), new THREE.Vector3(-3, 0, 1.9), new THREE.Vector3(FENCE_X, 0, FENCE_Z), new THREE.Vector3(4.2, 0, 1.4),
+  new THREE.Vector3(6.4, 0, -2), new THREE.Vector3(7.8, 0, -11), new THREE.Vector3(8.4, 0, -30),
+]);
 
-function std(color: string, rough = 0.6, metal = 0) {
-  return <meshStandardMaterial color={color} roughness={rough} metalness={metal} />;
+/** Position along the path for time t: a steady gallop past the camera, then accelerating away. */
+function progress(t: number) {
+  const u = Math.min(1, Math.max(0, t / DURATION));
+  return u < 0.58 ? 0.6 * u : 0.348 + (u - 0.58) * 1.55;
 }
 
-/** One leg: hip/shoulder joint, upper leg, knee/hock joint, cannon, hoof. Rotations are set every frame. */
-function Leg({ setHip, setKnee, x, z }: { setHip: (g: THREE.Group | null) => void; setKnee: (g: THREE.Group | null) => void; x: number; z: number }) {
-  return (
-    <group ref={setHip} position={[x, -0.18, z]}>
-      <mesh position={[0, -0.08, 0]} scale={[1, 1.3, 1]} castShadow><sphereGeometry args={[0.13, 14, 12]} />{std(COAT, 0.55)}</mesh>
-      <mesh position={[0, -0.22, 0]} castShadow><capsuleGeometry args={[0.085, 0.32, 6, 12]} />{std(COAT)}</mesh>
-      <group ref={setKnee} position={[0, -0.46, 0]}>
-        <mesh position={[0, -0.23, 0]} castShadow><capsuleGeometry args={[0.045, 0.38, 6, 10]} />{std(COAT)}</mesh>
-        <mesh position={[0, -0.45, 0]} castShadow><cylinderGeometry args={[0.06, 0.07, 0.09, 12]} />{std(HOOF, 0.4)}</mesh>
-        {/* white sock */}
-        <mesh position={[0, -0.36, 0]}><cylinderGeometry args={[0.052, 0.056, 0.1, 12]} />{std("#f3ede2", 0.8)}</mesh>
-      </group>
-    </group>
-  );
+function fitHeight(obj: THREE.Object3D, height: number) {
+  const size = new THREE.Box3().setFromObject(obj).getSize(new THREE.Vector3());
+  return height / (size.y || 1);
 }
 
-function HorseAndRider({ t0, onDust }: { t0: React.RefObject<number>; onDust: (x: number, z: number) => void }) {
-  const root = useRef<THREE.Group>(null), body = useRef<THREE.Group>(null), neck = useRef<THREE.Group>(null), head = useRef<THREE.Group>(null);
-  const hips = useRef<(THREE.Group | null)[]>([]), knees = useRef<(THREE.Group | null)[]>([]);
-  const mane = useRef<(THREE.Object3D | null)[]>([]), tail = useRef<(THREE.Group | null)[]>([]), pony = useRef<(THREE.Group | null)[]>([]);
-  const torso = useRef<THREE.Group>(null);
-  const lastStep = useRef(0);
-  // legs: front-left, front-right, hind-left, hind-right (phase offsets give a rotary gallop)
-  const LEGS = useMemo(() => [
-    { x: 0.42, z: 0.15, phase: 0.0, front: true }, { x: 0.42, z: -0.15, phase: 0.55, front: true },
-    { x: -0.5, z: 0.15, phase: 2.6, front: false }, { x: -0.5, z: -0.15, phase: 3.15, front: false },
-  ], []);
-  const path = useMemo(() => new THREE.CatmullRomCurve3([
-    new THREE.Vector3(-5.2, 0, 1.6), new THREE.Vector3(-3, 0, 1.8), new THREE.Vector3(0, 0, 1.8), new THREE.Vector3(3.2, 0, 1.4),
-    new THREE.Vector3(5.6, 0, -1.5), new THREE.Vector3(7, 0, -9), new THREE.Vector3(7.6, 0, -26),
-  ]), []);
-  const tmp = useMemo(() => new THREE.Vector3(), []), ahead = useMemo(() => new THREE.Vector3(), []);
+const SADDLE = 0.24;          // metres above the horse's spine bone where her hips sit
+const FORWARD = 0.18;         // ...and this far towards the withers
+const LEAN = 0.22;            // forward lean into the gallop (radians)
+const STRADDLE = 0.62;        // how far her thighs open to sit astride (radians)
 
-  useFrame(({ clock }) => {
-    const t = clock.elapsedTime - (t0.current ?? 0);
-    const w = t * STRIDE;
-    // move along the path, easing in, then accelerating away into the distance
-    const u = Math.min(1, Math.max(0, t / DURATION));
-    const s = u < 0.55 ? 0.62 * u : 0.341 + (u - 0.55) * 1.46;   // slow side-on pass, then gallop away
-    path.getPointAt(Math.min(0.999, s), tmp);
-    path.getPointAt(Math.min(1, s + 0.01), ahead);
-    if (root.current) {
-      root.current.position.copy(tmp);
-      root.current.rotation.y = Math.atan2(-(ahead.z - tmp.z), ahead.x - tmp.x);
-    }
-    // body: rocking canter motion
-    if (body.current) {
-      body.current.position.y = 1.32 + Math.sin(w * 2) * 0.05 + Math.max(0, Math.sin(w)) * 0.06;
-      body.current.rotation.z = Math.sin(w + 0.6) * 0.07;
-    }
-    if (neck.current) neck.current.rotation.z = -0.95 + Math.sin(w + 1.2) * 0.1;   // neck reaches forward, head points down
-    if (head.current) head.current.rotation.z = -1.2 - Math.sin(w + 1.2) * 0.08;
-    LEGS.forEach((L, i) => {
-      const a = w + L.phase, sw = Math.sin(a), bend = Math.max(0, Math.cos(a));
-      if (hips.current[i]) hips.current[i]!.rotation.z = (L.front ? 0.6 : 0.52) * sw + (L.front ? 0.05 : -0.08);
-      if (knees.current[i]) knees.current[i]!.rotation.z = L.front ? -1.15 * bend : 0.85 * bend;
+function HorseAndRider({ onDust }: { onDust: (x: number, z: number) => void }) {
+  const horse = useGLTF(HORSE_URL), rider = useGLTF(RIDER_URL);
+  const root = useRef<THREE.Group>(null), horseGroup = useRef<THREE.Group>(null), riderGroup = useRef<THREE.Group>(null);
+  const { actions: hAct } = useAnimations(horse.animations, horseGroup);
+  const { actions: rAct } = useAnimations(rider.animations, riderGroup);
+  const hScale = useMemo(() => fitHeight(horse.scene, HORSE_HEIGHT), [horse.scene]);
+  const rScale = useMemo(() => fitHeight(rider.scene, RIDER_HEIGHT), [rider.scene]);
+  const back = useMemo(() => horse.scene.getObjectByName("Torso") ?? horse.scene.getObjectByName("Back") ?? horse.scene, [horse.scene]);
+  const hips = useMemo(() => rider.scene.getObjectByName("Hips") ?? rider.scene, [rider.scene]);
+  const thighs = useMemo(() => ["UpperLeg.L", "UpperLeg.R"].map((n) => rider.scene.getObjectByName(n)), [rider.scene]);
+  const hipPos = useMemo(() => new THREE.Vector3(), []);
+  const state = useRef({ t0: -1, jumped: false, lastStep: 0 });
+  const p = useMemo(() => new THREE.Vector3(), []), ahead = useMemo(() => new THREE.Vector3(), []), bone = useMemo(() => new THREE.Vector3(), []);
+  const lookTarget = useMemo(() => new THREE.Vector3(), []);
+  const { camera } = useThree();
+  const look = useRef(new THREE.Vector3(-3, 1.1, 1.9));
+
+  useEffect(() => {
+    for (const o of [horse.scene, rider.scene]) o.traverse((m) => {
+      if ((m as THREE.Mesh).isMesh) { m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; }
     });
-    mane.current.forEach((m, i) => { if (m) m.rotation.x = Math.sin(w * 1.3 + i * 0.7) * 0.35; });
-    tail.current.forEach((g, i) => { if (g) { g.rotation.z = -0.18 + Math.sin(w + i * 0.6) * 0.16; g.rotation.y = Math.sin(w * 0.7 + i) * 0.12; } });
-    pony.current.forEach((g, i) => { if (g) g.rotation.z = 0.35 + Math.sin(w * 1.4 + i * 0.8) * 0.28; });
-    if (torso.current) torso.current.rotation.z = -0.32 - Math.sin(w * 2 + 0.5) * 0.06;
-    // dust at each stride
-    if (w - lastStep.current > Math.PI && t < DURATION) { lastStep.current = w; onDust(tmp.x, tmp.z); }
+    hAct.Gallop?.reset().setEffectiveTimeScale(1.15).play();
+    Object.values(rAct)[0]?.reset().play();
+  }, [hAct, rAct, horse.scene, rider.scene]);
+
+  useFrame(({ clock }, dt) => {
+    const s = state.current;
+    if (s.t0 < 0) s.t0 = clock.elapsedTime;
+    const t = clock.elapsedTime - s.t0;
+    const k = Math.min(0.999, progress(t));
+    PATH.getPointAt(k, p);
+    PATH.getPointAt(Math.min(1, k + 0.006), ahead);
+    if (root.current) {
+      root.current.position.copy(p);
+      const yaw = Math.atan2(-(ahead.z - p.z), ahead.x - p.x);
+      root.current.rotation.y = THREE.MathUtils.lerp(root.current.rotation.y, yaw, Math.min(1, dt * 6));
+    }
+    // leap the fence with the model's own jump animation, then fall back into the gallop
+    const gallop = hAct.Gallop, jump = hAct.Gallop_Jump;
+    if (!s.jumped && jump && gallop && p.x > FENCE_X - 1.9) {
+      s.jumped = true;
+      jump.reset().setLoop(THREE.LoopOnce, 1).setEffectiveTimeScale(1.1).crossFadeFrom(gallop, 0.15, false).play();
+      window.setTimeout(() => { gallop.reset().crossFadeFrom(jump, 0.2, false).play(); }, (jump.getClip().duration / 1.1) * 1000 - 180);
+    }
+    // seat the rider: her hips go just above the horse's spine bone, so she rises and falls with every stride
+    if (riderGroup.current && root.current) {
+      thighs.forEach((leg, i) => { if (leg) leg.rotation.z += (i ? -1 : 1) * STRADDLE; });   // after the clip pose: sit astride
+      const yaw = root.current.rotation.y;
+      riderGroup.current.rotation.set(0, yaw + Math.PI / 2, 0);
+      riderGroup.current.rotateX(LEAN);
+      riderGroup.current.updateMatrixWorld(true);
+      back.getWorldPosition(bone);
+      bone.y += SADDLE; bone.x += Math.cos(yaw) * FORWARD; bone.z -= Math.sin(yaw) * FORWARD;
+      hips.getWorldPosition(hipPos);
+      riderGroup.current.position.add(bone.sub(hipPos));
+    }
+    // cinematic camera: pans to follow, then holds while they ride away
+    lookTarget.set(THREE.MathUtils.clamp(p.x, -3.5, 4.5), 1.0, Math.max(p.z, -6));
+    look.current.lerp(lookTarget, Math.min(1, dt * 2.5));
+    camera.position.x = THREE.MathUtils.lerp(camera.position.x, THREE.MathUtils.clamp(p.x * 0.45, -2.2, 2.6), Math.min(1, dt * 1.5));
+    camera.lookAt(look.current);
+    // a puff of dust every few strides
+    if (clock.elapsedTime - s.lastStep > 0.22 && t < DURATION) { s.lastStep = clock.elapsedTime; onDust(p.x, p.z); }
   });
 
   return (
-    <group ref={root}>
-      <group ref={body}>
-        {/* barrel, chest and rump */}
-        <mesh rotation-z={Math.PI / 2} castShadow><capsuleGeometry args={[0.31, 0.95, 10, 24]} />{std(COAT, 0.55)}</mesh>
-        <mesh position={[0.52, 0.02, 0]} castShadow><sphereGeometry args={[0.33, 24, 18]} />{std(COAT, 0.55)}</mesh>
-        <mesh position={[-0.55, 0.06, 0]} castShadow><sphereGeometry args={[0.35, 24, 18]} />{std(COAT, 0.55)}</mesh>
-        {/* saddle and blanket */}
-        <mesh position={[0.02, 0.27, 0]}><boxGeometry args={[0.5, 0.06, 0.62]} />{std("#4dc3ff", 0.8)}</mesh>
-        <mesh position={[0.02, 0.33, 0]} castShadow><boxGeometry args={[0.36, 0.08, 0.4]} />{std("#5b3218", 0.45)}</mesh>
-        {LEGS.map((L, i) => <Leg key={i} x={L.x} z={L.z} setHip={(g) => { hips.current[i] = g; }} setKnee={(g) => { knees.current[i] = g; }} />)}
-
-        {/* neck, mane, head */}
-        <group ref={neck} position={[0.66, 0.14, 0]}>
-          <mesh position={[0, 0.3, 0]} castShadow><cylinderGeometry args={[0.15, 0.25, 0.66, 18]} />{std(COAT, 0.55)}</mesh>
-          {Array.from({ length: 7 }, (_, i) => (
-            <mesh key={i} ref={(m) => { mane.current[i] = m; }} position={[-0.15, 0.04 + i * 0.09, 0]} castShadow>
-              <boxGeometry args={[0.1, 0.11, 0.06]} />{std(DARK, 0.9)}
-            </mesh>
-          ))}
-          <group ref={head} position={[0, 0.62, 0]}>
-            <mesh position={[0, 0.2, 0]} castShadow><capsuleGeometry args={[0.135, 0.32, 8, 16]} />{std(COAT, 0.55)}</mesh>
-            <mesh position={[0.02, 0.45, 0]} castShadow><sphereGeometry args={[0.12, 16, 12]} />{std("#6e4220", 0.6)}</mesh>
-            <mesh position={[0.1, 0.24, 0]}><boxGeometry args={[0.02, 0.18, 0.05]} />{std("#f3ede2", 0.8)}</mesh>
-            {[-1, 1].map((sz) => (
-              <group key={sz}>
-                <mesh position={[-0.05, 0.02, sz * 0.07]} rotation-z={Math.PI / 2}><coneGeometry args={[0.035, 0.12, 8]} />{std(COAT)}</mesh>
-                <mesh position={[0.05, 0.14, sz * 0.11]}><sphereGeometry args={[0.022, 10, 8]} />{std("#111", 0.2)}</mesh>
-              </group>
-            ))}
-          </group>
-        </group>
-
-        {/* tail: a chain of segments that whips as she runs */}
-        <group position={[-0.86, 0.22, 0]} rotation-z={-1.05}>
-          {(() => {
-            const seg = (i: number): React.ReactNode => i >= 5 ? null : (
-              <group ref={(g) => { tail.current[i] = g; }} position={[0, i === 0 ? 0 : -0.17, 0]}>
-                <mesh position={[0, -0.085, 0]} castShadow><capsuleGeometry args={[0.07 - i * 0.008, 0.13, 4, 8]} />{std(DARK, 0.9)}</mesh>
-                {seg(i + 1)}
-              </group>
-            );
-            return seg(0);
-          })()}
-        </group>
-
-        {/* the rider */}
-        <group position={[0.02, 0.38, 0]}>
-          {/* legs astride the saddle */}
-          {[-1, 1].map((sz) => (
-            <group key={sz} position={[0.02, 0.02, sz * 0.2]}>
-              <mesh position={[0.1, -0.02, sz * 0.07]} rotation={[sz * 0.3, 0, -1.2]} castShadow><capsuleGeometry args={[0.065, 0.24, 6, 10]} />{std(JEANS, 0.7)}</mesh>
-              <mesh position={[0.18, -0.25, sz * 0.13]} rotation-x={sz * 0.1} castShadow><capsuleGeometry args={[0.05, 0.26, 6, 10]} />{std(JEANS, 0.7)}</mesh>
-              <mesh position={[0.22, -0.43, sz * 0.13]} castShadow><boxGeometry args={[0.16, 0.06, 0.08]} />{std("#3a2414", 0.5)}</mesh>
-            </group>
-          ))}
-          <group ref={torso} position={[0, 0.05, 0]}>
-            <mesh position={[0, 0.25, 0]} castShadow><capsuleGeometry args={[0.13, 0.26, 8, 14]} />{std(JACKET, 0.6)}</mesh>
-            {/* arms reaching for the reins */}
-            {[-1, 1].map((sz) => (
-              <mesh key={sz} position={[0.16, 0.3, sz * 0.14]} rotation={[0, 0, -1.05]} castShadow><capsuleGeometry args={[0.04, 0.3, 6, 10]} />{std(JACKET, 0.6)}</mesh>
-            ))}
-            <mesh position={[0.3, 0.2, 0]}><sphereGeometry args={[0.05, 10, 8]} />{std(SKIN, 0.6)}</mesh>
-            {/* head, hair and a bouncing ponytail */}
-            <mesh position={[0.02, 0.56, 0]} castShadow><sphereGeometry args={[0.11, 20, 16]} />{std(SKIN, 0.55)}</mesh>
-            <mesh position={[-0.01, 0.6, 0]} scale={[1.08, 0.9, 1.08]}><sphereGeometry args={[0.11, 20, 16, 0, Math.PI * 2, 0, Math.PI / 1.8]} />{std(HAIR, 0.85)}</mesh>
-            <mesh position={[0.11, 0.56, 0.04]}><sphereGeometry args={[0.014, 8, 6]} />{std("#111", 0.2)}</mesh>
-            <mesh position={[0.11, 0.56, -0.04]}><sphereGeometry args={[0.014, 8, 6]} />{std("#111", 0.2)}</mesh>
-            <group position={[-0.1, 0.62, 0]}>
-              {(() => {
-                const seg = (i: number): React.ReactNode => i >= 4 ? null : (
-                  <group ref={(g) => { pony.current[i] = g; }} position={[i === 0 ? 0 : -0.08, 0, 0]}>
-                    <mesh position={[-0.04, 0, 0]} rotation-z={Math.PI / 2} castShadow><capsuleGeometry args={[0.035 - i * 0.005, 0.06, 4, 8]} />{std(HAIR, 0.85)}</mesh>
-                    {seg(i + 1)}
-                  </group>
-                );
-                return seg(0);
-              })()}
-            </group>
-            <mesh position={[-0.08, 0.63, 0]}><torusGeometry args={[0.03, 0.012, 8, 16]} />{std("#ffd23f", 0.4)}</mesh>
-          </group>
-        </group>
+    <>
+      <group ref={root}>
+        <group ref={horseGroup} rotation-y={Math.PI / 2} scale={hScale}><primitive object={horse.scene} /></group>
       </group>
+      <group ref={riderGroup} scale={rScale}><primitive object={rider.scene} /></group>
+    </>
+  );
+}
+
+const fenceWood = () => woodTexture("#9a6a3c");
+
+function Fence() {
+  const wood = useTex(fenceWood, 2, 1);
+  return (
+    <group position={[FENCE_X, 0, FENCE_Z]} rotation-y={Math.PI / 2}>
+      {[-1.4, 0, 1.4].map((x) => (
+        <mesh key={x} position={[x, 0.45, 0]} castShadow receiveShadow><boxGeometry args={[0.12, 0.9, 0.12]} /><meshStandardMaterial map={wood} roughness={0.8} /></mesh>
+      ))}
+      {[0.38, 0.72].map((y) => (
+        <mesh key={y} position={[0, y, 0.07]} castShadow receiveShadow><boxGeometry args={[3.0, 0.09, 0.05]} /><meshStandardMaterial map={wood} roughness={0.8} /></mesh>
+      ))}
     </group>
   );
 }
 
-/** Dust puffs kicked up by the hooves. */
-function Dust({ api }: { api: React.RefObject<((x: number, z: number) => void) | null> }) {
-  const N = 40;
+/** Instanced grass blades around the path, swaying in the breeze. */
+function Grass() {
+  const N = 4200;
   const mesh = useRef<THREE.InstancedMesh>(null);
-  const state = useRef({ x: new Float32Array(N), z: new Float32Array(N), life: new Float32Array(N), next: 0 });
+  const geo = useMemo(() => {
+    const g = new THREE.ConeGeometry(0.022, 0.2, 3, 1);
+    g.translate(0, 0.1, 0);
+    return g;
+  }, []);
+  const blades = useMemo(() => Array.from({ length: N }, (_, i) => ({
+    x: (hash(i, 1) - 0.5) * 26, z: -8 + hash(i, 2) * 12, s: 0.6 + hash(i, 3) * 0.9, r: hash(i, 4) * 6, lean: (hash(i, 5) - 0.5) * 0.4,
+  })), []);
+  const colors = useMemo(() => {
+    const c = new Float32Array(N * 3), col = new THREE.Color();
+    for (let i = 0; i < N; i++) { col.setHSL(0.25 + hash(i, 6) * 0.05, 0.5, 0.2 + hash(i, 7) * 0.1); c.set([col.r, col.g, col.b], i * 3); }
+    return c;
+  }, []);
+  const o = useMemo(() => new THREE.Object3D(), []);
+  useFrame(({ clock }) => {
+    const m = mesh.current;
+    if (!m) return;
+    const t = clock.elapsedTime;
+    blades.forEach((b, i) => {
+      o.position.set(b.x, 0, b.z);
+      o.rotation.set(Math.sin(t * 1.6 + b.x * 0.6) * 0.12 + b.lean, b.r, 0);
+      o.scale.set(1, b.s, 1);
+      o.updateMatrix(); m.setMatrixAt(i, o.matrix);
+    });
+    m.instanceMatrix.needsUpdate = true;
+  });
+  return (
+    <instancedMesh ref={mesh} args={[geo, undefined, N]} receiveShadow>
+      <instancedBufferAttribute attach="instanceColor" args={[colors, 3]} />
+      <meshStandardMaterial roughness={0.9} />
+    </instancedMesh>
+  );
+}
+
+/** Dust kicked up by the hooves. */
+function Dust({ api }: { api: React.RefObject<((x: number, z: number) => void) | null> }) {
+  const N = 48;
+  const mesh = useRef<THREE.InstancedMesh>(null);
+  const st = useRef({ x: new Float32Array(N), z: new Float32Array(N), life: new Float32Array(N), next: 0 });
   const o = useMemo(() => new THREE.Object3D(), []);
   useEffect(() => {
     api.current = (x, z) => {
-      const s = state.current;
-      for (let k = 0; k < 3; k++) {
+      const s = st.current;
+      for (let k = 0; k < 2; k++) {
         const i = s.next; s.next = (s.next + 1) % N;
-        s.x[i] = x - 0.6 + (Math.random() - 0.5) * 0.4; s.z[i] = z + (Math.random() - 0.5) * 0.5; s.life[i] = 1;
+        s.x[i] = x - 0.7 + (Math.random() - 0.5) * 0.5; s.z[i] = z + (Math.random() - 0.5) * 0.5; s.life[i] = 1;
       }
     };
   }, [api]);
   useFrame((_, dt) => {
-    const s = state.current, m = mesh.current;
+    const s = st.current, m = mesh.current;
     if (!m) return;
     for (let i = 0; i < N; i++) {
-      s.life[i] = Math.max(0, s.life[i] - dt * 1.3);
+      s.life[i] = Math.max(0, s.life[i] - dt * 1.1);
       const l = s.life[i];
-      o.position.set(s.x[i], 0.06 + (1 - l) * 0.18, s.z[i]);
-      o.scale.setScalar(l > 0 ? 0.03 + (1 - l) * 0.12 : 0);
+      o.position.set(s.x[i], 0.06 + (1 - l) * 0.3, s.z[i]);
+      o.scale.setScalar(l > 0 ? 0.05 + (1 - l) * 0.28 : 0);
       o.updateMatrix(); m.setMatrixAt(i, o.matrix);
     }
     m.instanceMatrix.needsUpdate = true;
   });
   return (
     <instancedMesh ref={mesh} args={[undefined, undefined, N]}>
-      <icosahedronGeometry args={[1, 1]} /><meshStandardMaterial color="#e8d3b0" emissive="#b89a70" emissiveIntensity={0.35} transparent opacity={0.4} roughness={1} depthWrite={false} />
+      <icosahedronGeometry args={[1, 1]} />
+      <meshStandardMaterial color="#e3cfa9" emissive="#a88a60" emissiveIntensity={0.3} transparent opacity={0.32} roughness={1} depthWrite={false} />
     </instancedMesh>
   );
 }
 
 function Scene() {
-  const t0 = useRef<number>(0);
   const dust = useRef<((x: number, z: number) => void) | null>(null);
   const grass = useTex(lawnTexture, 40, 40);
-  useFrame(({ clock }) => { if (!t0.current) t0.current = clock.elapsedTime; });
   return (
     <>
-      <Sky sunPosition={[20, 3.5, -40]} turbidity={6} rayleigh={2.2} mieCoefficient={0.01} mieDirectionalG={0.9} />
-      <fog attach="fog" args={["#f6c99a", 18, 60]} />
-      <hemisphereLight args={["#ffe2c2", "#4d6b35", 0.9]} />
-      <directionalLight position={[8, 10, 6]} intensity={2.4} color="#ffd9a8" castShadow shadow-mapSize={[1024, 1024]}
-        shadow-camera-left={-14} shadow-camera-right={14} shadow-camera-top={10} shadow-camera-bottom={-10} />
-      <mesh rotation-x={-Math.PI / 2} receiveShadow><planeGeometry args={[160, 160]} /><meshStandardMaterial map={grass} roughness={1} /></mesh>
-      <Hills radius={42} count={12} color="#6f9b4c" />
-      <Flowers center={[-3, 3.2]} radius={1.6} count={70} seed={4} />
-      <Flowers center={[4.5, 2.6]} radius={1.2} count={50} seed={9} />
-      {[[-18, 10, -36, 3, 0.4], [14, 12, -42, 3.5, 0.3]].map(([x, y, z, sc, sp], i) => <Cloud key={i} position={[x, y, z]} scale={sc} speed={sp} span={100} />)}
-      <HorseAndRider t0={t0} onDust={(x, z) => dust.current?.(x, z)} />
+      <Sky sunPosition={[30, 4, -60]} turbidity={7} rayleigh={2.6} mieCoefficient={0.012} mieDirectionalG={0.92} />
+      <fog attach="fog" args={["#f2c79c", 16, 70]} />
+      <hemisphereLight args={["#fff0dc", "#6b8a4a", 1.25]} />
+      <directionalLight position={[10, 9, -4]} intensity={2.6} color="#ffcf95" castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004}
+        shadow-camera-left={-12} shadow-camera-right={12} shadow-camera-top={8} shadow-camera-bottom={-8} shadow-camera-far={40} />
+      <directionalLight position={[-6, 5, 9]} intensity={1.3} color="#ffe9d0" />
+      <Environment resolution={128} environmentIntensity={1.4}>
+        <Lightformer intensity={1.4} color="#ffd9a8" position={[10, 4, -8]} scale={[10, 5, 1]} />
+        <Lightformer intensity={0.5} color="#bcd7ff" position={[-8, 6, 6]} scale={[8, 4, 1]} />
+      </Environment>
+      <mesh rotation-x={-Math.PI / 2} receiveShadow><planeGeometry args={[200, 200]} /><meshStandardMaterial map={grass} color="#b5cf8a" roughness={1} /></mesh>
+      <Grass />
+      <Hills radius={46} count={13} color="#6f9b4c" />
+      <Flowers center={[-4.5, -1.5]} radius={1.6} count={70} seed={4} />
+      <Flowers center={[4.6, -3.5]} radius={1.3} count={55} seed={9} />
+      {[[-18, 10, -38, 3, 0.4], [16, 12, -46, 3.6, 0.3], [-2, 14, -52, 2.6, 0.35]].map(([x, y, z, sc, sp], i) => <Cloud key={i} position={[x, y, z]} scale={sc} speed={sp} span={110} />)}
+      <Fence />
+      <Suspense fallback={null}>
+        <HorseAndRider onDust={(x, z) => dust.current?.(x, z)} />
+      </Suspense>
       <Dust api={dust} />
-      <ContactShadows position={[0, 0.01, 0]} opacity={0.4} scale={30} blur={2.4} far={2} />
+      <ContactShadows position={[0, 0.01, 0]} opacity={0.35} scale={30} blur={2.6} far={2.5} />
     </>
   );
 }
@@ -233,7 +237,7 @@ function Scene() {
 export default function HorseRide({ onDone }: { onDone: () => void }) {
   const [open, setOpen] = useState(true);
   useEffect(() => {
-    const t = window.setTimeout(() => setOpen(false), DURATION * 1000 + 400);
+    const t = window.setTimeout(() => setOpen(false), DURATION * 1000 + 500);
     const key = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     window.addEventListener("keydown", key);
     return () => { window.clearTimeout(t); window.removeEventListener("keydown", key); };
@@ -242,8 +246,8 @@ export default function HorseRide({ onDone }: { onDone: () => void }) {
     <AnimatePresence onExitComplete={onDone}>
       {open && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.45 }}
-          className="fixed inset-0 z-[100] cursor-pointer bg-[#f6c99a]" onClick={() => setOpen(false)} role="dialog" aria-label="Easter egg: a horse ride">
-          <Canvas shadows camera={{ position: [0, 1.7, 6.6], fov: 42 }} dpr={[1, 1.75]} onCreated={({ camera }) => camera.lookAt(0.4, 1.1, 0)}>
+          className="fixed inset-0 z-[100] cursor-pointer bg-[#f2c79c]" onClick={() => setOpen(false)} role="dialog" aria-label="Easter egg: a horse ride">
+          <Canvas shadows camera={{ position: [0, 1.6, 7.2], fov: 40 }} dpr={[1, 1.75]} gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}>
             <Scene />
           </Canvas>
           <motion.div initial={{ y: -30, opacity: 0, rotate: -6 }} animate={{ y: 0, opacity: 1, rotate: -3 }} transition={{ delay: 0.5, type: "spring", stiffness: 220, damping: 16 }}

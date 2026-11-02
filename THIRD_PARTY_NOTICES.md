@@ -14,3 +14,10 @@ restriction, subject to including the copyright notice and permission notice in 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 
 Data sources (OpenAlex, Crossref, arXiv, Semantic Scholar, Open Library) are accessed through their public APIs under their own terms.
+
+## 3D models (easter egg)
+
+- `frontend/public/models/easter/horse.glb`: "Horse" by [Quaternius](https://quaternius.com), CC0 1.0 (public domain).
+- `frontend/public/models/easter/rider.glb`: "Woman" by [Quaternius](https://quaternius.com), CC0 1.0 (public domain).
+
+Both were trimmed to the animations used and quantized; no other changes.
