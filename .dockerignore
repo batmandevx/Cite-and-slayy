@@ -9,6 +9,8 @@ _other_agent
 .env.*
 .env.server
 frontend/.env*
+# ...except the private website settings file (public NEXT_PUBLIC_ values only; untracked by git)
+!frontend/.env.local
 deploy/Caddyfile.generated
 .aws-deploy.env
 *.pem
