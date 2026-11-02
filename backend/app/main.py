@@ -357,6 +357,74 @@ async def admin_upi_claims(request: Request, status: str = "pending_verification
     return [r for r in rows if status == "all" or r.get("status") == status]
 
 
+def _member_row(u: dict) -> dict:
+    from backend.accounts.plans import PLANS, plan_of
+    eff = plan_of(u)
+    plan = next((k for k, v in PLANS.items() if v is eff), "free")
+    b = auth.bonus(u) or {}
+    return {"uid": u.get("uid"), "email": u.get("email"), "name": u.get("name"), "plan": "founder" if auth.is_owner(u) else plan,
+            "source": "razorpay" if u.get("subscription_id") else "upi" if u.get("plan_expires") else None,
+            "renews_at": u.get("renews_at"), "plan_expires": u.get("plan_expires"), "cancel_at_period_end": bool(u.get("cancel_at_period_end")),
+            "pack_credits": sum((b.get("credits") or {}).values()) if b else 0, "created_at": u.get("created_at"),
+            "is_founder": auth.is_owner(u), "removed_at": u.get("plan_removed_at")}
+
+
+@app.get("/api/admin/members")
+async def admin_members(request: Request, q: str = "", show: str = "paid"):
+    """Owner: find members and see their plan (paid = Pro, Max, an active Paper Pack, or a cancellation in progress)."""
+    _owner(request)
+    needle = q.strip().lower()
+    rows = [_member_row(u) for u in get_store().list("user", 5000)]
+    if needle:
+        rows = [r for r in rows if needle in (r["email"] or "").lower() or needle in (r["name"] or "").lower()]
+    if show == "paid":
+        rows = [r for r in rows if r["plan"] in ("pro", "max") or r["pack_credits"] or r["cancel_at_period_end"]]
+    return rows[:300]
+
+
+class RemovePlan(BaseModel):
+    when: Literal["now", "period_end"] = "now"
+    remove_pack: bool = False
+    note: str = ""
+
+
+@app.post("/api/admin/members/{uid}/remove-plan")
+async def admin_remove_plan(uid: str, body: RemovePlan, request: Request):
+    """Owner: end a member's subscription. 'now' stops billing and drops them to Free immediately; 'period_end' stops
+    future renewals but lets them keep what they paid for. Optionally clears unused Paper Pack credits too."""
+    import asyncio
+    from backend.accounts import billing
+    from backend.cache.store import now as store_now
+    boss = _owner(request)
+    target = auth.get_user(uid)
+    if not target:
+        raise HTTPException(404, "member not found")
+    if auth.is_owner(target):
+        raise HTTPException(403, "Founder accounts can't be downgraded")
+    sub_id = target.get("subscription_id")
+    if sub_id and billing.enabled():
+        if body.when == "now":
+            await asyncio.to_thread(billing._cancel_now, sub_id)
+        else:
+            try:
+                await billing._rzp("POST", f"/subscriptions/{sub_id}/cancel", {"cancel_at_cycle_end": True})
+            except HTTPException:
+                pass   # already cancelled or not found at Razorpay: still update our side below
+    if body.when == "now":
+        target.update(plan="free", subscription_id=None, renews_at=None, plan_expires=None, cancel_at_period_end=False)
+    else:
+        target["cancel_at_period_end"] = True     # UPI plans simply lapse at plan_expires; Razorpay stops renewing
+    if body.remove_pack:
+        target.pop("bonus", None)
+    target["plan_removed_at"] = store_now().isoformat()
+    get_store().put("user", uid, target)
+    log_id = f"{uid}-{int(store_now().timestamp())}"
+    get_store().put("admin_log", log_id, {"action": "remove_plan", "uid": uid, "email": target.get("email"), "when": body.when,
+                                          "remove_pack": body.remove_pack, "note": body.note[:300], "by": boss.get("email"),
+                                          "at": store_now().isoformat()})
+    return _member_row(target)
+
+
 class ClaimDecision(BaseModel):
     note: str = ""
 

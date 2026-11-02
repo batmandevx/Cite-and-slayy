@@ -383,3 +383,36 @@ def test_profile_name_and_founder_display_name(prod, monkeypatch):
     assert u.post("/api/account/profile", json={"name": "  Priya   Sharma "}).json()["name"] == "Priya Sharma"
     assert u.get("/api/auth/me").json()["name"] == "Priya Sharma"
     assert u.post("/api/account/profile", json={"name": "x"}).status_code == 400
+
+
+def test_owner_can_remove_a_members_subscription(prod, monkeypatch):
+    monkeypatch.setenv("OWNER_EMAILS", "boss@x.org")
+    get_settings.cache_clear()
+    from backend.accounts import billing
+    cancelled = []
+    monkeypatch.setattr(billing, "_cancel_now", lambda sid: cancelled.append(sid))
+    cust = login(prod, "member@x.org")
+    uid = cust.get("/api/auth/me").json()["uid"]
+    from backend.accounts import auth
+    u = auth.get_user(uid)
+    u.update(plan="max", subscription_id="sub_123", renews_at="2999-01-01T00:00:00+00:00")
+    from backend.cache.store import get_store
+    get_store().put("user", uid, u)
+    auth.grant_pack(u, "order_1")
+
+    assert cust.get("/api/admin/members").status_code == 403                       # members can't see the list
+    assert cust.post(f"/api/admin/members/{uid}/remove-plan", json={}).status_code == 403
+    boss = login(prod, "boss@x.org")
+    rows = boss.get("/api/admin/members?q=member").json()
+    assert [r["email"] for r in rows] == ["member@x.org"] and rows[0]["plan"] == "max" and rows[0]["pack_credits"] > 0
+
+    boss_uid = boss.get("/api/auth/me").json()["uid"]
+    assert boss.post(f"/api/admin/members/{boss_uid}/remove-plan", json={}).status_code == 403   # founders are protected
+
+    r = boss.post(f"/api/admin/members/{uid}/remove-plan", json={"when": "now", "remove_pack": True, "note": "chargeback"})
+    assert r.status_code == 200 and r.json()["plan"] == "free" and r.json()["pack_credits"] == 0
+    assert cancelled == ["sub_123"]                                                # Razorpay billing stopped
+    me = cust.get("/api/auth/me").json()
+    assert me["plan"] == "free"
+    log = get_store().list("admin_log", 10)
+    assert log and log[0]["by"] == "boss@x.org" and log[0]["note"] == "chargeback"

@@ -19,6 +19,7 @@ import { PinBoard } from "@/components/PinBoard";
 import { Sidebar, useRailWidth } from "@/components/Sidebar";
 import { ToolboxTab } from "@/components/ToolboxTab";
 import { AdminPaymentsTab } from "@/components/AdminPaymentsTab";
+import { MembersAdmin } from "@/components/admin/MembersAdmin";
 import { TurnitinTab } from "@/components/TurnitinTab";
 import { VenuesTab } from "@/components/VenuesTab";
 import { useAuth, usePaid } from "@/components/auth/AuthProvider";
@@ -38,7 +39,7 @@ import type { Health } from "@/lib/types";
 type Tab = "home" | "studio" | "turnitin" | "venues" | "explore" | "draft" | "audit" | "verdict" | "notes" | "library" | "toolbox" | "play" | "admin";
 const VALID_TABS = new Set<string>(["home", "studio", "turnitin", "venues", "explore", "draft", "audit", "verdict", "notes", "library", "toolbox", "play", "admin"]);
 const ADMIN: { id: Tab; label: string; q: string; icon: typeof Compass; color: string; badge?: string }[] = [
-  { id: "admin", label: "Payments", q: "Approve UPI payments", icon: IndianRupee, color: "bg-yellow" },
+  { id: "admin", label: "Payments & members", q: "UPI payments, subscriptions", icon: IndianRupee, color: "bg-yellow" },
 ];
 const TABS: { id: Tab; n: number; label: string; q: string; icon: typeof Compass; color: string }[] = [
   { id: "explore", n: 1, label: "Explore gaps", q: "What should I research?", icon: Compass, color: "bg-lime" },
@@ -235,7 +236,7 @@ function Dashboard() {
                 )}
                 {safeTab === "venues" && <LockedTab feature="venues" title="Find the right journal or conference" perks={["Ranked venues matched to your title and abstract", "Live open calls for papers with deadline countdowns", "Journal activity, review speed and APCs, with quality warnings"]}><VenuesTab /></LockedTab>}
                 {safeTab === "toolbox" && <ToolboxTab />}
-                {safeTab === "admin" && me?.is_owner && <AdminPaymentsTab />}
+                {safeTab === "admin" && me?.is_owner && <div className="space-y-6"><MembersAdmin /><AdminPaymentsTab /></div>}
                 {safeTab === "notes" && <NotesTab />}
                 {safeTab === "library" && <LibraryTab />}
                 {safeTab === "play" && <PlayTab />}
