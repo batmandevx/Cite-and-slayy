@@ -33,7 +33,7 @@ export function FoundersSpotlight({ compact = false }: { compact?: boolean }) {
         </motion.span>
         <motion.h2 initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ ...pop, delay: 0.08 }}
           className="mx-auto mt-5 max-w-3xl font-display text-4xl font-extrabold leading-[1.02] tracking-tight md:text-6xl">
-          {BUSINESS.team.length > 1 ? "The minds" : "The mind"} behind <span className="gradient-text">Cite &amp; Slayy</span>
+          {BUSINESS.team.length > 1 ? "The minds" : "The mind"} behind <span className="gradient-text whitespace-nowrap">Cite&nbsp;&amp;&nbsp;Slayy</span>
         </motion.h2>
         <p className="mx-auto mt-3 max-w-xl text-lg text-ink-2">One mission: research you can trust, for everyone.</p>
       </div>
