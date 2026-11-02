@@ -11,7 +11,7 @@ import { Toc } from "./Toc";
 export interface Glance { icon: ReactNode; title: string; text: string; color: string }
 
 const POLICIES = [
-  { href: "/about", label: "About & support" }, { href: "/terms", label: "Terms of Service" }, { href: "/privacy", label: "Privacy Policy" },
+  { href: "/about", label: "About us" }, { href: "/support", label: "Help centre" }, { href: "/terms", label: "Terms of Service" }, { href: "/privacy", label: "Privacy Policy" },
   { href: "/refund", label: "Cancellation & Refunds" }, { href: "/contact", label: "Contact" },
 ];
 
@@ -27,7 +27,8 @@ export function PolicyShell({ eyebrow, title, intro, icon, heroColor = "bg-surfa
           <Link href="/" aria-label="Cite & Slayy home"><Logo /></Link>
           <nav className="flex items-center gap-4 text-sm font-bold">
             <Link href="/pricing" className="hidden hover:underline sm:inline">Pricing</Link>
-            <Link href="/about" className="hidden hover:underline sm:inline">Support</Link>
+            <Link href="/about" className="hidden hover:underline sm:inline">About</Link>
+            <Link href="/support" className="hidden hover:underline sm:inline">Support</Link>
             <Link href="/app" className="btn-brut rounded-xl bg-lime px-4 py-2 text-[#121212]">Open the app</Link>
           </nav>
         </div>

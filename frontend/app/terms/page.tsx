@@ -130,7 +130,7 @@ export default function Terms() {
 
       <Section id="termination" n={12} title="Suspension & termination" icon={<Ban className="size-5" />}>
         <ul>
-          <li>You can stop using the Service and delete your account at any time (see <Link href="/about#faq">support</Link>).</li>
+          <li>You can stop using the Service and delete your account at any time (see <Link href="/support#help">support</Link>).</li>
           <li>We may suspend or close accounts that break these Terms, abuse the Service, commit payment fraud or put other users at risk. Where reasonable, we&apos;ll warn you first.</li>
           <li>Sections about content, disclaimers, liability and governing law continue after your account ends.</li>
         </ul>

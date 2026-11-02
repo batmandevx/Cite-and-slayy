@@ -40,7 +40,7 @@ export default function Contact() {
           <li><b>Country:</b> {BUSINESS.country}</li>
           <li><b>Response time:</b> <Clock className="mb-0.5 inline size-4" /> within 2 business days</li>
         </ul>
-        <p>For help with common questions, see <Link href="/about#faq">About &amp; support</Link>.</p>
+        <p>For help with common questions, see <Link href="/support#help">the help centre</Link>.</p>
       </Section>
     </PolicyShell>
   );

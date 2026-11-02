@@ -341,7 +341,7 @@ function LandingInner() {
         </p>
         <FeatureLinks className="flex w-full flex-wrap gap-x-4 gap-y-2 text-xs font-bold md:order-last" />
         <nav className="flex flex-wrap gap-4 text-xs font-bold">
-          <Link href="/about">About &amp; support</Link><Link href="/pricing">Pricing</Link><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link>
+          <Link href="/about">About</Link><Link href="/support">Help centre</Link><Link href="/pricing">Pricing</Link><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link>
           <Link href="/refund">Refunds</Link><Link href="/contact">Contact</Link>
           <a href={`mailto:${BUSINESS.email}`}>Support: {BUSINESS.email}</a>
         </nav>

@@ -243,7 +243,7 @@ function Dashboard() {
             </AnimatePresence>
             <footer className="mt-12 border-t-2 border-dashed border-line pt-5 text-xs text-muted">
               <span className="mr-2 hidden sm:inline">Shortcuts: <kbd className="rounded border-2 border-edge px-1">1</kbd>–<kbd className="rounded border-2 border-edge px-1">4</kbd> steps · <kbd className="rounded border-2 border-edge px-1">S</kbd> slay it · <kbd className="rounded border-2 border-edge px-1">A</kbd> Azora AI · <kbd className="rounded border-2 border-edge px-1">H</kbd> home ·</span>
-              Data: OpenAlex, arXiv, Semantic Scholar, Crossref (incl. Retraction Watch). <a href="/about" target="_blank" rel="noopener" className="font-bold underline">About us &amp; support</a>
+              Data: OpenAlex, arXiv, Semantic Scholar, Crossref (incl. Retraction Watch). <a href="/support" target="_blank" rel="noopener" className="font-bold underline">Help &amp; support</a> · <a href="/about" target="_blank" rel="noopener" className="underline">About us</a>
             </footer>
           </div>
         </main>
