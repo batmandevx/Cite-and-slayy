@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode
 
@@ -54,6 +54,10 @@ def _http() -> httpx.AsyncClient:
     return _client
 
 
+def _aware(ts: datetime) -> datetime:
+    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+
+
 class SourceClient:
     def __init__(self, source: str, min_interval: float, headers: dict | None = None,
                  default_params: dict | None = None, max_concurrency: int = 4):
@@ -80,7 +84,8 @@ class SourceClient:
             self._last = time.monotonic()
 
     async def get(self, url: str, params: dict | None = None, *, as_text: bool = False,
-                  use_cache: bool = True) -> Fetched:
+                  use_cache: bool = True, max_age: float | None = None) -> Fetched:
+        """max_age (seconds): treat cached copies older than this as stale and fetch again (for live data)."""
         self._bind()
         public_params = dict(params or {})
         full_params = {**self.default_params, **public_params}
@@ -93,7 +98,9 @@ class SourceClient:
                 hit = store.cache_get(store.request_key("GET", url, full_params))
             if hit is not None:
                 body, ts = hit
-                return Fetched(body["data"], body["status"], public_url, ts, True)
+                fresh = max_age is None or (datetime.now(timezone.utc) - _aware(ts)).total_seconds() <= max_age
+                if fresh:
+                    return Fetched(body["data"], body["status"], public_url, ts, True)
 
         last_err = "unknown error"
         for attempt in range(6):

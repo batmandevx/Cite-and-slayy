@@ -233,7 +233,7 @@ function Dashboard() {
                     onOpenStudio={(pid) => { setStudioPaper(pid); go("studio"); }}
                   />
                 )}
-                {safeTab === "venues" && <LockedTab feature="venues" title="Find the right journal or conference" perks={["Ranked venues matched to your title and abstract", "Scope fit, open-access options and Microsoft CMT conferences", "Feeds straight into your submission kit"]}><VenuesTab /></LockedTab>}
+                {safeTab === "venues" && <LockedTab feature="venues" title="Find the right journal or conference" perks={["Ranked venues matched to your title and abstract", "Live open calls for papers with deadline countdowns", "Journal activity, review speed and APCs, with quality warnings"]}><VenuesTab /></LockedTab>}
                 {safeTab === "toolbox" && <ToolboxTab />}
                 {safeTab === "admin" && me?.is_owner && <AdminPaymentsTab />}
                 {safeTab === "notes" && <NotesTab />}

@@ -14,10 +14,12 @@ from datetime import date
 from rapidfuzz import fuzz
 
 from backend.embeddings.model import embed_async
-from backend.sources import openalex
+from backend.sources import doaj, openalex, wikicfp
 from backend.sources.http import SourceError
 
-SRC_SELECT = "id,display_name,type,host_organization_name,homepage_url,is_oa,is_in_doaj,apc_usd,summary_stats,works_count"
+LIVE = 24 * 3600            # venue data is refreshed daily; calls for papers every few hours (see wikicfp.search)
+
+SRC_SELECT = "id,display_name,type,host_organization_name,homepage_url,is_oa,is_in_doaj,apc_usd,summary_stats,works_count,issn_l,issn"
 SKIP = {"repository", "ebook platform"}
 PREPRINT_NAMES = ("arxiv", "biorxiv", "medrxiv", "chemrxiv", "ssrn", "zenodo", "research square", "osf preprints", "hal", "techrxiv")
 
@@ -160,11 +162,12 @@ async def find(title: str, abstract: str = "", kind: str = "any", oa_only: bool 
         try:
             f = await openalex.client().get(f"{openalex.BASE}/works", {
                 "search": q, "filter": flt, "per-page": 50, "select": openalex.SELECT,
-            })
+            }, max_age=LIVE)
             return (f.data or {}).get("results", []), None
         except SourceError as e:
             return [], e.reason
 
+    calls_task = asyncio.create_task(calls_for_papers(raw_title, raw_abs)) if kind != "journal" else None
     batches = await asyncio.gather(*[_fetch_query(q) for q in queries])
     works: dict[str, dict] = {}
     last_err: str | None = None
@@ -187,7 +190,8 @@ async def find(title: str, abstract: str = "", kind: str = "any", oa_only: bool 
                     works.setdefault(w["id"], w)
 
     if not works and last_err:
-        return {"venues": [], "note": f"Couldn't reach OpenAlex right now ({last_err}). Try again in a moment."}
+        return {"venues": [], "calls": await _await_calls(calls_task), "checked_at": _now(),
+                "note": f"Couldn't reach OpenAlex right now ({last_err}). Try again in a moment."}
 
     ws = list(works.values())
     doc_texts = [
@@ -239,7 +243,7 @@ async def find(title: str, abstract: str = "", kind: str = "any", oa_only: bool 
                 "filter": "ids.openalex:" + "|".join(sid for sid, _ in top),
                 "per-page": 50,
                 "select": SRC_SELECT,
-            })
+            }, max_age=LIVE)
             meta = {r["id"].replace("https://openalex.org/", ""): r for r in (f.data or {}).get("results", []) if r.get("id")}
         except SourceError:
             meta = {}
@@ -273,6 +277,7 @@ async def find(title: str, abstract: str = "", kind: str = "any", oa_only: bool 
             "h_index": stats.get("h_index"),
             "mean_citedness_2yr": round(stats["2yr_mean_citedness"], 2) if stats.get("2yr_mean_citedness") else None,
             "works_count": m.get("works_count"),
+            "issn": m.get("issn_l") or (m.get("issn") or [None])[0],
             "similar_papers": g["n"],
             "fit": max(20, min(100, round(100 * (g["score"] / best) ** 0.65))),
             "examples": g["examples"],
@@ -296,7 +301,7 @@ async def find(title: str, abstract: str = "", kind: str = "any", oa_only: bool 
                 "filter": ",".join(src_flt),
                 "per-page": 12,
                 "select": SRC_SELECT,
-            })
+            }, max_age=LIVE)
             for r in (sf.data or {}).get("results", []):
                 sid = (r.get("id") or "").replace("https://openalex.org/", "")
                 dname = (r.get("display_name") or "").strip()
@@ -317,6 +322,7 @@ async def find(title: str, abstract: str = "", kind: str = "any", oa_only: bool 
                     "h_index": stats.get("h_index"),
                     "mean_citedness_2yr": round(stats["2yr_mean_citedness"], 2) if stats.get("2yr_mean_citedness") else None,
                     "works_count": r.get("works_count"),
+                    "issn": r.get("issn_l") or (r.get("issn") or [None])[0],
                     "similar_papers": 0,
                     "fit": 55,
                     "examples": [],
@@ -326,13 +332,123 @@ async def find(title: str, abstract: str = "", kind: str = "any", oa_only: bool 
         except SourceError:
             pass
 
+    calls = await _await_calls(calls_task)
     if not out:
-        return {"venues": [], "searched": len(ws), "since": since[:4],
+        return {"venues": [], "calls": calls, "searched": len(ws), "since": since[:4], "checked_at": _now(),
                 "note": "No matching peer-reviewed venues found for those filters. Try switching to 'All venues' or broadening the title."}
 
+    try:
+        await asyncio.wait_for(_enrich(out), timeout=15)   # live extras must never stall the results
+    except asyncio.TimeoutError:
+        pass
     return {
         "venues": out,
+        "calls": calls,
+        "checked_at": _now(),
         "searched": len(ws),
         "since": since[:4],
         "note": "Always verify the venue's scope, deadlines, and author guidelines. Vet unfamiliar journals with Think. Check. Submit.",
     }
+
+
+# ---------------------------------------------------------------- live data
+
+def _now() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+async def _await_calls(task: asyncio.Task | None) -> list[dict]:
+    if task is None:
+        return []
+    try:
+        return await asyncio.wait_for(task, timeout=25)
+    except Exception:  # noqa: BLE001 - calls for papers are a bonus; never fail or stall the venue search for them
+        return []
+
+
+async def _enrich(venues: list[dict]) -> None:
+    """Add live facts: papers published in the last 12 months (OpenAlex) and, for DOAJ journals, time to publication and APC."""
+    from datetime import timedelta
+    ids = [v["id"] for v in venues if v.get("id", "").startswith("S")]
+    year_ago = (date.today() - timedelta(days=365)).isoformat()
+
+    async def recent() -> dict[str, int]:
+        if not ids:
+            return {}
+        try:
+            f = await openalex.client().get(f"{openalex.BASE}/works", {
+                "filter": f"primary_location.source.id:{'|'.join(ids)},from_publication_date:{year_ago}",
+                "group_by": "primary_location.source.id"}, max_age=LIVE)
+        except SourceError:
+            return {}
+        return {(g.get("key") or "").replace("https://openalex.org/", ""): g.get("count", 0) for g in (f.data or {}).get("group_by", [])}
+
+    async def doaj_facts(v: dict) -> None:
+        if not (v.get("in_doaj") and v.get("issn")):
+            return
+        try:
+            v["doaj"] = await doaj.journal(v["issn"])
+        except SourceError:
+            pass
+
+    counts, *_ = await asyncio.gather(recent(), *[doaj_facts(v) for v in venues[:12]])
+    for v in venues:
+        n = counts.get(v["id"])
+        if n is not None:
+            v["papers_last_12m"] = n
+            v["activity"] = "very active" if n >= 300 else "active" if n >= 30 else "quiet" if n > 0 else "no recent papers"
+        # Honest quality hint: huge output with almost no citations is a common sign of a mass-publishing venue.
+        cites, h = v.get("mean_citedness_2yr"), v.get("h_index")
+        if (n or 0) >= 1500 and (cites is None or cites < 0.6) or (h is not None and h < 8 and (v.get("works_count") or 0) > 2000):
+            v["caution"] = "Very high volume with few citations: check its indexing and peer review before submitting."
+    venues.sort(key=lambda v: bool(v.get("caution")))       # stable: keeps fit order, cautioned venues last
+
+
+def _cfp_queries(title: str, abstract: str) -> list[str]:
+    toks = _extract_tokens(title, drop_coined=True, max_tokens=8) or _extract_tokens(title, drop_coined=False, max_tokens=6)
+    a = [w for w in _extract_tokens(abstract, drop_coined=True, max_tokens=8) if w.lower() not in {t.lower() for t in toks}]
+    qs = []
+    if len(toks) >= 2:
+        qs.append(" ".join(toks[:2]))
+    if len(toks) >= 4:
+        qs.append(" ".join(toks[2:4]))
+    elif toks:
+        qs.append(toks[0])
+    if len(a) >= 2:
+        qs.append(" ".join(a[:2]))
+    return list(dict.fromkeys(q for q in qs if q))[:3]
+
+
+async def calls_for_papers(title: str, abstract: str = "", limit: int = 10) -> list[dict]:
+    """Upcoming conferences with open submission deadlines, ranked by how close their theme is to the paper."""
+    text = f"{title}. {abstract}".strip(". ")
+    events: dict[str, dict] = {}
+    for q in _cfp_queries(title, abstract):
+        try:
+            for e in await wikicfp.search(q):
+                events.setdefault(e["url"], e)
+        except SourceError:
+            continue
+    today = date.today().isoformat()
+    open_ = []
+    for e in events.values():
+        upcoming = [d for d in e["deadlines"] if d >= today]
+        if not upcoming:
+            continue
+        e = {**e, "deadline": upcoming[0], "later_deadline": upcoming[1] if len(upcoming) > 1 else None}
+        open_.append(e)
+    if not open_:
+        return []
+    sims = await _similarity_scores(text, [f"{e['acronym']}: {e['name']}" for e in open_])
+    ranked = sorted(zip(open_, sims), key=lambda p: -p[1])
+    top = ranked[0][1]
+    keep = [(e, s) for e, s in ranked if s >= max(0.3, top * 0.6)][:limit]
+    out = []
+    for e, s in keep:
+        days = (date.fromisoformat(e["deadline"]) - date.today()).days
+        label = f"{e['acronym']} {e['name']}"
+        backed = re.search(r"\b(IEEE|ACM|Springer|Elsevier|AAAI|IFIP|SIAM|USENIX)\b", label) is not None
+        out.append({**e, "relevance": round(float(s), 2), "days_left": days, "publisher_backed": backed,
+                    "kind": "journal call" if re.match(r"(?i)\s*international journal", e["name"]) else "conference"})
+    return sorted(out, key=lambda e: (not e["publisher_backed"], e["deadline"]))

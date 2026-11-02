@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { BookOpenCheck, ExternalLink, Landmark, Loader2, Search, Unlock } from "lucide-react";
+import { AlertTriangle, BookOpenCheck, CalendarClock, Clock3, ExternalLink, Landmark, Loader2, MapPin, Radio, Search, ShieldCheck, Unlock } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, toast } from "@/lib/api";
@@ -22,6 +22,64 @@ interface Venue {
   similar_papers: number;
   fit: number;
   examples: { title: string; year?: number; url?: string }[];
+  papers_last_12m?: number;
+  activity?: string;
+  caution?: string;
+  doaj?: { weeks_to_publication?: number | null; apc?: { amount?: number | null; currency?: string | null } | null; waiver?: boolean | null; review?: string | null } | null;
+}
+
+interface Call {
+  acronym: string; name: string; url: string; start?: string | null; end?: string | null; where?: string | null;
+  deadline: string; later_deadline?: string | null; days_left: number; publisher_backed: boolean; kind: string;
+}
+
+type Result = { venues: Venue[]; calls?: Call[]; checked_at?: string; searched?: number; since?: string; note?: string };
+
+const fmt = (iso?: string | null) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "");
+
+function CallsForPapers({ calls }: { calls: Call[] }) {
+  if (!calls.length) return null;
+  return (
+    <div className="rounded-2xl border-[2.5px] border-edge bg-surface-2 p-3.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <CalendarClock className="size-5" />
+        <div className="font-display text-lg font-extrabold">Open calls for papers</div>
+        <span className="rounded-full border-2 border-edge bg-pink px-2 py-0.5 text-[10px] font-extrabold uppercase text-[#121212]">Live</span>
+        <span className="text-[11px] text-muted">Upcoming deadlines for related conferences, soonest first</span>
+      </div>
+      <div className="mt-3 grid gap-2.5 md:grid-cols-2">
+        {calls.map((c, i) => {
+          const urgent = c.days_left <= 7, soon = c.days_left <= 30;
+          return (
+            <motion.a key={c.url} href={c.url} target="_blank" rel="noreferrer" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
+              className="group flex gap-3 rounded-xl border-2 border-edge bg-surface p-3 transition hover:-translate-y-0.5 hover:shadow-[3px_3px_0_var(--shadow-c)]">
+              <div className={clsx("grid w-16 shrink-0 place-items-center rounded-xl border-2 border-edge py-1.5 text-center text-[#121212]",
+                urgent ? "bg-pink" : soon ? "bg-yellow" : "bg-lime")}>
+                <div className="font-display text-2xl font-extrabold leading-none">{c.days_left}</div>
+                <div className="text-[9px] font-extrabold uppercase">{c.days_left === 1 ? "day left" : "days left"}</div>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="font-display font-extrabold leading-tight group-hover:underline">{c.acronym}</span>
+                  {c.publisher_backed
+                    ? <span className="inline-flex items-center gap-0.5 rounded-full border-2 border-edge bg-mint px-1.5 text-[9px] font-extrabold uppercase text-[#121212]"><ShieldCheck className="size-2.5" />Publisher-backed</span>
+                    : <span className="rounded-full border-2 border-edge bg-surface-2 px-1.5 text-[9px] font-extrabold uppercase text-muted" title="Listings come from WikiCFP and are not vetted">Unvetted listing</span>}
+                  {c.kind === "journal call" && <span className="rounded-full border-2 border-edge bg-surface-2 px-1.5 text-[9px] font-extrabold uppercase">Journal call</span>}
+                </div>
+                <div className="line-clamp-2 text-xs text-ink-2">{c.name}</div>
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] font-semibold text-muted">
+                  <span className="inline-flex items-center gap-1"><Clock3 className="size-3" />Deadline {fmt(c.deadline)}{c.later_deadline ? ` · then ${fmt(c.later_deadline)}` : ""}</span>
+                  {c.start && <span className="inline-flex items-center gap-1"><CalendarClock className="size-3" />{fmt(c.start)}{c.end ? ` – ${fmt(c.end)}` : ""}</span>}
+                  {c.where && <span className="inline-flex items-center gap-1"><MapPin className="size-3" />{c.where}</span>}
+                </div>
+              </div>
+            </motion.a>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-[11px] text-muted">From WikiCFP, refreshed every few hours. Check the organiser and where proceedings are indexed before submitting.</p>
+    </div>
+  );
 }
 
 export function VenueFinder({
@@ -42,7 +100,7 @@ export function VenueFinder({
   const [kind, setKind] = useState<"any" | "journal" | "conference">("any");
   const [oa, setOa] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [res, setRes] = useState<{ venues: Venue[]; searched?: number; since?: string; note?: string } | null>(null);
+  const [res, setRes] = useState<Result | null>(null);
   const didAutoRef = useRef<string>("");
 
   const searchVenues = useCallback(
@@ -53,7 +111,7 @@ export function VenueFinder({
       }
       setBusy(true);
       try {
-        const data = await api.post<{ venues: Venue[]; searched?: number; since?: string; note?: string }>("/api/venues/find", {
+        const data = await api.post<Result>("/api/venues/find", {
           title: qTitle.trim(),
           abstract: qAbstract.trim(),
           kind: qKind,
@@ -108,7 +166,7 @@ export function VenueFinder({
           <Landmark className="size-7" />
           <div className="flex-1">
             <div className="font-display text-xl font-extrabold">Find the right journal or conference</div>
-            <div className="text-xs opacity-85">Ranked by where the most similar recent papers were published (OpenAlex, last 6 years)</div>
+            <div className="text-xs opacity-85">Live: where similar papers are being published now, journal activity and open calls for papers (OpenAlex · DOAJ · WikiCFP)</div>
           </div>
         </div>
       )}
@@ -158,16 +216,23 @@ export function VenueFinder({
         {busy && !res?.venues.length && (
           <div className="flex items-center gap-2.5 rounded-2xl border-2 border-dashed border-edge bg-surface-2 px-4 py-6 text-sm font-semibold text-ink-2">
             <Loader2 className="size-4 animate-spin text-blue" />
-            Scanning recent peer-reviewed works and source metrics on OpenAlex…
+            Scanning recent peer-reviewed works, live journal activity and open calls for papers…
           </div>
         )}
 
         {res?.note && (
           <p className="text-xs text-muted">
+            {res.checked_at && (
+              <span className="mr-1.5 inline-flex items-center gap-1 rounded-full border-2 border-edge bg-lime px-1.5 py-px text-[10px] font-extrabold uppercase text-[#121212]">
+                <Radio className="size-2.5 animate-pulse" /> Live · {new Date(res.checked_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            )}
             {res.searched ? `Matched across ${res.searched} recent works since ${res.since} · ` : ""}
             {res.note}
           </p>
         )}
+
+        {res?.calls && res.calls.length > 0 && kind === "conference" && <CallsForPapers calls={res.calls} />}
 
         <div className="grid gap-3 md:grid-cols-2">
           <AnimatePresence>
@@ -208,8 +273,24 @@ export function VenueFinder({
                       DOAJ
                     </span>
                   )}
-                  {v.apc_usd != null && <span className="rounded-full border-2 border-edge bg-surface-2 px-1.5">APC ${v.apc_usd.toLocaleString()}</span>}
+                  {v.apc_usd != null && !v.doaj?.apc?.currency && <span className="rounded-full border-2 border-edge bg-surface-2 px-1.5">APC ${v.apc_usd.toLocaleString()}</span>}
                   {v.h_index != null && <span className="rounded-full border-2 border-edge bg-surface-2 px-1.5">h-index {v.h_index}</span>}
+                  {v.papers_last_12m != null && (
+                    <span className={clsx("inline-flex items-center gap-0.5 rounded-full border-2 border-edge px-1.5",
+                      v.papers_last_12m >= 30 ? "bg-yellow text-[#121212]" : "bg-surface-2")} title="Papers published in the last 12 months (OpenAlex)">
+                      <Radio className="size-2.5" />{v.papers_last_12m.toLocaleString()} papers / 12 mo
+                    </span>
+                  )}
+                  {v.doaj?.weeks_to_publication != null && (
+                    <span className="rounded-full border-2 border-edge bg-mint px-1.5 text-[#121212]" title="Typical weeks from submission to publication (DOAJ)">
+                      ~{v.doaj.weeks_to_publication} wks to publish
+                    </span>
+                  )}
+                  {v.doaj?.apc?.amount != null && v.doaj.apc.currency && (
+                    <span className="rounded-full border-2 border-edge bg-surface-2 px-1.5" title="Current article processing charge (DOAJ)">
+                      APC {v.doaj.apc.currency} {v.doaj.apc.amount.toLocaleString()}{v.doaj.waiver ? " · waivers" : ""}
+                    </span>
+                  )}
                   {v.mean_citedness_2yr != null && (
                     <span
                       className="rounded-full border-2 border-edge bg-surface-2 px-1.5"
@@ -219,6 +300,11 @@ export function VenueFinder({
                     </span>
                   )}
                 </div>
+                {v.caution && (
+                  <div className="mt-2 flex items-start gap-1.5 rounded-lg border-2 border-edge bg-warn-soft px-2 py-1 text-[11px] font-semibold text-warn-ink">
+                    <AlertTriangle className="mt-px size-3.5 shrink-0" />{v.caution}
+                  </div>
+                )}
                 {v.similar_papers > 0 && (
                   <div className="mt-2 text-[11px] text-ink-2">
                     <b>{v.similar_papers}</b> similar recent paper{v.similar_papers === 1 ? "" : "s"} here, e.g.
@@ -272,6 +358,8 @@ export function VenueFinder({
             ))}
           </AnimatePresence>
         </div>
+        {res?.calls && res.calls.length > 0 && kind !== "conference" && <CallsForPapers calls={res.calls} />}
+
         {res && res.venues.length > 0 && (
           <p className="text-[11px] text-muted">
             Fit = similarity-weighted share of matching peer-reviewed works. Always check the venue&apos;s scope, deadlines, and author guidelines; verify unfamiliar journals with Think. Check. Submit.

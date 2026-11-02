@@ -50,6 +50,15 @@ async def _seed_founders() -> None:
         auth.ensure_founders()
     if get_settings().claw_url:
         claw.resume_live_runs()        # live AutoResearchClaw runs survive backend restarts and deploys
+    # Load and run the embedding model once at startup, so no user request pays (or stalls on) the cold start.
+    from backend.embeddings.model import embed_async
+    async def _warm() -> None:
+        try:
+            await embed_async(["warm up"])
+        except Exception:  # noqa: BLE001 - search falls back to fuzzy matching if embeddings are unavailable
+            pass
+    import asyncio as _asyncio
+    _asyncio.get_event_loop().create_task(_warm())
 app.add_middleware(CORSMiddleware, allow_origins=get_settings().cors_origins.split(","),
                    allow_methods=["*"], allow_headers=["*"], allow_credentials=True)
 

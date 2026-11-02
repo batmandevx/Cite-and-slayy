@@ -155,7 +155,9 @@ def test_venue_finder_handles_coined_camel_case_and_hyphenated_titles():
             self.data = data
 
     class _FakeClient:
-        async def get(self, url, params=None):
+        async def get(self, url, params=None, **_):
+            if url.endswith("/works") and "group_by" in (params or {}):
+                return _FakeFetched({"group_by": [{"key": "https://openalex.org/S111", "count": 412}]})
             if url.endswith("/works"):
                 return _FakeFetched({
                     "results": [
@@ -179,14 +181,30 @@ def test_venue_finder_handles_coined_camel_case_and_hyphenated_titles():
                 })
             return _FakeFetched({"results": []})
 
-    orig_client = venue_finder.openalex.client
+    async def _no_calls(*_a, **_k):
+        return []
+
+    orig_client, orig_wiki = venue_finder.openalex.client, venue_finder.wikicfp.search
     venue_finder.openalex.client = lambda: _FakeClient()
+    venue_finder.wikicfp.search = _no_calls
     try:
         res = asyncio.run(venue_finder.find(title, abstract, kind="any", oa_only=False))
         assert len(res["venues"]) >= 1
         assert "IEEE Transactions" in res["venues"][0]["name"]
+        assert res["venues"][0]["papers_last_12m"] == 412 and res["venues"][0]["activity"] == "very active"
+        assert res["calls"] == [] and res["checked_at"]
     finally:
-        venue_finder.openalex.client = orig_client
+        venue_finder.openalex.client, venue_finder.wikicfp.search = orig_client, orig_wiki
+
+
+def test_wikicfp_parser_reads_events_and_deadlines():
+    from backend.sources import wikicfp
+    page = ('<td rowspan="2" align="left"><a href="/cfp/servlet/event.showcfp?eventid=1&amp;copyownerid=2">ML 2027</a></td>\n'
+            '<td align="left" colspan="3">Intl Conf on Machine Learning</td></tr>\n<tr bgcolor="#f6f6f6">\n'
+            '<td align="left">Jul 23, 2027 - Jul 24, 2027</td>\n<td align="left">Bangkok</td>\n<td align="left">May 15, 2027 (Jun 20, 2027)</td>')
+    ev = wikicfp.parse(page)
+    assert ev == [{"acronym": "ML 2027", "name": "Intl Conf on Machine Learning", "url": "http://www.wikicfp.com/cfp/servlet/event.showcfp?eventid=1",
+                   "start": "2027-07-23", "end": "2027-07-24", "where": "Bangkok", "deadlines": ["2027-05-15", "2027-06-20"]}]
 
 
 def test_turnitin_scanner_verbatim_and_ai_stylometric_signals():
