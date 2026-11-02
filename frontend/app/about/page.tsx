@@ -10,7 +10,7 @@ import { SITE_URL } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "About us",
-  description: "Cite & Slayy is an AI research workspace led by Founder & CEO Team member. Real, verified citations for every student and researcher.",
+  description: `Cite & Slayy is an AI research workspace led by ${BUSINESS.team[0].role} ${BUSINESS.team[0].name}. Real, verified citations for every student and researcher.`,
   alternates: { canonical: "/about" },
 };
 
@@ -46,7 +46,7 @@ export default function About() {
         mainEntity: {
           "@type": "Organization", name: BUSINESS.brand, url: SITE_URL, email: BUSINESS.email,
           founder: [
-            { "@type": "Person", name: ceo.name, jobTitle: "Founder & Chief Executive Officer", email: ceo.email },
+            { "@type": "Person", name: ceo.name, jobTitle: ceo.role, email: ceo.email },
           ],
         },
       }} />

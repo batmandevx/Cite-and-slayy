@@ -9,7 +9,7 @@ import { BUSINESS } from "@/lib/business";
 
 const pop = { type: "spring", stiffness: 260, damping: 18 } as const;
 
-// Loaded only when someone finds the easter egg on the team's card.
+// Loaded only when someone finds the easter egg hidden on a team card.
 const HorseRide = dynamic(() => import("./easter/HorseRide"), { ssr: false });
 
 // Per-founder colours from the Slay Pop palette (flat fills, black outlines, hard shadows).
@@ -17,7 +17,6 @@ const LOOK = [
   { banner: "bg-lime", tile: "bg-mint", sticker: "bg-yellow", tilt: 2, Icon: Crown },
   { banner: "bg-pink", tile: "bg-yellow", sticker: "bg-lime", tilt: -2, Icon: Rocket },
 ];
-const RIDER = "Team member";   // her card hides the horse-ride easter egg
 
 /** "Meet the founders" in the site's neo-brutalist style. `compact` is the home-page version. */
 export function FoundersSpotlight({ compact = false }: { compact?: boolean }) {
@@ -45,8 +44,8 @@ export function FoundersSpotlight({ compact = false }: { compact?: boolean }) {
             <motion.article key={f.name} initial={{ opacity: 0, y: 50, rotate: l.tilt * 3, scale: 0.94 }}
               whileInView={{ opacity: 1, y: 0, rotate: l.tilt, scale: 1 }} viewport={{ once: true, margin: "-60px" }}
               transition={{ ...pop, delay: 0.12 * i }} whileHover={reduce ? undefined : { rotate: 0, y: -6 }}
-              onClick={f.name === RIDER ? (e) => { if (!(e.target as HTMLElement).closest("a")) setRide(true); } : undefined}
-              className={`card card-pop overflow-hidden p-0 ${f.name === RIDER ? "cursor-pointer" : ""}`}>
+              onClick={f.easterEgg ? (e) => { if (!(e.target as HTMLElement).closest("a")) setRide(true); } : undefined}
+              className={`card card-pop overflow-hidden p-0 ${f.easterEgg ? "cursor-pointer" : ""}`}>
               {/* banner with halftone dots */}
               <div className={`relative h-32 border-b-[2.5px] border-edge ${l.banner}`}
                 style={{ backgroundImage: "radial-gradient(rgba(18,18,18,.18) 1.4px, transparent 1.6px)", backgroundSize: "14px 14px" }}>
@@ -88,7 +87,7 @@ export function FoundersSpotlight({ compact = false }: { compact?: boolean }) {
         </div>
       </div>
 
-      {ride && <HorseRide onDone={() => setRide(false)} />}
+      {ride && <HorseRide rider={BUSINESS.team.find((m) => m.easterEgg)?.name.split(" ")[0] ?? ""} onDone={() => setRide(false)} />}
 
       {compact && (
         <div className="mt-10 text-center">

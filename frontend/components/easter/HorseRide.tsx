@@ -13,7 +13,7 @@ import { ToneMappingMode } from "postprocessing";
 import { Flowers, sandTexture, useTex, woodTexture } from "../games3d/scenery";
 import { GrassField, heightAt, Pond, Ridge, setRoute, Terrain, Woods } from "./realScenery";
 
-// A hidden treat on the team's founder card: a girl gallops in on her horse, leaps a fence and rides off into the sunset.
+// A hidden treat on a team card: a girl gallops in on her horse, leaps a fence and rides off into the sunset.
 // Models: "Horse" and "Woman" by Quaternius, CC0 1.0 (see public/models/easter/CREDITS.txt).
 
 const HORSE_URL = "/models/easter/horse.glb", RIDER_URL = "/models/easter/rider.glb";
@@ -384,7 +384,7 @@ function Scene({ sound }: { sound: React.RefObject<RideSound | null> }) {
 }
 
 /** Full-screen easter egg overlay; closes itself after the ride (or on click / Escape). */
-export default function HorseRide({ onDone }: { onDone: () => void }) {
+export default function HorseRide({ onDone, rider = "" }: { onDone: () => void; rider?: string }) {
   const [open, setOpen] = useState(true);
   const [muted, setMuted] = useState(false);
   const sound = useRef<RideSound | null>(null);
@@ -409,7 +409,7 @@ export default function HorseRide({ onDone }: { onDone: () => void }) {
           </Canvas>
           <motion.div initial={{ y: -30, opacity: 0, rotate: -6 }} animate={{ y: 0, opacity: 1, rotate: -3 }} transition={{ delay: 0.5, type: "spring", stiffness: 220, damping: 16 }}
             className="sticker pointer-events-none absolute left-1/2 top-8 -translate-x-1/2 bg-yellow text-lg">
-            🐎 Giddy up!
+            🐎 Giddy up{rider ? `, ${rider}` : ""}!
           </motion.div>
           <button onClick={(e) => { e.stopPropagation(); if (muted) { sound.current = startRideSound(); setMuted(false); } else { sound.current?.stop(); sound.current = null; setMuted(true); } }}
             aria-label={muted ? "Sound on" : "Mute"} className="btn-brut absolute right-5 top-6 grid size-10 place-items-center rounded-xl bg-surface text-ink">
