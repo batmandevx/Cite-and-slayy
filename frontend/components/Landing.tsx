@@ -13,6 +13,7 @@ import { api } from "@/lib/api";
 import { Pricing } from "./billing/Pricing";
 import { LandingDemoPapers } from "./DemoPapersShowcase";
 import { PaperBuilder } from "./landing/PaperBuilder";
+import { VideoShowcase } from "./landing/VideoShowcase";
 import { Logo } from "./Logo";
 import { AnimatedNumber } from "./motion";
 import { ThemeProvider, ThemeToggle } from "./theme";
@@ -89,6 +90,7 @@ function LandingInner() {
         <div className="mx-auto flex max-w-[1240px] items-center justify-between gap-4 px-5 py-3.5">
           <Logo />
           <nav className="hidden items-center gap-7 font-display text-[15px] font-bold md:flex">
+            <a href="#watch" className="hover:text-pink">Watch</a>
             <a href="#how" className="hover:text-pink">How it works</a>
             <a href="#demos" className="hover:text-pink">Demo papers</a>
             <a href="#catches" className="hover:text-pink">What it catches</a>
@@ -154,6 +156,9 @@ function LandingInner() {
       <Marquee className="-rotate-1 bg-yellow text-[#121212]"
         items={["Full paper from scratch", "Verified references", "LaTeX · PDF · Word", "IEEE & Springer", "Figures & diagrams",
           "Originality report", "Journal finder", "Revise by chat", "Crossref", "OpenAlex", "arXiv"]} />
+
+      {/* ---------- watch it work ---------- */}
+      <VideoShowcase />
 
       {/* ---------- what you get ---------- */}
       <section className="mx-auto max-w-[1240px] px-5 pt-16">

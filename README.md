@@ -7,13 +7,29 @@
 **A multi-agent research studio that writes the paper, audits every reference against live scholarly databases,
 convenes a reviewer jury, and tells you exactly where to submit.**
 
-[**citeslayy.com**](https://citeslayy.com) · [Features](#-what-it-does) · [Architecture](#-architecture) · [The maths](#-the-maths-behind-the-decisions) · [Quick start](#-quick-start) · [Security](#-security-and-production)
+[**citeslayy.com**](https://citeslayy.com) · [Watch](#-watch-it-work) · [Features](#-what-it-does) · [Architecture](#-architecture) · [The maths](#-the-maths-behind-the-decisions) · [Quick start](#-quick-start) · [Security](#-security-and-production)
 
-![Next.js](https://img.shields.io/badge/Next.js-16-000?logo=nextdotjs) ![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=000) ![FastAPI](https://img.shields.io/badge/FastAPI-Python%203.11-009688?logo=fastapi&logoColor=fff) ![three.js](https://img.shields.io/badge/three.js-R3F-000?logo=threedotjs) ![Tailwind](https://img.shields.io/badge/Tailwind-4-38bdf8?logo=tailwindcss&logoColor=fff) ![AWS](https://img.shields.io/badge/AWS-EC2%20%2B%20Bedrock-ff9900?logo=amazonwebservices&logoColor=fff) ![Tests](https://img.shields.io/badge/tests-89%20passing-2ea44f) ![License](https://img.shields.io/badge/license-MIT-blue)
+![Next.js](https://img.shields.io/badge/Next.js-16-000?logo=nextdotjs) ![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=000) ![FastAPI](https://img.shields.io/badge/FastAPI-Python%203.11-009688?logo=fastapi&logoColor=fff) ![three.js](https://img.shields.io/badge/three.js-R3F-000?logo=threedotjs) ![Tailwind](https://img.shields.io/badge/Tailwind-4-38bdf8?logo=tailwindcss&logoColor=fff) ![AWS](https://img.shields.io/badge/AWS-EC2%20%2B%20Bedrock-ff9900?logo=amazonwebservices&logoColor=fff) ![Tests](https://img.shields.io/badge/tests-110%20passing-2ea44f) ![License](https://img.shields.io/badge/license-MIT-blue)
 
 <img src="docs/screenshots/hero.png" width="100%" alt="Cite & Slayy landing page" />
 
 </div>
+
+---
+
+## 🎬 Watch it work
+
+<p align="center">
+  <a href="docs/media/citeslayy-demo.mp4"><img src="docs/media/citeslayy-demo.gif" width="100%" alt="Cite & Slayy in 23 seconds: a fake reference caught, a full paper written, a retracted paper flagged and a Don't-submit verdict" /></a>
+  <br /><sub><b>The 23-second tour.</b> Click it for the MP4 with sound.</sub>
+</p>
+
+<p align="center">
+  <a href="docs/media/citeslayy-reel.mp4"><img src="docs/media/citeslayy-reel.jpg" width="260" alt="Cite & Slayy one-minute vertical reel" /></a>
+  <br /><sub><b>▶ The 1-minute reel</b> (vertical, with sound): Gap Radar, Paper Studio, CiteGuard, the Reviewer Jury and the venue finder.</sub>
+</p>
+
+Both videos also play on the [landing page](https://citeslayy.com/#watch).
 
 ---
 
