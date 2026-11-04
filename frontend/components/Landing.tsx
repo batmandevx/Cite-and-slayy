@@ -10,6 +10,9 @@ import Link from "next/link";
 import { motion, MotionConfig, useReducedMotion, useScroll, useSpring, useTransform } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
+import { track } from "@/lib/track";
+import { SEO_PAGES } from "@/lib/seoPages";
+import { CookieSettingsLink } from "./CookieConsent";
 import { Pricing } from "./billing/Pricing";
 import { LandingDemoPapers } from "./DemoPapersShowcase";
 import { PaperBuilder } from "./landing/PaperBuilder";
@@ -18,7 +21,7 @@ import { Logo } from "./Logo";
 import { AnimatedNumber } from "./motion";
 import { ThemeProvider, ThemeToggle } from "./theme";
 import { faqJsonLd, JsonLd } from "./seo/JsonLd";
-import { FeatureLinks } from "./seo/SiteFooterLinks";
+import { FeatureLinks, SHORT_NAME } from "./seo/SiteFooterLinks";
 import { FoundersSpotlight } from "./FoundersSpotlight";
 import { FAQ_HOME } from "@/lib/seoPages";
 
@@ -99,7 +102,7 @@ function LandingInner() {
           </nav>
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <Link href="/app" className="btn-brut inline-flex items-center gap-1.5 rounded-xl bg-lime px-4 py-2 font-display text-sm font-extrabold text-[#121212]">
+            <Link href="/app" onClick={() => track("cta_open_app")} className="btn-brut inline-flex items-center gap-1.5 rounded-xl bg-lime px-4 py-2 font-display text-sm font-extrabold text-[#121212]">
               Open the app <ArrowRight className="size-4" />
             </Link>
           </div>
@@ -134,13 +137,13 @@ function LandingInner() {
             </motion.p>
             <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7 }}
               className="mt-8 flex flex-wrap gap-3">
-              <Link href="/app?tab=studio" className="btn-brut inline-flex items-center gap-2 rounded-2xl bg-pink px-6 py-4 font-display text-lg font-extrabold text-[#121212]">
+              <Link href="/app?tab=studio" onClick={() => track("cta_open_app")} className="btn-brut inline-flex items-center gap-2 rounded-2xl bg-pink px-6 py-4 font-display text-lg font-extrabold text-[#121212]">
                 <Zap className="size-5" /> Write my paper
               </Link>
-              <a href="#pricing" className="btn-brut inline-flex items-center gap-2 rounded-2xl bg-surface px-6 py-4 font-display text-lg font-extrabold">
+              <a href="#pricing" onClick={() => track("cta_pricing")} className="btn-brut inline-flex items-center gap-2 rounded-2xl bg-surface px-6 py-4 font-display text-lg font-extrabold">
                 <ShieldCheck className="size-5" /> See plans
               </a>
-              <Link href="/app?aurora=1" className="btn-brut inline-flex items-center gap-2 rounded-2xl bg-violet px-6 py-4 font-display text-lg font-extrabold text-white">
+              <Link href="/app?aurora=1" onClick={() => track("cta_open_app")} className="btn-brut inline-flex items-center gap-2 rounded-2xl bg-violet px-6 py-4 font-display text-lg font-extrabold text-white">
                 <Sparkles className="size-5" /> Ask Azora AI
               </Link>
             </motion.div>
@@ -298,6 +301,21 @@ function LandingInner() {
       <LandingDemoPapers />
 
       {/* ---------- pricing ---------- */}
+      <section id="tools" aria-labelledby="tools-h" className="mx-auto max-w-[1240px] scroll-mt-24 px-5 pt-16">
+        <h2 id="tools-h" className="font-display text-3xl font-extrabold md:text-4xl">Every tool, one workspace</h2>
+        <p className="mt-2 max-w-2xl text-ink-2">Read how each one works before you sign in.</p>
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {SEO_PAGES.map((p, i) => (
+            <Link key={p.slug} href={`/${p.slug}`}
+              className={clsx("card group block p-4 text-[#121212] transition hover:-translate-y-1", ["bg-lime", "bg-yellow", "bg-mint", "bg-pink", "bg-orange"][i % 5])}>
+              <span className="text-[11px] font-extrabold uppercase tracking-wider opacity-70">{p.kicker}</span>
+              <h3 className="mt-1 font-display text-lg font-extrabold leading-tight">{SHORT_NAME[p.slug] ?? p.h1}</h3>
+              <span className="mt-2 inline-block text-sm font-bold underline decoration-2 underline-offset-4">How it works →</span>
+            </Link>
+          ))}
+        </div>
+      </section>
+
       <section id="pricing" className="mx-auto max-w-[1240px] scroll-mt-24 px-5 py-16">
         <div className="mb-10 text-center">
           <span className="sticker bg-yellow text-[#121212]">Plans</span>
@@ -336,7 +354,7 @@ function LandingInner() {
             <Sparkles className="wobble absolute bottom-10 right-10 size-12" />
             <h2 className="font-display text-4xl font-extrabold md:text-6xl">Ready to slay?</h2>
             <p className="mx-auto mt-3 max-w-xl text-lg">Draft → audit → verdict in one click, with a report you can hand to your supervisor.</p>
-            <Link href="/app?slay=1" className="btn-brut mt-8 inline-flex items-center gap-2 rounded-2xl bg-yellow px-8 py-4 font-display text-xl font-extrabold">
+            <Link href="/app?slay=1" onClick={() => track("cta_open_app")} className="btn-brut mt-8 inline-flex items-center gap-2 rounded-2xl bg-yellow px-8 py-4 font-display text-xl font-extrabold">
               <Zap className="size-6" /> Slay it now
             </Link>
           </div>
@@ -355,6 +373,7 @@ function LandingInner() {
           <Link href="/about">About</Link><Link href="/support">Help centre</Link><Link href="/pricing">Pricing</Link><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link>
           <Link href="/refund">Refunds</Link><Link href="/contact">Contact</Link>
           <a href={`mailto:${BUSINESS.email}`}>Support: {BUSINESS.email}</a>
+          <CookieSettingsLink />
         </nav>
       </footer>
     </div>

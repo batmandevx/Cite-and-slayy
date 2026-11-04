@@ -42,6 +42,8 @@ app = FastAPI(title="Cite and Slayy", version="0.1.0", docs_url="/docs" if _docs
               redoc_url="/redoc" if _docs else None, openapi_url="/openapi.json" if _docs else None)
 from backend.autoclaw_bridge.llm_bridge import router as _claw_llm_router  # noqa: E402
 app.include_router(_claw_llm_router)
+from backend.app.site_ops import router as _site_router  # noqa: E402  (contact form + conversion counters)
+app.include_router(_site_router)
 
 
 @app.on_event("startup")
@@ -76,7 +78,8 @@ async def security_headers(request: Request, call_next):
 
 
 # Endpoints anyone may call without signing in (landing page, sign-in itself, payment-provider webhooks, demo showcase PDFs).
-PUBLIC = ("/api/health", "/api/stats", "/api/auth/", "/api/billing/plans", "/api/billing/webhook", "/api/demo-papers")
+PUBLIC = ("/api/health", "/api/stats", "/api/auth/", "/api/billing/plans", "/api/billing/webhook", "/api/demo-papers",
+          "/api/contact", "/api/events")
 
 
 @app.middleware("http")

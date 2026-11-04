@@ -77,7 +77,7 @@ export function RichMarkdown({ children }: { children: string }) {
           img(props) {
             const src = typeof props.src === "string" && props.src.startsWith("/api/") ? `${API}${props.src}` : props.src;
             // eslint-disable-next-line @next/next/no-img-element
-            return <img src={src} alt={props.alt ?? ""} className="mx-auto my-3 max-h-[420px] rounded-lg border-2 border-edge bg-white p-1" />;
+            return <img src={src} alt={props.alt ?? ""} loading="lazy" decoding="async" className="mx-auto my-3 max-h-[420px] rounded-lg border-2 border-edge bg-white p-1" />;
           },
           code(props) {
             const { className, children: c } = props as { className?: string; children?: React.ReactNode };

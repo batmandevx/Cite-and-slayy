@@ -1,14 +1,15 @@
 import { ArrowDownUp, BadgeIndianRupee, CalendarX, CheckCircle2, Clock, CreditCard, Mail, Package, RotateCcw, Undo2, XCircle } from "lucide-react";
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { Callout, Faq, PolicyShell, Section } from "@/components/legal/PolicyShell";
 import { BUSINESS } from "@/lib/business";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Cancellation & Refunds",
   description: "How to cancel a Cite & Slayy subscription, when you can get a refund, Paper Packs, UPI payments and how long refunds take.",
-  alternates: { canonical: "/refund" },
-};
+  path: "/refund",
+});
 
 const TOC = [
   ["cancel", "How to cancel"], ["after", "What happens after you cancel"], ["refunds", "When you can get a refund"], ["packs", "Paper Packs"],

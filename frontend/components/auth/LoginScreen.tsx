@@ -1,5 +1,6 @@
 "use client";
 
+import { track } from "@/lib/track";
 import { BUSINESS } from "@/lib/business";
 
 import clsx from "clsx";
@@ -59,7 +60,7 @@ export function LoginScreen() {
     s.src = "https://accounts.google.com/gsi/client"; s.async = true;
     s.onload = () => {
       window.google?.accounts.id.initialize({ client_id: id, callback: async ({ credential }) => {
-        try { await api.post("/api/auth/google", { credential }); await refresh(); } catch (e) { setMsg((e as Error).message); }
+        try { await api.post("/api/auth/google", { credential }); track("login"); await refresh(); } catch (e) { setMsg((e as Error).message); }
       } });
       if (gBtn.current) window.google?.accounts.id.renderButton(gBtn.current, { theme: "filled_black", size: "large", shape: "pill", text: "continue_with", width: 320 });
     };
@@ -72,8 +73,8 @@ export function LoginScreen() {
     if (mode === "signup" && st.score < 2) { setMsg("Choose a stronger password: at least 8 characters with letters and numbers."); return; }
     setBusy(true);
     try {
-      if (mode === "signup") await api.post("/api/auth/register", { email, name, password });
-      else await api.post("/api/auth/login", { email, password });
+      if (mode === "signup") { await api.post("/api/auth/register", { email, name, password }); track("signup"); }
+      else { await api.post("/api/auth/login", { email, password }); track("login"); }
       await refresh();
     } catch (err) {
       setMsg((err as Error).message);

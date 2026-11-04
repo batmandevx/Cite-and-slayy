@@ -1,5 +1,6 @@
 "use client";
 
+import { track } from "./track";
 import { apiFetch, toast } from "./api";
 
 export interface PaperDoc { title: string; markdown: string; template: string; author: string; affiliation: string }
@@ -56,6 +57,7 @@ export async function exportPaper(fmt: ExportFormat, doc: PaperDoc) {
   const r = await apiFetch(`/api/export/${fmt}`, { method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ ...doc, diagrams }) });
   if (!r.ok) { toast({ title: "Export failed", body: `${r.status}`, tone: "crit" }); return; }
+  track("export");
   const ext = fmt === "docx" ? ".docx" : fmt === "latex-zip" ? `-${doc.template}-latex.zip` : `-${doc.template}.tex`;
   download(await r.blob(), slug(doc.title) + ext);
   toast({ title: fmt === "docx" ? "Word file downloaded" : `LaTeX (${doc.template.toUpperCase()}) downloaded`,

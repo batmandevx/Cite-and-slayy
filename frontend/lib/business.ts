@@ -1,6 +1,6 @@
 /** Public business details shown on the policy pages. Only real, confirmed details belong here. */
 
-export interface TeamMember { name: string; role: string; email: string; initials: string; color: string; tagline: string; easterEgg?: boolean }
+export interface TeamMember { name: string; role: string; email: string; initials: string; color: string; tagline: string; easterEgg?: boolean | "horse" | "knight" }   // true = "horse"
 
 /** The team shown on the website. Set NEXT_PUBLIC_SITE_TEAM (JSON array) in a private, untracked env file to override. */
 function siteTeam(): TeamMember[] {
@@ -15,6 +15,6 @@ export const BUSINESS = {
   website: "https://citeslayy.com",
   email: "slayyhacks@gmail.com",          // support
   country: "India",
-  updated: "2 November 2026",
+  updated: "5 November 2026",
   team: siteTeam(),
 };

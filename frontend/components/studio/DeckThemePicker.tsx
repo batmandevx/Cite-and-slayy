@@ -122,7 +122,7 @@ function TemplateGallery({ onClose, onUse }: { onClose: () => void; onUse: (t: D
             <motion.div key={t.slug} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 12) * 0.03 }}
               className="group overflow-hidden rounded-xl border-2 border-edge bg-surface shadow-[3px_3px_0_var(--shadow-c)]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={t.cover} alt={t.title} loading="lazy" className="aspect-video w-full border-b-2 border-edge object-cover transition group-hover:scale-[1.02]" />
+              <img src={t.cover} alt={t.title} loading="lazy" decoding="async" className="aspect-video w-full border-b-2 border-edge object-cover transition group-hover:scale-[1.02]" />
               <div className="p-3">
                 <div className="line-clamp-2 text-sm font-bold">{t.title}</div>
                 <div className="mt-1 flex flex-wrap gap-1">{t.tags.slice(0, 3).map((g) => <span key={g} className="rounded-full bg-surface-2 px-1.5 text-[10px] font-semibold">{g}</span>)}</div>

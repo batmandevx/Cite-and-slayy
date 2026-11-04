@@ -1,5 +1,6 @@
 import { ArrowRight, BookOpen, CreditCard, LifeBuoy, MessageSquareText, RotateCcw, ShieldCheck, Sparkles, UsersRound } from "lucide-react";
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { ContactComposer, HelpCenter } from "@/components/legal/HelpCenter";
 import { PolicyShell, Section } from "@/components/legal/PolicyShell";
@@ -8,11 +9,11 @@ import { faqJsonLd, JsonLd } from "@/components/seo/JsonLd";
 import { BUSINESS } from "@/lib/business";
 import { FAQS } from "@/lib/supportFaq";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Help centre & support",
   description: "Get help with Cite & Slayy: search answers about payments, refunds, papers, citations and privacy, or write to our support team.",
-  alternates: { canonical: "/support" },
-};
+  path: "/support",
+});
 
 const QUICK = [
   { href: "#help", icon: <BookOpen className="size-6" />, t: "Search answers", d: `${FAQS.length} common questions`, color: "bg-lime" },

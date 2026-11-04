@@ -1,5 +1,6 @@
 import { ArrowRight, BadgeCheck, BookOpenCheck, Compass, FileText, Gavel, HeartHandshake, Rocket, ShieldCheck, Sparkles, Target } from "lucide-react";
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { PolicyShell, Section } from "@/components/legal/PolicyShell";
 import { Reveal } from "@/components/legal/Reveal";
@@ -8,11 +9,11 @@ import { JsonLd } from "@/components/seo/JsonLd";
 import { BUSINESS } from "@/lib/business";
 import { SITE_URL } from "@/lib/site";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "About us",
   description: `Cite & Slayy is an AI research workspace led by ${BUSINESS.team[0].role} ${BUSINESS.team[0].name}. Real, verified citations for every student and researcher.`,
-  alternates: { canonical: "/about" },
-};
+  path: "/about",
+});
 
 const STATS = [
   { v: "4", l: "scholarly databases checked", c: "bg-lime" },

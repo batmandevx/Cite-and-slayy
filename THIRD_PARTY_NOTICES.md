@@ -19,5 +19,6 @@ Data sources (OpenAlex, Crossref, arXiv, Semantic Scholar, Open Library) are acc
 
 - `frontend/public/models/easter/horse.glb`: "Horse" by [Quaternius](https://quaternius.com), CC0 1.0 (public domain).
 - `frontend/public/models/easter/rider.glb`: "Woman" by [Quaternius](https://quaternius.com), CC0 1.0 (public domain).
+- `frontend/public/models/easter/knight.glb`: "Man" by [Quaternius](https://quaternius.com), CC0 1.0 (public domain).
 
 Both were trimmed to the animations used and quantized; no other changes.

@@ -1,7 +1,8 @@
 "use client";
 
+import { EmptyState } from "@/components/ui/States";
 import clsx from "clsx";
-import { Download, FileText, FileType2, LayoutGrid, ListTodo, Plus, Printer, Trash2 } from "lucide-react";
+import { Download, FileText, FileType2, LayoutGrid, ListTodo, NotebookPen, Plus, Printer, Trash2 } from "lucide-react";
 import { AnimatePresence, motion, Reorder } from "motion/react";
 import { useRef } from "react";
 import { api, usePersistent, apiFetch, toast } from "@/lib/api";
@@ -73,7 +74,7 @@ function PagesView() {
             </Reorder.Item>
           ))}
         </Reorder.Group>
-        {pages.length === 0 && <p className="px-2 py-6 text-center text-xs text-muted">No pages yet. Start a blank page or a full paper template.</p>}
+        {pages.length === 0 && <EmptyState compact icon={<NotebookPen />} title="No pages yet">Start a blank page, or a full paper template with every section ready.</EmptyState>}
       </Card>
 
       {page ? (

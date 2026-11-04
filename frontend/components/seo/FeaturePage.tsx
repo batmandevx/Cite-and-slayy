@@ -3,7 +3,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Logo } from "../Logo";
 import { faqJsonLd, JsonLd } from "./JsonLd";
-import { FeatureLinks } from "./SiteFooterLinks";
+import { FeatureLinks, SHORT_NAME } from "./SiteFooterLinks";
+import { CookieSettingsLink } from "../CookieConsent";
+import { breadcrumbJsonLd, pageMetadata } from "@/lib/seo";
 import { BUSINESS } from "@/lib/business";
 import { SEO_PAGES } from "@/lib/seoPages";
 import { SITE_URL } from "@/lib/site";
@@ -13,11 +15,7 @@ const find = (slug: string) => SEO_PAGES.find((p) => p.slug === slug);
 export function featureMetadata(slug: string): Metadata {
   const p = find(slug);
   if (!p) return {};
-  return {
-    title: p.title, description: p.description, alternates: { canonical: `/${p.slug}` },
-    openGraph: { title: `${p.title} · Cite & Slayy`, description: p.description, url: `${SITE_URL}/${p.slug}`, type: "website" },
-    twitter: { card: "summary_large_image", title: `${p.title} · Cite & Slayy`, description: p.description },
-  };
+  return pageMetadata({ title: p.title, description: p.description, path: `/${p.slug}` });
 }
 
 const CARD = ["bg-yellow", "bg-lime", "bg-mint", "bg-pink", "bg-surface", "bg-orange"];
@@ -26,17 +24,19 @@ const CARD = ["bg-yellow", "bg-lime", "bg-mint", "bg-pink", "bg-surface", "bg-or
 export function FeaturePage({ slug }: { slug: string }) {
   const p = find(slug);
   if (!p) notFound();
-  const breadcrumbs = {
-    "@context": "https://schema.org", "@type": "BreadcrumbList",
-    itemListElement: [
-      { "@type": "ListItem", position: 1, name: "Cite & Slayy", item: SITE_URL },
-      { "@type": "ListItem", position: 2, name: p.h1, item: `${SITE_URL}/${p.slug}` },
-    ],
+  const breadcrumbs = breadcrumbJsonLd([[SHORT_NAME[p.slug] ?? p.h1, `/${p.slug}`]]);
+  const related = SEO_PAGES.filter((r) => r.slug !== p.slug);
+  const app = {
+    "@context": "https://schema.org", "@type": "WebApplication", name: `Cite & Slayy ${SHORT_NAME[p.slug] ?? ""}`.trim(),
+    url: `${SITE_URL}/${p.slug}`, description: p.description, applicationCategory: "EducationalApplication", operatingSystem: "Web",
+    offers: { "@type": "Offer", price: "0", priceCurrency: "INR", description: "Free plan available" },
+    publisher: { "@id": `${SITE_URL}/#org` },
   };
   return (
     <div className="min-h-screen">
       <JsonLd data={breadcrumbs} />
       <JsonLd data={faqJsonLd(p.faqs)} />
+      <JsonLd data={app} />
       <header className="border-b-[2.5px] border-edge">
         <div className="mx-auto flex max-w-[1100px] items-center justify-between gap-4 px-5 py-4">
           <Link href="/" aria-label="Cite & Slayy home"><Logo /></Link>
@@ -49,7 +49,10 @@ export function FeaturePage({ slug }: { slug: string }) {
 
       <main className="mx-auto max-w-[1100px] px-5">
         <nav aria-label="Breadcrumb" className="pt-6 text-xs font-bold text-muted">
-          <Link href="/" className="hover:text-ink">Home</Link> <span aria-hidden>/</span> <span className="text-ink-2">{p.h1}</span>
+          <ol className="flex flex-wrap items-center gap-1.5">
+            <li><Link href="/" className="hover:text-ink hover:underline">Home</Link></li><li aria-hidden>/</li>
+            <li aria-current="page" className="text-ink-2">{SHORT_NAME[p.slug] ?? p.h1}</li>
+          </ol>
         </nav>
 
         <section className="py-12 md:py-16">
@@ -99,6 +102,21 @@ export function FeaturePage({ slug }: { slug: string }) {
           </div>
         </section>
 
+        <section aria-labelledby="related" className="py-10">
+          <h2 id="related" className="font-display text-3xl font-extrabold md:text-4xl">Related tools</h2>
+          <p className="mt-2 text-ink-2">They share one workspace, so a paper you write can go straight into the next check.</p>
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {related.map((r, i) => (
+              <Link key={r.slug} href={`/${r.slug}`} className={`card group block p-5 transition hover:-translate-y-1 text-[#121212] ${["bg-yellow", "bg-mint", "bg-lime", "bg-orange"][i % 4]}`}>
+                <span className="text-xs font-extrabold uppercase tracking-wider opacity-70">{r.kicker}</span>
+                <h3 className="mt-1 font-display text-lg font-extrabold leading-tight">{SHORT_NAME[r.slug] ?? r.h1}</h3>
+                <p className="mt-2 line-clamp-3 text-sm opacity-85">{r.description}</p>
+                <span className="mt-3 inline-block text-sm font-extrabold underline decoration-2 underline-offset-4 group-hover:decoration-pink">Learn more →</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+
         <section className="py-12">
           <div className="card bg-pink px-6 py-12 text-center text-[#121212]">
             <h2 className="font-display text-3xl font-extrabold md:text-5xl">Ready to slay your next paper?</h2>
@@ -119,6 +137,7 @@ export function FeaturePage({ slug }: { slug: string }) {
             <nav className="flex flex-wrap gap-x-4 gap-y-2 text-xs">
               <Link href="/about">About</Link><Link href="/support">Help centre</Link><Link href="/pricing">Pricing</Link><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link>
               <Link href="/refund">Refunds</Link><Link href="/contact">Contact</Link><a href={`mailto:${BUSINESS.email}`}>{BUSINESS.email}</a>
+              <CookieSettingsLink />
             </nav>
           </div>
         </div>

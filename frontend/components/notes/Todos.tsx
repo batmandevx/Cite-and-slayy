@@ -1,5 +1,6 @@
 "use client";
 
+import { EmptyState } from "@/components/ui/States";
 import clsx from "clsx";
 import { CalendarDays, Check, ChevronDown, Flame, ListChecks, Pause, Play, Plus, RotateCcw, Sparkles, Tag, Timer, Trash2, Wand2 } from "lucide-react";
 import { AnimatePresence, motion, Reorder } from "motion/react";
@@ -296,7 +297,7 @@ export function TodoList() {
             })}
           </AnimatePresence>
         </Reorder.Group>
-        {shown.length === 0 && <p className="py-10 text-center text-sm text-muted">Nothing here. Add your next task above ✨</p>}
+        {shown.length === 0 && <EmptyState icon={<ListChecks />} title="Nothing here yet">Add your next task above, like &ldquo;find 5 sources on my topic&rdquo;. ✨</EmptyState>}
       </div>
 
       <div className="space-y-4">

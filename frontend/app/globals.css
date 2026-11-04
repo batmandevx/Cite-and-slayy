@@ -262,6 +262,13 @@ h1, h2, h3, .font-display { font-family: var(--font-display); letter-spacing: -0
 .scroll-progress { position: fixed; top: 0; left: 0; right: 0; height: 5px; z-index: 70; transform-origin: 0 50%;
   background: linear-gradient(90deg, var(--pink), var(--yellow), var(--lime), var(--blue)); border-bottom: 2px solid #121212; }
 
+/* Visitors who ask for less motion get no CSS animation, transition or smooth scrolling anywhere. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important; scroll-behavior: auto !important; }
+  html { scroll-behavior: auto !important; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .marquee__track, .gradient-text, .sheen::after, .pulse-ring, .shimmer, .wobble, .floaty { animation: none !important; }
   .card-pop, .btn-brut { transition: none; }

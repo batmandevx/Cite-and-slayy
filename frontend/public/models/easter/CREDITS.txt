@@ -1,3 +1,4 @@
 horse.glb  "Horse" by Quaternius (https://quaternius.com), CC0 1.0 Public Domain, via poly.pizza/m/qvTrSG9pZF
 rider.glb  "Woman" by Quaternius (https://quaternius.com), CC0 1.0 Public Domain, via poly.pizza/m/AQsd9ngvKU
 Both trimmed to the animations used (Gallop, Gallop_Jump, Idle_2 / Female_Sitting) and quantized.
+knight.glb  "Man" by Quaternius (https://quaternius.com), CC0 1.0 Public Domain, via poly.pizza/m/HMnuH5geEG

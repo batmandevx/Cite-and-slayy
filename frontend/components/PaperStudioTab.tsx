@@ -1,5 +1,6 @@
 "use client";
 
+import { track } from "@/lib/track";
 import clsx from "clsx";
 import {
   BadgeCheck, BookMarked, CheckCircle2, Download, ExternalLink, FileText, FileType2, Gamepad2, Loader2, NotebookPen,
@@ -88,7 +89,7 @@ function useStudioJob(onDone: (pid: string) => void) {
     src.addEventListener("end", (m) => {
       const job = JSON.parse((m as MessageEvent).data) as Job;
       src.close(); setRunning(false); setJobId(null);
-      if (job.status === "done" && job.result_id) doneRef.current(job.result_id);
+      if (job.status === "done" && job.result_id) { track("paper_generated"); doneRef.current(job.result_id); }
       else { setError(job.error ?? "The paper could not be generated."); toast({ title: "Paper generation failed", body: job.error ?? undefined, tone: "crit" }); }
     });
     src.onerror = () => {
@@ -101,7 +102,7 @@ function useStudioJob(onDone: (pid: string) => void) {
     setAgents({}); setProgress(0); setError(null);
     try {
       const { job_id } = await api.post<{ job_id: string }>("/api/paper-studio", body);
-      setStarted(Date.now()); setJobId(job_id); setRunning(true);
+      setStarted(Date.now()); setJobId(job_id); setRunning(true); track("paper_started");
     } catch (e) {
       setError((e as Error).message);
     }

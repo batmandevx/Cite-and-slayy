@@ -7,6 +7,8 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: "#fff5e6", theme_color: "#121212",
     icons: [
       { src: "/slayy-icon-192.png", sizes: "192x192", type: "image/png" },
+      { src: "/slayy-icon-512.png", sizes: "512x512", type: "image/png" },
+      { src: "/slayy-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
       { src: "/slayy-icon.svg", sizes: "any", type: "image/svg+xml" },
     ],
   };

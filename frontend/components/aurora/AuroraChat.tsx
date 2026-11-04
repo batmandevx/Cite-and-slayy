@@ -1,10 +1,11 @@
 "use client";
 
+import { EmptyState } from "@/components/ui/States";
 import clsx from "clsx";
 import {
   ArrowRight, ArrowUp, BookOpenCheck, BrainCircuit, Building2, Check, ChevronDown, Copy, FilePlus2, FlaskConical, ImagePlus, Mic, MicOff, Volume2, VolumeX, ScanEye,
   Gavel, History, Lightbulb, ListChecks, ListTodo, Loader2, Maximize2, Minimize2, NotebookPen, Pin, Plus, Radar,
-  Search, ShieldAlert, ShieldCheck, Sparkles, TestTube2, X,
+  Search, ShieldAlert, ShieldCheck, Sparkles, TestTube2, X, GraduationCap, Library, ChartLine, UserCheck, ClipboardCheck,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
@@ -151,6 +152,30 @@ const QUICK_LABS: { label: string; icon: typeof Lightbulb; color: string; prompt
     color: "bg-pink",
     prompt: "List our uploaded papers, summarize what experiments or fixes are most urgent, save a clean IEEE experiment plan note to my Pages, and add 4 concrete tasks to my To-dos.",
     autoSend: true,
+  },
+];
+
+/** The five-phase thesis workflow. Each fills the composer so the [PLACEHOLDER] can be replaced before sending. */
+const THESIS_PHASES: { phase: number; label: string; icon: typeof Lightbulb; color: string; prompt: string }[] = [
+  {
+    phase: 1, label: "Structure my thesis", icon: GraduationCap, color: "bg-yellow",
+    prompt: "Act as my thesis research assistant.\n\nI'm researching [TOPIC]. Build a complete thesis structure from introduction to conclusion, including research questions, objectives, literature review, methodology, analysis, and expected findings. Identify what information you need from me before drafting.",
+  },
+  {
+    phase: 2, label: "Literature review framework", icon: Library, color: "bg-lime",
+    prompt: "Analyze my thesis topic: [TOPIC].\n\nFind the key academic debates, theories, major findings, research gaps, and important themes I should cover. Organize everything into a clear literature-review framework and explain how each section connects to my research question.",
+  },
+  {
+    phase: 3, label: "Analyse my findings", icon: ChartLine, color: "bg-mint",
+    prompt: "Help me turn my research data into a strong thesis analysis.\n\nHere is my data/findings: [PASTE DATA]. Identify patterns, relationships, contradictions, and significant findings. Suggest appropriate academic interpretations without inventing evidence.",
+  },
+  {
+    phase: 4, label: "Strict advisor review", icon: UserCheck, color: "bg-pink",
+    prompt: "Act as a strict thesis advisor.\n\nReview this section of my thesis: [PASTE TEXT]. Check the logic, argument, structure, academic tone, evidence, citations, repetition, and unsupported claims. Point out exactly what needs improvement and provide a stronger version where appropriate.",
+  },
+  {
+    phase: 5, label: "Final quality check", icon: ClipboardCheck, color: "bg-orange",
+    prompt: "Create a final thesis quality-control checklist for my research on [TOPIC].\n\nExamine my thesis against academic standards for argument, methodology, evidence, citations, originality, structure, clarity, and conclusions. Identify the 10 highest-priority issues I should fix before submitting.",
   },
 ];
 
@@ -413,6 +438,16 @@ export function AuroraChat({
   const [savedIdx, setSavedIdx] = useState<number | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  /** Put a template in the composer and select its first [PLACEHOLDER] so typing replaces it. */
+  const fillTemplate = (text: string) => {
+    setInput(text);
+    requestAnimationFrame(() => {
+      const el = inputRef.current; if (!el) return;
+      el.focus();
+      const a = text.indexOf("["), b = text.indexOf("]", a);
+      if (a >= 0 && b > a) el.setSelectionRange(a, b + 1);
+    });
+  };
   const es = useRef<EventSource | null>(null);
 
   useEffect(() => {
@@ -691,7 +726,7 @@ export function AuroraChat({
                       <span>Recent Azora Sessions</span>
                       <button onClick={newChat} className="text-accent-ink underline">+ Start fresh</button>
                     </div>
-                    {chats.length === 0 && <div className="py-3 text-center text-xs text-muted">No saved sessions yet.</div>}
+                    {chats.length === 0 && <EmptyState compact title="No saved sessions yet">Your chats with Azora AI will appear here.</EmptyState>}
                     {chats.map((c) => (
                       <button
                         key={c.chat_id}
@@ -755,6 +790,38 @@ export function AuroraChat({
                       ))}
                     </div>
                   </div>
+
+                  <div className="mt-6">
+                    <div className="mb-2.5 flex items-center gap-2 font-display text-xs font-extrabold uppercase tracking-widest text-muted">
+                      <GraduationCap className="size-4" /> Thesis workflow · 5 phases
+                    </div>
+                    <div className={clsx("grid gap-2.5", studio ? "sm:grid-cols-2" : "grid-cols-1")}>
+                      {THESIS_PHASES.map((ph, i) => (
+                        <motion.button
+                          key={ph.phase}
+                          type="button"
+                          initial={{ opacity: 0, y: 14 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: 0.36 + i * 0.05 }}
+                          whileHover={{ y: -2 }}
+                          onClick={() => fillTemplate(ph.prompt)}
+                          className="btn-brut flex items-start gap-3 rounded-2xl bg-surface p-3 text-left"
+                        >
+                          <span className={clsx("mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl border-2 border-edge text-[#121212]", ph.color)}>
+                            <ph.icon className="size-4" />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="font-display text-sm font-extrabold">
+                              <span className="mr-1.5 rounded-md border-2 border-edge bg-surface-2 px-1.5 text-[10px] uppercase tracking-wider">Phase {ph.phase}</span>
+                              {ph.label}
+                            </div>
+                            <div className="mt-0.5 line-clamp-2 text-xs text-ink-2">{ph.prompt.replace(/\n+/g, " ")}</div>
+                          </div>
+                        </motion.button>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-[11px] text-muted">Click a phase, replace the highlighted placeholder, then send.</p>
+                  </div>
                 </motion.div>
               )}
 
@@ -787,7 +854,7 @@ export function AuroraChat({
                           {m.previews && m.previews.length > 0 ? (
                             <div className="mb-1.5 flex flex-wrap gap-1.5">{m.previews.map((u, k) => (
                               // eslint-disable-next-line @next/next/no-img-element
-                              <img key={k} src={u} alt={`Attachment ${k + 1}`} className="h-20 rounded-lg border-2 border-edge object-cover" />))}</div>
+                              <img key={k} src={u} alt={`Attachment ${k + 1}`} loading="lazy" decoding="async" className="h-20 rounded-lg border-2 border-edge object-cover" />))}</div>
                           ) : m.images ? <p className="mb-1 inline-flex items-center gap-1 text-[11px] font-bold opacity-80"><ImagePlus className="size-3" />{m.images} image{m.images > 1 ? "s" : ""} attached</p> : null}
                           {m.content && <p className="whitespace-pre-wrap text-sm font-medium">{m.content}</p>}
                         </>
@@ -854,6 +921,18 @@ export function AuroraChat({
                   >
                     <lab.icon className="size-3 text-pink" />
                     {lab.label}
+                  </button>
+                ))}
+                {THESIS_PHASES.map((ph) => (
+                  <button
+                    key={`th${ph.phase}`}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => fillTemplate(ph.prompt)}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full border-2 border-edge bg-surface px-2.5 py-0.5 text-[11px] font-bold transition hover:-translate-y-0.5 disabled:opacity-40"
+                  >
+                    <ph.icon className="size-3 text-pink" />
+                    Thesis {ph.phase}: {ph.label}
                   </button>
                 ))}
               </div>

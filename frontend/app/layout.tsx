@@ -3,9 +3,13 @@ import { Bricolage_Grotesque, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { SITE_DESCRIPTION, SITE_KEYWORDS, SITE_NAME, SITE_TITLE, SITE_URL } from "@/lib/site";
 
-const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
-const bricolage = Bricolage_Grotesque({ variable: "--font-bricolage", subsets: ["latin"], weight: ["500", "700", "800"] });
+import { SiteProviders } from "@/components/SiteProviders";
+
+// Self-hosted by next/font (no request to Google at runtime), shown with a metric-matched fallback until loaded.
+// The body and display faces are preloaded; the mono face only appears inside the app, so it loads on demand.
+const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"], display: "swap", adjustFontFallback: true });
+const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"], display: "swap", preload: false });
+const bricolage = Bricolage_Grotesque({ variable: "--font-bricolage", subsets: ["latin"], weight: ["500", "700", "800"], display: "swap" });
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -35,7 +39,7 @@ export const metadata: Metadata = {
       { url: "/slayy-icon-192.png?v=4", sizes: "192x192", type: "image/png" },
     ],
     shortcut: "/slayy-icon-64.png?v=4",
-    apple: "/slayy-icon-192.png?v=4",
+    apple: [{ url: "/apple-touch-icon.png?v=4", sizes: "180x180", type: "image/png" }],
   },
 };
 
@@ -68,7 +72,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }} />
       </head>
-      <body className="min-h-full">{children}</body>
+      <body className="min-h-full"><SiteProviders>{children}</SiteProviders></body>
     </html>
   );
 }

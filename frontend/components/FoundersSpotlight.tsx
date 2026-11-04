@@ -11,6 +11,7 @@ const pop = { type: "spring", stiffness: 260, damping: 18 } as const;
 
 // Loaded only when someone finds the easter egg hidden on a team card.
 const HorseRide = dynamic(() => import("./easter/HorseRide"), { ssr: false });
+const NightWatch = dynamic(() => import("./easter/NightWatch"), { ssr: false });
 
 // Per-founder colours from the Slay Pop palette (flat fills, black outlines, hard shadows).
 const LOOK = [
@@ -21,7 +22,7 @@ const LOOK = [
 /** "Meet the founders" in the site's neo-brutalist style. `compact` is the home-page version. */
 export function FoundersSpotlight({ compact = false }: { compact?: boolean }) {
   const reduce = useReducedMotion();
-  const [ride, setRide] = useState(false);
+  const [egg, setEgg] = useState<{ kind: "horse" | "knight"; name: string; role: string } | null>(null);
   const names = BUSINESS.team.flatMap((f) => [f.name, f.role]);
   return (
     <section className="relative">
@@ -44,7 +45,7 @@ export function FoundersSpotlight({ compact = false }: { compact?: boolean }) {
             <motion.article key={f.name} initial={{ opacity: 0, y: 50, rotate: l.tilt * 3, scale: 0.94 }}
               whileInView={{ opacity: 1, y: 0, rotate: l.tilt, scale: 1 }} viewport={{ once: true, margin: "-60px" }}
               transition={{ ...pop, delay: 0.12 * i }} whileHover={reduce ? undefined : { rotate: 0, y: -6 }}
-              onClick={f.easterEgg ? (e) => { if (!(e.target as HTMLElement).closest("a")) setRide(true); } : undefined}
+              onClick={f.easterEgg ? (e) => { if (!(e.target as HTMLElement).closest("a")) setEgg({ kind: f.easterEgg === "knight" ? "knight" : "horse", name: f.name, role: f.role }); } : undefined}
               className={`card card-pop overflow-hidden p-0 ${f.easterEgg ? "cursor-pointer" : ""}`}>
               {/* banner with halftone dots */}
               <div className={`relative h-32 border-b-[2.5px] border-edge ${l.banner}`}
@@ -87,7 +88,8 @@ export function FoundersSpotlight({ compact = false }: { compact?: boolean }) {
         </div>
       </div>
 
-      {ride && <HorseRide rider={BUSINESS.team.find((m) => m.easterEgg)?.name.split(" ")[0] ?? ""} onDone={() => setRide(false)} />}
+      {egg?.kind === "horse" && <HorseRide rider={egg.name.split(" ")[0]} onDone={() => setEgg(null)} />}
+      {egg?.kind === "knight" && <NightWatch name={egg.name} role={egg.role} onDone={() => setEgg(null)} />}
 
       {compact && (
         <div className="mt-10 text-center">

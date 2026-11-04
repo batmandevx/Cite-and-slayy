@@ -1,5 +1,6 @@
 "use client";
 
+import { track } from "@/lib/track";
 import clsx from "clsx";
 import { Check, CheckCircle2, Copy, Crown, ExternalLink, QrCode, Rocket, ShieldCheck, Sparkles, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -45,6 +46,7 @@ function loadCheckout() {
 export async function startCheckout(plan: "pro" | "max", user: { email?: string; name?: string } | null): Promise<boolean> {
   await loadCheckout();
   const { subscription_id, key_id } = await api.post<{ subscription_id: string; key_id: string }>("/api/billing/subscribe", { plan });
+  track("checkout_start");
   return new Promise((resolve) => {
     const rzp = new window.Razorpay!({
       key: key_id, subscription_id, name: "Cite & Slayy", description: `${plan === "pro" ? "Pro" : "Max"} plan · monthly`,
@@ -52,6 +54,7 @@ export async function startCheckout(plan: "pro" | "max", user: { email?: string;
       handler: async (resp: { razorpay_payment_id: string; razorpay_subscription_id: string; razorpay_signature: string }) => {
         try {
           await api.post("/api/billing/verify", resp);
+          track("checkout_success");
           resolve(true);
         } catch (e) {
           toast({ title: "Payment received but not verified yet", body: `${(e as Error).message}. It will update within a few minutes.`, tone: "crit" });
@@ -74,7 +77,7 @@ export async function startPackCheckout(user: { email?: string; name?: string } 
       key: o.key_id, order_id: o.order_id, amount: o.amount, currency: o.currency, name: "Cite & Slayy",
       description: "Paper Pack · one publish-ready paper", prefill: { email: user?.email ?? "", name: user?.name ?? "" }, theme: { color: "#ff4fa3" },
       handler: async (resp: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }) => {
-        try { await api.post("/api/billing/pack/verify", resp); resolve(true); }
+        try { await api.post("/api/billing/pack/verify", resp); track("pack_purchase"); resolve(true); }
         catch (e) { toast({ title: "Payment received but not verified yet", body: `${(e as Error).message}. It will update within a few minutes.`, tone: "crit" }); resolve(false); }
       },
       modal: { ondismiss: () => resolve(false) },
@@ -140,6 +143,7 @@ function UpiQrModal({ target, options, upiId, onSelect, onClose, onSubmitted }: 
         utr: utr.trim(),
         email: email.trim(),
       });
+      track("upi_claim");
       setReceipt(r);
       onSubmitted();
       toast({ title: "Payment reference recorded 🎉", body: `Ref #${r.claim_id} logged for ${r.item_name}.`, tone: "good" });
@@ -190,7 +194,7 @@ function UpiQrModal({ target, options, upiId, onSelect, onClose, onSubmitted }: 
 
           <div className="mt-5 grid items-center gap-6 md:grid-cols-[240px_1fr]">
             <div className="mx-auto flex flex-col items-center rounded-2xl border-[3px] border-[#121212] bg-white p-3 shadow-[5px_5px_0_var(--pink)]">
-              <img src="/upi-qr.png?v=1" alt={`UPI QR for ${upiId}`} className="size-48 rounded-lg object-contain" /> {/* eslint-disable-line @next/next/no-img-element */}
+              <picture><source srcSet="/upi-qr.webp?v=1" type="image/webp" /><img src="/upi-qr.png?v=1" alt={`UPI QR for ${upiId}`} className="size-48 rounded-lg object-contain" loading="lazy" decoding="async" width={400} height={400} /></picture>
               <span className="mt-2 rounded-md bg-[#121212] px-2.5 py-0.5 font-mono text-[11px] font-bold text-[#fff5e6]">
                 ₹{target.price_inr.toLocaleString("en-IN")} · INR
               </span>
@@ -376,7 +380,7 @@ export function Pricing({ current, onChoose, onBuyPack, compact }: {
         <motion.div initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
           className="card mt-8 grid items-center gap-6 bg-surface p-6 md:grid-cols-[200px_1fr] md:p-8">
           <div className="mx-auto flex flex-col items-center rounded-2xl border-[3px] border-[#121212] bg-white p-2.5 shadow-[4px_4px_0_var(--yellow)]">
-            <img src="/upi-qr.png?v=1" alt={`Scan UPI QR (${upiId})`} className="size-40 rounded-lg object-contain" /> {/* eslint-disable-line @next/next/no-img-element */}
+            <picture><source srcSet="/upi-qr.webp?v=1" type="image/webp" /><img src="/upi-qr.png?v=1" alt={`Scan UPI QR (${upiId})`} className="size-40 rounded-lg object-contain" loading="lazy" decoding="async" width={400} height={400} /></picture>
             <span className="mt-1.5 font-mono text-[10px] font-bold text-[#121212]">Scan with any UPI app</span>
           </div>
           <div>

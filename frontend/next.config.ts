@@ -32,6 +32,13 @@ const nextConfig: NextConfig = {
       headers: [
         { key: "Content-Security-Policy", value: csp },
         { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
+        // Same set Caddy adds in production (deploy/Caddyfile.template), so the app is covered behind any proxy.
+        { key: "X-Content-Type-Options", value: "nosniff" },
+        { key: "X-Frame-Options", value: "DENY" },
+        { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+        { key: "Permissions-Policy", value: "camera=(), geolocation=(), usb=(), microphone=(self), payment=(self)" },
+        { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
+        ...(dev ? [] : [{ key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" }]),
       ],
     }];
   },

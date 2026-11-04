@@ -1,7 +1,8 @@
 "use client";
 
+import { EmptyState } from "@/components/ui/States";
 import clsx from "clsx";
-import { BookOpen, Download, ExternalLink, Flame, Lightbulb, Search, Sparkles, Zap } from "lucide-react";
+import { BookOpen, Download, ExternalLink, Flame, Lightbulb, Search, SearchX, Sparkles, Zap } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { api, toast } from "@/lib/api";
@@ -146,7 +147,7 @@ export function LibraryTab() {
                 initial={{ opacity: 0, y: 20, rotate: -3 }} animate={{ opacity: 1, y: 0, rotate: 0 }} transition={{ delay: (i % 24) * 0.03 }}
                 whileHover={{ y: -8, rotate: i % 2 ? 2 : -2 }} className="group block">
                 <div className="aspect-[2/3] overflow-hidden rounded-lg border-[2.5px] border-edge bg-violet shadow-[5px_5px_0_var(--shadow-c)]">
-                  {b.cover ? <img src={b.cover} alt="" loading="lazy" className="size-full object-cover" /> : (
+                  {b.cover ? <img src={b.cover} alt="" loading="lazy" decoding="async" className="size-full object-cover" /> : (
                     <div className="grid size-full place-items-center p-3 text-center font-display text-sm font-extrabold text-[#121212]">{b.title}</div>
                   )}
                 </div>
@@ -165,7 +166,7 @@ export function LibraryTab() {
             {(items as LibPaper[]).map((p, i) => <PaperCard key={p.id} p={p} i={i} />)}
           </div>
         )}
-        {items && items.length === 0 && !err && <p className="py-10 text-center text-sm text-muted">No results for “{query}”.</p>}
+        {items && items.length === 0 && !err && <EmptyState icon={<SearchX />} title={`No results for “${query}”`}>Try a broader word, check the spelling, or switch collection above.</EmptyState>}
         {items && items.length > 0 && (
           <div className="mt-6 flex justify-center">
             <motion.button whileHover={{ y: -3 }} whileTap={{ scale: 0.95 }} onClick={loadMore} disabled={more}

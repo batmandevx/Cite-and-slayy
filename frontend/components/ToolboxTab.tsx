@@ -1,7 +1,8 @@
 "use client";
 
+import { EmptyState } from "@/components/ui/States";
 import clsx from "clsx";
-import { ExternalLink, Search, Wrench } from "lucide-react";
+import { ExternalLink, Search, SearchX, Wrench } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useMemo, useState } from "react";
 import { RESOURCES } from "@/lib/resources";
@@ -60,7 +61,7 @@ export function ToolboxTab() {
           ))}
         </AnimatePresence>
       </motion.div>
-      {shown.length === 0 && <p className="py-10 text-center text-sm text-muted">No tool matches “{q}”.</p>}
+      {shown.length === 0 && <EmptyState icon={<SearchX />} title={`No tool matches “${q}”`}>Try a shorter word, such as &ldquo;cite&rdquo;, &ldquo;PDF&rdquo; or &ldquo;stats&rdquo;.</EmptyState>}
       <p className="text-xs text-muted">
         Not listed on purpose: shadow libraries (they distribute copyrighted papers without permission) and “AI humanizer” tools
         (built to hide AI-generated text from detectors, which conflicts with research-integrity policies).

@@ -20,6 +20,7 @@ import { Sidebar, useRailWidth } from "@/components/Sidebar";
 import { ToolboxTab } from "@/components/ToolboxTab";
 import { AdminPaymentsTab } from "@/components/AdminPaymentsTab";
 import { MembersAdmin } from "@/components/admin/MembersAdmin";
+import { SiteInsights } from "@/components/admin/SiteInsights";
 import { TurnitinTab } from "@/components/TurnitinTab";
 import { VenuesTab } from "@/components/VenuesTab";
 import { useAuth, usePaid } from "@/components/auth/AuthProvider";
@@ -236,7 +237,7 @@ function Dashboard() {
                 )}
                 {safeTab === "venues" && <LockedTab feature="venues" title="Find the right journal or conference" perks={["Ranked venues matched to your title and abstract", "Live open calls for papers with deadline countdowns", "Journal activity, review speed and APCs, with quality warnings"]}><VenuesTab /></LockedTab>}
                 {safeTab === "toolbox" && <ToolboxTab />}
-                {safeTab === "admin" && me?.is_owner && <div className="space-y-6"><MembersAdmin /><AdminPaymentsTab /></div>}
+                {safeTab === "admin" && me?.is_owner && <div className="space-y-6"><SiteInsights /><MembersAdmin /><AdminPaymentsTab /></div>}
                 {safeTab === "notes" && <NotesTab />}
                 {safeTab === "library" && <LibraryTab />}
                 {safeTab === "play" && <PlayTab />}

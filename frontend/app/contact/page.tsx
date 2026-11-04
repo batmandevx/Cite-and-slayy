@@ -1,15 +1,17 @@
 import { Briefcase, Clock, Globe, LifeBuoy, Mail, MessageCircle } from "lucide-react";
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
+import { ContactForm } from "@/components/legal/ContactForm";
 import { PolicyShell, Section } from "@/components/legal/PolicyShell";
 import { Reveal } from "@/components/legal/Reveal";
 import { BUSINESS } from "@/lib/business";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Contact",
   description: "Contact Cite & Slayy: support at slayyhacks@gmail.com, or reach our team directly.",
-  alternates: { canonical: "/contact" },
-};
+  path: "/contact",
+});
 
 export default function Contact() {
   const [ceo] = BUSINESS.team;
@@ -32,6 +34,10 @@ export default function Contact() {
           </Reveal>
         ))}
       </div>
+      <section aria-labelledby="write" className="scroll-mt-6" id="form">
+        <h2 id="write" className="mb-3 font-display text-2xl font-extrabold">Send us a message</h2>
+        <ContactForm />
+      </section>
       <Section id="details" n={1} title="Details" icon={<Globe className="size-5" />}>
         <ul>
           <li><b>Brand:</b> {BUSINESS.brand}</li>

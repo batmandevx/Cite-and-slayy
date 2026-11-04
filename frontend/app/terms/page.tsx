@@ -1,14 +1,15 @@
 import { AlertTriangle, Ban, BookOpenCheck, CreditCard, FileText, Gavel, Globe, Handshake, KeyRound, Scale, ScrollText, ShieldCheck, Sparkles, UserCheck } from "lucide-react";
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { Callout, PolicyShell, Section } from "@/components/legal/PolicyShell";
 import { BUSINESS } from "@/lib/business";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Terms of Service",
   description: "The terms for using Cite & Slayy, the AI research paper writer and citation checker: accounts, plans, fair use, AI content and your responsibilities.",
-  alternates: { canonical: "/terms" },
-};
+  path: "/terms",
+});
 
 const TOC = [
   ["agreement", "Agreeing to these terms"], ["service", "What the Service does"], ["eligibility", "Who can use it"], ["accounts", "Your account"],

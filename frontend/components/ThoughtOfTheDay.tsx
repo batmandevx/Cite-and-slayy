@@ -42,6 +42,15 @@ const THOUGHTS: { text: string; tag: string }[] = [
   { text: "Two weeks of reading can save two months of building something that already exists.", tag: "Reading" },
   { text: "Report what you tried and dropped. It's half the story of how you got here.", tag: "Reproducibility" },
   { text: "Progress is a pile of small days. Show up for this one.", tag: "Mindset" },
+  { text: "I stopped asking for a seat at the table when I realized I was built to own the room.", tag: "Grit" },
+  { text: "When my body asks for mercy, my will shall remind it who is in charge.", tag: "Grit" },
+  { text: "Until breath leaves the body, defeat remains a rumour.", tag: "Grit" },
+  { text: "No one is coming to save you. That means no one is coming to stop you either.", tag: "Grit" },
+  { text: "The arrow which goes the farthest was pulled back the most.", tag: "Grit" },
+  { text: "Why seek validation from a world that crucified a perfect man?", tag: "Grit" },
+  { text: "Trees don't hang around with the grass, even though they all started from the same place.", tag: "Grit" },
+  { text: "I love how you don't let facts get in the way of your opinions.", tag: "Wit" },
+  { text: "Nice to finally meet someone who's reached their full potential!", tag: "Wit" },
 ];
 
 // Shown in full to paid members; free members see it blurred.
@@ -57,12 +66,14 @@ const PRO_INSIGHTS = [
 const TAG_COLOR: Record<string, string> = {
   Integrity: "bg-crit text-white", Writing: "bg-blue text-white", Experiments: "bg-lime text-[#121212]", Ideas: "bg-yellow text-[#121212]",
   Reproducibility: "bg-violet text-white", Reading: "bg-mint text-[#121212]", Mindset: "bg-orange text-[#121212]",
+  Grit: "bg-pink text-[#121212]", Wit: "bg-[#121212] text-white",
 };
 const TAG_GRAD: Record<string, string> = {
   Integrity: "from-[#ff6b6b] via-[#ff8fab] to-[#ffd166]", Writing: "from-[#4d7cff] via-[#a78bfa] to-[#ff8fab]",
   Experiments: "from-[#b8f35b] via-[#5ee6c1] to-[#4dd2ff]", Ideas: "from-[#ffe14d] via-[#ffb86b] to-[#ff7eb6]",
   Reproducibility: "from-[#8b5cf6] via-[#c084fc] to-[#60a5fa]", Reading: "from-[#5ee6c1] via-[#a7f3d0] to-[#fde68a]",
   Mindset: "from-[#ffa94d] via-[#ff7eb6] to-[#c084fc]",
+  Grit: "from-[#ff4d8d] via-[#ff8a5c] to-[#ffd166]", Wit: "from-[#2b2d42] via-[#6b5bd6] to-[#ff7eb6]",
 };
 const TAGS = ["All", ...Object.keys(TAG_COLOR)];
 const FREE_FAVS = 3;

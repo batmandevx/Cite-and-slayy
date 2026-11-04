@@ -3,6 +3,7 @@
 import { Play, Volume2, VolumeX } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
+import { track } from "@/lib/track";
 
 const pop = { type: "spring", stiffness: 260, damping: 18 } as const;
 
@@ -26,7 +27,7 @@ function Clip({ src, poster, label, className }: { src: string; poster: string; 
   const toggleSound = () => {
     const v = ref.current; if (!v) return;
     v.muted = !v.muted; setMuted(v.muted);
-    if (!v.muted) { v.currentTime = 0; void v.play().catch(() => {}); }
+    if (!v.muted) { v.currentTime = 0; void v.play().catch(() => {}); track("video_play"); }
   };
 
   return (
@@ -67,7 +68,7 @@ export function VideoShowcase() {
               <span className="size-3 rounded-full border-2 border-edge bg-crit" /><span className="size-3 rounded-full border-2 border-edge bg-yellow" /><span className="size-3 rounded-full border-2 border-edge bg-lime" />
               <span className="ml-2 font-display text-sm font-extrabold">The 23-second tour</span>
             </div>
-            <Clip src="/videos/citeslayy-demo.mp4" poster="/videos/citeslayy-demo.jpg" label="Cite & Slayy in 23 seconds" className="aspect-video" />
+            <Clip src="/videos/citeslayy-demo.mp4" poster="/videos/citeslayy-demo.webp" label="Cite & Slayy in 23 seconds" className="aspect-video" />
           </div>
         </motion.div>
 
@@ -77,7 +78,7 @@ export function VideoShowcase() {
           <div className="rounded-[2.4rem] border-[3px] border-edge bg-[#121212] p-2.5 shadow-[8px_8px_0_var(--shadow-c)]">
             <div className="relative overflow-hidden rounded-[1.9rem]">
               <span className="absolute left-1/2 top-2 z-10 h-5 w-24 -translate-x-1/2 rounded-full bg-[#121212]" aria-hidden />
-              <Clip src="/videos/citeslayy-reel.mp4" poster="/videos/citeslayy-reel.jpg" label="Cite & Slayy, the one-minute reel" className="aspect-[9/16]" />
+              <Clip src="/videos/citeslayy-reel.mp4" poster="/videos/citeslayy-reel.webp" label="Cite & Slayy, the one-minute reel" className="aspect-[9/16]" />
             </div>
           </div>
           <div className="mt-4 text-center"><span className="sticker rotate-2 bg-pink text-[#121212]">The 1-minute reel</span></div>

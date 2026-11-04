@@ -3,7 +3,11 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { BUSINESS } from "@/lib/business";
 import { Logo } from "../Logo";
+import { CookieSettingsLink } from "../CookieConsent";
+import { JsonLd } from "../seo/JsonLd";
 import { FeatureLinks } from "../seo/SiteFooterLinks";
+import { breadcrumbJsonLd } from "@/lib/seo";
+import { SITE_URL } from "@/lib/site";
 import { HeroArt } from "./HeroArt";
 import { Reveal } from "./Reveal";
 import { Toc } from "./Toc";
@@ -20,8 +24,13 @@ export function PolicyShell({ eyebrow, title, intro, icon, heroColor = "bg-surfa
   eyebrow: string; title: string; intro: ReactNode; icon: ReactNode; heroColor?: string; glance?: Glance[];
   toc?: { id: string; title: string }[]; current: string; children: ReactNode;
 }) {
+  const label = POLICIES.find((p) => p.href === current)?.label ?? title;
+  const pageType = current === "/about" ? "AboutPage" : current === "/contact" ? "ContactPage" : "WebPage";
   return (
     <div className="min-h-screen">
+      <JsonLd data={breadcrumbJsonLd([[label, current]])} />
+      <JsonLd data={{ "@context": "https://schema.org", "@type": pageType, name: title, url: `${SITE_URL}${current}`,
+        isPartOf: { "@id": `${SITE_URL}/#website` }, about: { "@id": `${SITE_URL}/#org` } }} />
       <header className="border-b-[2.5px] border-edge bg-surface/80 backdrop-blur">
         <div className="mx-auto flex max-w-[1180px] items-center justify-between gap-4 px-5 py-3.5">
           <Link href="/" aria-label="Cite & Slayy home"><Logo /></Link>
@@ -35,9 +44,16 @@ export function PolicyShell({ eyebrow, title, intro, icon, heroColor = "bg-surfa
       </header>
 
       <main className="mx-auto max-w-[1180px] px-5 pb-16">
+        <nav aria-label="Breadcrumb" className="pt-5 text-xs font-bold text-muted">
+          <ol className="flex flex-wrap items-center gap-1.5">
+            <li><Link href="/" className="hover:text-ink hover:underline">Home</Link></li>
+            <li aria-hidden>/</li>
+            <li aria-current="page" className="text-ink-2">{label}</li>
+          </ol>
+        </nav>
         {/* hero */}
         <Reveal>
-          <section className={`card relative mt-8 overflow-hidden px-6 py-10 md:px-10 md:py-14 ${heroColor} ${heroColor === "bg-surface" ? "" : "text-[#121212]"}`}>
+          <section className={`card relative mt-4 overflow-hidden px-6 py-10 md:px-10 md:py-14 ${heroColor} ${heroColor === "bg-surface" ? "" : "text-[#121212]"}`}>
             <HeroArt icon={icon} />
             <div className="relative max-w-2xl">
               <span className="sticker bg-surface text-[#121212]">{eyebrow}</span>
@@ -98,6 +114,7 @@ export function PolicyShell({ eyebrow, title, intro, icon, heroColor = "bg-surfa
                 <Link key={p.href} href={p.href} className={p.href === current ? "text-ink underline decoration-pink decoration-[3px] underline-offset-4" : "hover:underline"}>{p.label}</Link>
               ))}
               <Link href="/pricing" className="hover:underline">Pricing</Link>
+              <CookieSettingsLink />
             </nav>
             <FeatureLinks className="flex flex-wrap gap-x-4 gap-y-2 text-xs" />
           </div>

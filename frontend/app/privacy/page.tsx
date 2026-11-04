@@ -1,14 +1,15 @@
 import { Cookie, Database, Eye, Globe, Lock, Mail, Server, ShieldCheck, Trash2, UserRound } from "lucide-react";
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { Callout, PolicyShell, Section } from "@/components/legal/PolicyShell";
 import { BUSINESS } from "@/lib/business";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Privacy Policy",
   description: "How Cite & Slayy collects, uses and protects your data, uploads and research papers. We never sell your data.",
-  alternates: { canonical: "/privacy" },
-};
+  path: "/privacy",
+});
 
 const TOC = [
   ["collect", "What we collect"], ["use", "How we use it"], ["share", "Who we share it with"], ["security", "How we protect it"],
@@ -32,6 +33,8 @@ export default function Privacy() {
           <li><b>Usage:</b> which features you use and how much AI processing they need, so we can apply plan limits and keep costs fair.</li>
           <li><b>Payments:</b> handled by Razorpay. We receive payment and subscription IDs, amounts and status (and the UTR you give us for UPI QR payments), never your card, bank or UPI PIN details.</li>
           <li><b>Technical:</b> basic logs such as IP address, browser and error reports, used for security and to fix problems.</li>
+          <li><b>Messages:</b> what you send through the contact form (name, email, topic and message), so we can reply.</li>
+          <li><b>Site analytics, only if you allow it:</b> anonymous daily totals of events such as &ldquo;opened the app&rdquo;, &ldquo;signed up&rdquo; or &ldquo;generated a paper&rdquo;, with the page path. No cookie, user ID or IP address is stored with them.</li>
         </ul>
       </Section>
       <Section id="use" n={2} title="How we use it" icon={<UserRound className="size-5" />}>
@@ -61,7 +64,11 @@ export default function Privacy() {
         </ul>
       </Section>
       <Section id="cookies" n={5} title="Cookies" icon={<Cookie className="size-5" />}>
-        <p>We use one essential, secure cookie to keep you signed in. Your theme and some app preferences are saved in your browser&apos;s local storage. We use no advertising or cross-site tracking cookies.</p>
+        <p>We use one essential, secure cookie to keep you signed in. Your theme, some app preferences and your cookie choice are saved in your browser&apos;s local storage. We use no advertising or cross-site tracking cookies.</p>
+        <p>
+          <b>Analytics is optional.</b> On your first visit we ask whether we may count anonymous events (see &ldquo;What we collect&rdquo;). If you choose
+          &ldquo;Essential only&rdquo;, nothing is counted. You can change your choice any time with <b>Cookie settings</b> in the footer of every page.
+        </p>
       </Section>
       <Section id="retention" n={6} title="Keeping & deleting data" icon={<Trash2 className="size-5" />}>
         <p>
