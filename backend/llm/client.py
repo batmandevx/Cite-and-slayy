@@ -471,15 +471,26 @@ def _cache_key(system: str, prompt: str, schema: dict | None, provider: str = ""
     return hashlib.sha256(json.dumps([provider, model, system, prompt, schema], sort_keys=True).encode()).hexdigest()
 
 
+def _pinned_chain(prefer: list[str] | None, tier: Tier) -> list[tuple[str, str]]:
+    """`prefer`: Bedrock model ids to try first (e.g. one reviewer per model family). The normal chain follows as fallback,
+    so a pinned model that is unavailable never breaks the call. Without Bedrock the preference is ignored."""
+    base = chain(tier)
+    region = getattr(get_settings(), "bedrock_region", None)
+    if not prefer or not region or not _premium.get() or not any(p == "bedrock" for p, _ in base):
+        return base
+    pinned = [("bedrock", _bedrock_model_id(m, region)) for m in prefer]
+    return pinned + [x for x in base if x not in pinned]
+
+
 async def _call(system: str, prompt: str, schema: dict | None, effort: Effort, max_tokens: int, use_cache: bool,
-                tier: Tier = "main") -> str:
+                tier: Tier = "main", prefer: list[str] | None = None) -> str:
     """Try the primary provider, then each fallback in LLM_FALLBACK. Responses are cached per (provider, model, prompt):
     identical requests return the stored real output, which makes re-runs reproducible and instant (e.g. a live demo)."""
     from backend.cache.store import get_store
 
     store = get_store()
     errors: list[str] = []
-    for provider, model in chain(tier):
+    for provider, model in _pinned_chain(prefer, tier):
         key = _cache_key(system, prompt, schema, provider, model)
         if use_cache and (hit := store.get("llm_cache", key)):
             return hit["text"]
@@ -495,20 +506,20 @@ async def _call(system: str, prompt: str, schema: dict | None, effort: Effort, m
 
 
 async def complete(system: str, prompt: str, *, effort: Effort = "medium", max_tokens: int = 16000,
-                   tier: Tier = "main") -> str:
+                   tier: Tier = "main", prefer: list[str] | None = None) -> str:
     if not available():
         raise LLMError("no LLM available (set an API key or run Ollama locally)")
-    return await _call(system, prompt, None, effort, max_tokens, use_cache=True, tier=tier)
+    return await _call(system, prompt, None, effort, max_tokens, use_cache=True, tier=tier, prefer=prefer)
 
 
 async def complete_json(system: str, prompt: str, model: type[T], *, effort: Effort = "medium",
-                        max_tokens: int = 16000, tier: Tier = "main") -> T:
+                        max_tokens: int = 16000, tier: Tier = "main", prefer: list[str] | None = None) -> T:
     if not available():
         raise LLMError("no LLM available (set an API key or run Ollama locally)")
     schema = strict_schema(model)
     last: Exception | None = None
     for attempt in range(2):  # one retry on invalid output (the retry bypasses the cache)
-        text = await _call(system, prompt, schema, effort, max_tokens, use_cache=attempt == 0, tier=tier)
+        text = await _call(system, prompt, schema, effort, max_tokens, use_cache=attempt == 0, tier=tier, prefer=prefer)
         try:
             return model.model_validate(_extract_json(text))
         except (ValueError, ValidationError) as e:
@@ -544,6 +555,23 @@ async def _vision_gemini(prompt: str, images: list[tuple[str, bytes]]) -> str:
     parts = [types.Part.from_bytes(data=b, mime_type=m) for m, b in images] + [prompt]
     resp = await client.aio.models.generate_content(model=s.default_model_for("gemini"), contents=parts)
     return resp.text or ""
+
+
+async def vision(prompt: str, images: list[tuple[str, bytes]]) -> str:
+    """Ask a vision-capable model about images with a custom prompt (Bedrock vision models, then Gemini)."""
+    s = get_settings()
+    errors = []
+    for model in (_models(s.vision_models) if s.bedrock_region else []):
+        try:
+            return await asyncio.to_thread(_vision_converse_sync, prompt, images, model)
+        except LLMError as e:
+            errors.append(f"{model}: {e}")
+    if s.gemini_api_key:
+        try:
+            return await _vision_gemini(prompt, images)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"gemini: {e}")
+    raise LLMError("no vision model available: " + "; ".join(errors))
 
 
 async def describe_images(images: list[tuple[str, bytes]], question: str) -> str:

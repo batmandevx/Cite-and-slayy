@@ -57,7 +57,7 @@ async def iter_search(query: str, from_year: int, max_results: int) -> AsyncIter
     while got < max_results:
         params = {
             "search": query,
-            "filter": f"from_publication_date:{from_year}-01-01,has_abstract:true,type:article|preprint|proceedings-article",
+            "filter": f"from_publication_date:{from_year}-01-01,has_abstract:true,type:article|preprint|conference-paper",
             "per-page": 200, "select": SELECT,
         }
         params.update({"cursor": cursor} if use_cursor else {"page": page})
@@ -86,3 +86,29 @@ async def trend(phrase: str, from_year: int = 2015) -> tuple[dict[int, int], Fet
     })
     counts = {int(g["key"]): int(g["count"]) for g in (f.data or {}).get("group_by", []) if str(g.get("key", "")).isdigit()}
     return dict(sorted(counts.items())), f
+
+
+async def works_by_ids(ids: list[str], select: str = SELECT) -> Fetched:
+    """Up to 50 works by OpenAlex W-id in one request."""
+    ids = [i.rsplit("/", 1)[-1] for i in ids if i][:50]
+    return await client().get(f"{BASE}/works", {"filter": "openalex_id:" + "|".join(ids), "per-page": 50, "select": select})
+
+
+async def referenced_ids(ids: list[str]) -> dict[str, list[str]]:
+    """{work id: [ids of the works it cites]} for up to 50 works (used for citation snowballing)."""
+    f = await works_by_ids(ids, select="id,referenced_works")
+    return {(w.get("id") or "").rsplit("/", 1)[-1]: [r.rsplit("/", 1)[-1] for r in w.get("referenced_works") or []]
+            for w in (f.data or {}).get("results", [])}
+
+
+async def find_source(name: str) -> Fetched:
+    """Journals / conferences by name (for a target venue's style)."""
+    return await client().get(f"{BASE}/sources", {"search": name[:200], "per-page": 3,
+                                                   "select": "id,display_name,type,works_count,host_organization_name"})
+
+
+async def recent_in_source(source_id: str, from_year: int, n: int = 12) -> Fetched:
+    sid = source_id.rsplit("/", 1)[-1]
+    return await client().get(f"{BASE}/works", {
+        "filter": f"primary_location.source.id:{sid},from_publication_date:{from_year}-01-01,has_abstract:true,type:article|conference-paper",
+        "sort": "publication_date:desc", "per-page": n, "select": SELECT + ",referenced_works_count"})

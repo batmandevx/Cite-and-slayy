@@ -1068,11 +1068,100 @@ async def paper_studio_start(req: studio.StudioRequest, request: Request):
         raise HTTPException(400, "Paper Studio needs the AI service, which is not configured.")
     for d in req.seed_document_ids:
         auth.check_access("document", d, user)
+    if req.dataset_id:
+        auth.check_access("studio_data", req.dataset_id, user)
+        if not get_store().get("studio_data", req.dataset_id):
+            raise HTTPException(404, "That dataset is no longer available. Upload it again.")
+    if req.paper_type not in ("auto", "method", "empirical", "review", "position"):
+        req.paper_type = "auto"
+    req.venue, req.dataset_note = req.venue.strip()[:200], req.dataset_note.strip()[:1500]
     auth.consume(user, "papers")
     llm.set_premium(auth.is_premium(user))
     req.max_refs = 40 if user.get("plan") == "max" or user.get("_used_pack") or auth.is_owner(user) else 32
-    return JobRef(job_id=jobs.submit("paper_studio", lambda ctx: studio.run(req, ctx), owner=user["uid"],
-                                     on_error=lambda: auth.refund(user, "papers")).job_id)
+
+    async def job(ctx):
+        rid = await studio.run(req, ctx)
+        if rid.startswith("pl"):
+            auth.own("paper_plan", rid, user)
+        return rid
+    return JobRef(job_id=jobs.submit("paper_studio", job, owner=user["uid"], on_error=lambda: auth.refund(user, "papers")).job_id)
+
+
+@app.post("/api/paper-studio/datasets")
+async def paper_studio_dataset(request: Request, file: UploadFile = File(...), note: str = ""):
+    """A CSV the paper should analyse. Parsed and profiled now so problems show up before the paper is written."""
+    from backend.paper_studio import userdata
+    user = me(request)
+    raw = await file.read(userdata.MAX_BYTES + 1)
+    if not (file.filename or "").lower().endswith((".csv", ".tsv", ".txt")):
+        raise HTTPException(400, "Upload a .csv file (comma, semicolon or tab separated).")
+    try:
+        table = userdata.parse_csv(raw)
+    except userdata.DataError as e:
+        raise HTTPException(400, str(e))
+    did = "ds" + uuid.uuid4().hex[:10]
+    get_store().put("studio_data", did, {"id": did, "name": (file.filename or "data.csv")[:120], "note": note[:1500],
+                                         "csv": base64.b64encode(raw).decode(), "rows": table.n, "columns": list(table.columns)})
+    auth.own("studio_data", did, user)
+    return {"dataset_id": did, "name": file.filename, "rows": table.n, "columns": [{"name": c, "kind": table.kinds[c]} for c in table.columns],
+            "profile": userdata.profile(table)}
+
+
+def _plan_or_404(plan_id: str, user: dict) -> dict:
+    auth.check_access("paper_plan", plan_id, user)
+    pl = get_store().get("paper_plan", plan_id)
+    if not pl:
+        raise HTTPException(404, "plan not found")
+    return pl
+
+
+@app.get("/api/paper-studio/plans/{plan_id}")
+async def paper_studio_plan(plan_id: str, request: Request):
+    """The research plan for the co-pilot review: outline, dossier, conflicts, novelty check and references."""
+    from backend.paper_studio.paper_types import PLANS, TYPE_LABEL
+    pl = _plan_or_404(plan_id, me(request))
+    o = pl["outline"]
+    specs = PLANS[pl["paper_type"]].active(bool(pl["req"].get("dataset_id")))
+    briefs = {b["key"]: b["brief"] for b in o.get("briefs") or []}
+    return {
+        "plan_id": plan_id, "status": pl.get("status"), "paper_id": pl.get("paper_id"), "topic": pl["req"]["topic"],
+        "paper_type": pl["paper_type"], "paper_type_label": TYPE_LABEL[pl["paper_type"]], "type_reason": pl.get("type_reason"),
+        "title": o["title"], "research_question": o["research_question"], "contributions": o["contributions"],
+        "method_name": o.get("method_name"), "method_summary": o.get("method_summary"), "hypotheses": o.get("hypotheses"),
+        "themes": o.get("themes"), "thesis": o.get("thesis"),
+        "sections": [{"key": x.key, "heading": x.heading, "brief": briefs.get(x.key, "")} for x in specs],
+        "dossier": pl.get("dossier", ""), "conflicts": pl.get("conflicts") or [], "experts": pl.get("experts") or [],
+        "novelty": pl.get("novelty"), "style": (pl.get("style") or {}).get("stats"), "candidates": pl.get("candidates"),
+        "snowballed": pl.get("snowballed"), "queries": pl.get("queries"),
+        "references": [{"n": i, "title": r["title"], "year": r.get("year"), "venue": r.get("venue"), "cited_by": r.get("cited_by"),
+                        "url": f"https://doi.org/{r['doi']}" if r.get("doi") else r.get("url")} for i, r in enumerate(pl["refs"], 1)],
+    }
+
+
+class PlanEdits(BaseModel):
+    title: str = ""
+    research_question: str = ""
+    contributions: list[str] = []
+    briefs: dict[str, str] = {}
+    exclude_refs: list[int] = []
+    instructions: str = ""
+
+
+@app.post("/api/paper-studio/plans/{plan_id}/write", response_model=JobRef)
+async def paper_studio_write(plan_id: str, edits: PlanEdits, request: Request):
+    """Write the paper from a reviewed plan (the paper credit was used when the plan was made)."""
+    user = me(request)
+    pl = _plan_or_404(plan_id, user)
+    if pl.get("status") != "planned":
+        raise HTTPException(409, "This plan has already been written. Open the paper from your list.")
+    get_store().put("paper_plan", plan_id, {**pl, "status": "writing"})
+    llm.set_premium(auth.is_premium(user))
+
+    def failed():
+        cur = get_store().get("paper_plan", plan_id) or pl
+        get_store().put("paper_plan", plan_id, {**cur, "status": "planned"})   # let them try again with the same plan
+    return JobRef(job_id=jobs.submit("paper_studio", lambda ctx: studio.write_from_plan(plan_id, edits.model_dump(), ctx),
+                                     owner=user["uid"], on_error=failed).job_id)
 
 
 @app.get("/api/paper-studio")
@@ -1098,6 +1187,9 @@ async def paper_studio_get(pid: str, request: Request):
     if not auth.is_paid(user):
         out.update(_preview_only(out["markdown"]), references=(out.get("references") or [])[:6], kit=None,
                    references_total=len(out.get("references") or []))
+        seen = " ".join(out["markdown"].split()).lower()     # only sentences that are in the free preview
+        out["provenance"] = {k: kept for k, v in (out.get("provenance") or {}).items()
+                             if (kept := [e for e in v if " ".join(e["sentence"].split()).lower()[:90] in seen])}
     return out
 
 

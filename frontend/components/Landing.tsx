@@ -66,7 +66,7 @@ const GETS = [
 
 const STEPS = [
   { n: 1, icon: Compass, title: "Tell us the topic", body: "Type a topic, brainstorm one with Azora AI from your interests, or upload the papers you've studied.", color: "bg-lime" },
-  { n: 2, icon: FilePen, title: "Agents write it", body: "14 specialist agents vet real literature, measure longitudinal trends, formulate notation & theorems, and draft every section with figures, algorithms and diagrams.", color: "bg-blue text-white" },
+  { n: 2, icon: FilePen, title: "Agents write it", body: "Agents search three databases, follow citation trails, hold an expert roundtable and write the paper your field expects (method, study, review or position paper), then a three-reviewer panel scores it and every citation is checked.", color: "bg-blue text-white" },
   { n: 3, icon: ShieldCheck, title: "Say what to change", body: "“Add a comparison table.” “Make it more formal.” The agents revise, then re-check every citation, number and equation.", color: "bg-yellow" },
   { n: 4, icon: Gavel, title: "Download & submit", body: "Get LaTeX (IEEE / Springer), Word and PDF, a reviewer verdict, and a shortlist of matching journals and conferences.", color: "bg-pink" },
 ];

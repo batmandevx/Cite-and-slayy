@@ -4,7 +4,7 @@ import { track } from "@/lib/track";
 import clsx from "clsx";
 import {
   BadgeCheck, BookMarked, CheckCircle2, Download, ExternalLink, FileText, FileType2, Gamepad2, Loader2, NotebookPen,
-  FileUp, Lightbulb, Presentation, Printer, RotateCcw, ShieldCheck, Sparkles, Wand2,
+  FileUp, Lightbulb, Presentation, Printer, RotateCcw, ShieldCheck, Sparkles, Wand2, Table2, Ruler,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -22,37 +22,45 @@ import { Button, Card, Select } from "./ui";
 import { usePaid } from "./auth/AuthProvider";
 import { ProChip, UnlockPanel } from "./billing/ProLock";
 import { DeckThemePicker } from "./studio/DeckThemePicker";
+import { CitationPopover, type CiteTarget, type ProvenanceEntry } from "./studio/CitationPopover";
+import { PlanReview } from "./studio/PlanReview";
 
 interface StudioPaper {
   paper_id: string; title: string; topic: string; markdown: string; highlights: string[]; summary: string; keywords: string[];
   research_question: string; contributions: string[]; words: number; template: string; author: string; affiliation: string;
   references: { n: number; title: string; year?: number; doi?: string; url?: string; venue?: string; cited_by?: number }[];
+  paper_type?: string; provenance?: Record<string, ProvenanceEntry[]>; measured_facts?: string[];
   history?: { at: string; instruction: string }[]; revisable?: boolean; seeded?: string[]; last_change?: string; kit?: Kit | null; locked?: boolean; locked_sections?: number; references_total?: number;
   report: {
     references: number; candidates: number; retraction_checked: number; retracted_excluded: { title: string; doi?: string }[];
     invalid_citations_removed: number; claims_checked: number; claims_supported: number; claims_unsupported: number;
     paragraphs_flagged: number; paragraphs_revised: number; unmeasured_claims_found?: number; unmeasured_claims_remaining?: number; verbatim_paragraphs_after: number; tortured_phrases: string[];
+    paper_type?: string; snowballed?: number; experts?: string[]; conflicts_found?: number; venue_style?: string | null;
+    novelty?: { verdict: string; explanation: string } | null; consistency_edits?: number; gaps_filled?: number; synthesis_flags?: number;
+    claims_unclear?: number; figures_checked?: number; captions_corrected?: number;
+    review_panel?: { overall: number | null; scores: Record<string, number>; issues: number; sections_revised: number };
+    data_analysis?: { analyses?: number; error?: string } | null;
   };
 }
 
 const AGENTS: { id: string; name: string; role: string; emoji: string; color: string }[] = [
-  { id: "scout", name: "Scout", role: "finds & vets the literature", emoji: "🔭", color: "bg-lime" },
+  { id: "scout", name: "Scout", role: "searches 3 databases & picks the paper type", emoji: "🔭", color: "bg-lime" },
+  { id: "librarian", name: "Librarian", role: "citation chaining & evidence gaps", emoji: "📚", color: "bg-mint" },
   { id: "analyst", name: "Analyst", role: "trends, venues & 300-DPI figures", emoji: "📊", color: "bg-blue" },
-  { id: "experimenter", name: "Experimenter", role: "runs pilot benchmarks & a sandboxed simulation", emoji: "🧪", color: "bg-lime" },
-  { id: "architect", name: "Architect", role: "model, acronym & theorems", emoji: "📐", color: "bg-yellow" },
-  { id: "writer:intro", name: "Intro writer", role: "Introduction & scope", emoji: "✍️", color: "bg-pink" },
-  { id: "writer:related", name: "Literature writer", role: "Related work & positioning", emoji: "📚", color: "bg-pink" },
-  { id: "writer:formulation", name: "Modeler", role: "Formulation & notation table", emoji: "🧭", color: "bg-pink" },
-  { id: "writer:method", name: "Method writer", role: "Architecture & Algorithm 1", emoji: "🧮", color: "bg-pink" },
-  { id: "writer:theory", name: "Theory prover", role: "Theorems, proofs & bounds", emoji: "⚖️", color: "bg-pink" },
-  { id: "writer:analysis", name: "Results writer", role: "Quantitative synthesis", emoji: "📈", color: "bg-pink" },
-  { id: "writer:protocol", name: "Experiment designer", role: "Leak-free protocol & ablations", emoji: "🧪", color: "bg-pink" },
-  { id: "writer:discussion", name: "Discussion writer", role: "Failure modes & conclusion", emoji: "💬", color: "bg-pink" },
-  { id: "editor", name: "Editor", role: "Abstract & IEEE Index Terms", emoji: "🖋️", color: "bg-orange" },
-  { id: "verifier", name: "Verifier", role: "citations, copying, claims", emoji: "🛡️", color: "bg-mint" },
-  { id: "reviser", name: "Reviser", role: "fixes flagged paragraphs", emoji: "🔧", color: "bg-violet" },
+  { id: "roundtable", name: "Expert roundtable", role: "4 experts question the literature", emoji: "🗣️", color: "bg-yellow" },
+  { id: "dossier", name: "Dossier", role: "what the evidence says & where it conflicts", emoji: "🗂️", color: "bg-yellow" },
+  { id: "architect", name: "Architect", role: "outline, best title & research question", emoji: "📐", color: "bg-yellow" },
+  { id: "novelty", name: "Novelty check", role: "has someone already done this?", emoji: "🔎", color: "bg-orange" },
+  { id: "statistician", name: "Statistician", role: "analyses your dataset", emoji: "🧮", color: "bg-lime" },
+  { id: "experimenter", name: "Experimenter", role: "pilot runs & sandboxed simulation", emoji: "🧪", color: "bg-lime" },
+  { id: "editor", name: "Editor", role: "consistency pass & best-of-3 abstract", emoji: "🖋️", color: "bg-orange" },
+  { id: "reviewers", name: "Reviewer panel", role: "3 reviewers score the draft", emoji: "⚖️", color: "bg-violet" },
+  { id: "verifier", name: "Verifier", role: "checks every citation claim", emoji: "🛡️", color: "bg-mint" },
+  { id: "reviser", name: "Reviser", role: "fixes what reviewers & checks flag", emoji: "🔧", color: "bg-violet" },
+  { id: "figures", name: "Figure checker", role: "looks at every figure vs its caption", emoji: "🖼️", color: "bg-blue" },
 ];
-type AgentState = { state: "idle" | "run" | "done"; text: string };
+const WRITER = { role: "writes with the shared paper memory", emoji: "✍️", color: "bg-pink" };
+type AgentState = { state: "idle" | "run" | "done"; text: string; name?: string };
 
 const IDEAS = [
   "Retrieval-augmented generation for scientific question answering",
@@ -82,8 +90,8 @@ function useStudioJob(onDone: (pid: string) => void) {
       const ev = JSON.parse(m.data) as JobEvent;
       setProgress(ev.progress);
       try {
-        const d = JSON.parse(ev.message) as { agent: string; state: "run" | "done"; text: string };
-        if (d.agent) setAgents((a) => ({ ...a, [d.agent]: { state: d.state, text: d.text } }));
+        const d = JSON.parse(ev.message) as { agent: string; state: "run" | "done"; text: string; name?: string };
+        if (d.agent) setAgents((a) => ({ ...a, [d.agent]: { state: d.state, text: d.text, name: d.name ?? a[d.agent]?.name } }));
       } catch { /* plain lifecycle message */ }
     };
     src.addEventListener("end", (m) => {
@@ -107,7 +115,10 @@ function useStudioJob(onDone: (pid: string) => void) {
       setError((e as Error).message);
     }
   }, [setJobId, setStarted]);
-  return { start, agents, progress, running: running || !!jobId, error, started };
+  const follow = useCallback((job_id: string) => {
+    setAgents({}); setProgress(0.5); setError(null); setStarted(Date.now()); setJobId(job_id); setRunning(true);
+  }, [setJobId, setStarted]);
+  return { start, follow, agents, progress, running: running || !!jobId, error, started };
 }
 
 function Elapsed({ since }: { since: number }) {
@@ -118,14 +129,19 @@ function Elapsed({ since }: { since: number }) {
 }
 
 function AgentBoard({ agents, progress, started, onPlay }: { agents: Record<string, AgentState>; progress: number; started: number; onPlay: () => void }) {
-  const active = AGENTS.filter((a) => agents[a.id]?.state === "run");
+  const writers = Object.entries(agents).filter(([id]) => id.startsWith("writer:"))
+    .map(([id, a]) => ({ id, name: a.name ?? id.slice(7), ...WRITER }));
+  const at = AGENTS.findIndex((a) => a.id === "editor");
+  const board = [...AGENTS.slice(0, at), ...writers, ...AGENTS.slice(at)]
+    .filter((a) => agents[a.id] || !["statistician", "experimenter"].includes(a.id));
+  const active = board.filter((a) => agents[a.id]?.state === "run");
   return (
     <Card className="overflow-hidden">
       <div className="flex flex-wrap items-center gap-3 border-b-[2.5px] border-edge bg-ink px-5 py-4 text-bg">
         <Loader2 className="size-6 animate-spin" />
         <div className="flex-1">
           <div className="font-display text-xl font-extrabold">Your research team is writing…</div>
-          <div className="text-xs opacity-75">{active.length ? active.map((a) => a.name).join(" · ") + " working" : "Warming up"} · <Elapsed since={started} /> elapsed · usually 3–6 min</div>
+          <div className="text-xs opacity-75">{active.length ? active.map((a) => a.name).join(" · ") + " working" : "Warming up"} · <Elapsed since={started} /> elapsed · usually 10–15 min</div>
         </div>
         <Button variant="lime" onClick={onPlay}><Gamepad2 className="size-4" />Play while you wait</Button>
       </div>
@@ -133,7 +149,7 @@ function AgentBoard({ agents, progress, started, onPlay }: { agents: Record<stri
         <motion.div className="h-full bg-[linear-gradient(90deg,var(--pink),var(--yellow),var(--lime))]" animate={{ width: `${Math.max(3, progress * 100)}%` }} transition={{ type: "spring", stiffness: 40 }} />
       </div>
       <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {AGENTS.map((a, i) => {
+        {board.map((a, i) => {
           const st = agents[a.id]?.state ?? "idle";
           return (
             <motion.div key={a.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}
@@ -160,10 +176,20 @@ function AgentBoard({ agents, progress, started, onPlay }: { agents: Record<stri
 
 function Report({ p }: { p: StudioPaper }) {
   const r = p.report;
+  const TYPE: Record<string, string> = { method: "Technical method paper", empirical: "Empirical study", review: "Literature review", position: "Position paper" };
+  const panel = r.review_panel;
   const rows: [string, string, boolean][] = [
-    ["Real references, every one linked", `${r.references} works`, true],
+    ...(r.paper_type ? [["Paper type", TYPE[r.paper_type] ?? r.paper_type, true] as [string, string, boolean]] : []),
+    ["Real references, every one linked", `${r.references} works${r.snowballed ? ` · ${r.snowballed} via citation chaining` : ""}`, true],
+    ...(r.experts?.length ? [["Expert roundtable & conflicting evidence", `${r.experts.length} experts · ${r.conflicts_found ?? 0} conflict(s) addressed`, true] as [string, string, boolean]] : []),
+    ...(r.novelty ? [["Novelty check against prior work", r.novelty.verdict === "novel" ? "looks novel" : r.novelty.verdict === "unchecked" ? "skipped" : "prior work credited", true] as [string, string, boolean]] : []),
+    ...(panel?.overall ? [["Reviewer panel (3 reviewers, draft score)", `${panel.overall}/10 · ${panel.issues} issues · ${panel.sections_revised} section(s) revised`, true] as [string, string, boolean]] : []),
+    ...(r.gaps_filled !== undefined ? [["Uncited claims given new evidence", `${r.gaps_filled} new source(s) cited`, true] as [string, string, boolean]] : []),
+    ...(r.consistency_edits !== undefined ? [["Consistency edits (repetition, terms)", String(r.consistency_edits), true] as [string, string, boolean]] : []),
+    ...(r.figures_checked ? [["Figures checked against captions", `${r.figures_checked} checked · ${r.captions_corrected ?? 0} caption(s) corrected`, true] as [string, string, boolean]] : []),
+    ...(r.data_analysis?.analyses ? [["Analyses run on your dataset", String(r.data_analysis.analyses), true] as [string, string, boolean]] : []),
     ["Checked for retraction notices", `${r.retraction_checked} clear${r.retracted_excluded.length ? ` · ${r.retracted_excluded.length} retracted excluded` : ""}`, true],
-    ["Citation claims checked against abstracts", `${r.claims_supported} supported · ${r.claims_unsupported} fixed of ${r.claims_checked}`, true],
+    ["Citation claims checked against abstracts", `${r.claims_supported} supported · ${r.claims_unsupported} fixed of ${r.claims_checked}${r.claims_unclear ? ` · ${r.claims_unclear} need full text` : ""}`, true],
     ["Copied text (8-word matches) after revision", r.verbatim_paragraphs_after ? `${r.verbatim_paragraphs_after} paragraph(s)` : "none found", !r.verbatim_paragraphs_after],
     ["Unmeasured numbers / results claims", `${r.unmeasured_claims_found ?? 0} found · ${r.unmeasured_claims_remaining ?? 0} left`, !(r.unmeasured_claims_remaining ?? 0)],
     ["Paragraphs revised for originality / support", `${r.paragraphs_revised} of ${r.paragraphs_flagged} flagged`, true],
@@ -182,7 +208,7 @@ function Report({ p }: { p: StudioPaper }) {
         ))}
       </div>
       <p className="mt-3 text-[11px] text-muted">
-        Results are measured from real bibliographic data. The experimental protocol lists experiments to run; its cells say “to be measured”
+        Click any citation number in the paper to see the source passage it relies on. Results are measured from real bibliographic data. The experimental protocol lists experiments to run; its cells say “to be measured”
         until you add your own numbers. Similarity checks here compare against the cited abstracts. Run your institution&apos;s checker before submitting.
       </p>
     </Card>
@@ -273,6 +299,43 @@ function SeedPapers({ ids, setIds }: { ids: { id: string; name: string }[]; setI
   );
 }
 
+type Dataset = { id: string; name: string; rows: number; columns: { name: string; kind: string }[] };
+
+function DatasetUpload({ data, setData, note, setNote }: { data: Dataset | null; setData: (d: Dataset | null) => void; note: string; setNote: (v: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const add = async (files: FileList | null) => {
+    const f = files?.[0];
+    if (!f) return;
+    setBusy(true);
+    try {
+      const r = await api.upload<{ dataset_id: string; name: string; rows: number; columns: { name: string; kind: string }[] }>("/api/paper-studio/datasets", f);
+      setData({ id: r.dataset_id, name: r.name, rows: r.rows, columns: r.columns });
+      toast({ title: "Dataset ready", body: `${r.rows.toLocaleString()} rows · ${r.columns.length} columns. Your paper will report real results from it.`, tone: "good" });
+    } catch (e) {
+      toast({ title: `Couldn't read ${f.name}`, body: (e as Error).message, tone: "crit" });
+    } finally { setBusy(false); if (input.current) input.current.value = ""; }
+  };
+  return (
+    <div className="mt-3 rounded-2xl border-[2.5px] border-dashed border-edge bg-surface/60 p-3">
+      <div className="flex items-center gap-2">
+        <Table2 className="size-4" />
+        <span className="flex-1 text-xs font-bold">Your own data (optional CSV): we&apos;ll run real statistics and report actual results</span>
+        {data ? <Button className="!px-2.5 !py-1 text-[11px]" onClick={() => setData(null)}>Remove</Button>
+          : <Button className="!px-2.5 !py-1 text-[11px]" loading={busy} onClick={() => input.current?.click()}>Add CSV</Button>}
+        <input ref={input} type="file" accept=".csv,.tsv,.txt" hidden onChange={(e) => add(e.target.files)} />
+      </div>
+      {data && (
+        <div className="mt-2 space-y-2">
+          <div className="text-[11px] text-ink-2"><b>{data.name}</b> · {data.rows.toLocaleString()} rows · {data.columns.map((c) => c.name).slice(0, 8).join(", ")}{data.columns.length > 8 ? "…" : ""}</div>
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="What is this data? e.g. “survey of 300 students: daily screen hours, sleep hours, gender”"
+            className="w-full rounded-xl border-2 border-edge bg-surface px-3 py-1.5 text-xs outline-none" />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function PaperStudioTab({
   onPlay,
   onAudit,
@@ -291,6 +354,13 @@ export function PaperStudioTab({
   const [affil, setAffil] = usePersistent("paperAffil", "");
   const [disclose, setDisclose] = usePersistent("studioDisclose", true);
   const [seeds, setSeeds] = useState<{ id: string; name: string }[]>([]);
+  const [paperType, setPaperType] = usePersistent("studioType", "auto");
+  const [venue, setVenue] = usePersistent("studioVenue", "");
+  const [copilot, setCopilot] = usePersistent("studioCopilot", true);
+  const [dataset, setDataset] = useState<Dataset | null>(null);
+  const [datasetNote, setDatasetNote] = useState("");
+  const [planId, setPlanId] = usePersistent<string | null>("studioPlan", null);
+  const [citePop, setCitePop] = useState<CiteTarget | null>(null);
   const [kitVenue, setKitVenue] = useState<{ name: string; type: string } | null>(null);
   const [paperId, setPaperId] = usePersistent<string | null>("studioPaper", null);
   const [paper, setPaper] = useState<StudioPaper | null>(null);
@@ -301,7 +371,10 @@ export function PaperStudioTab({
   const { paid, gate } = usePaid();
   const [deckTheme, setDeckTheme] = usePersistent<string | DeckTheme>("deckTheme", "aurora");
 
-  const job = useStudioJob((pid) => { setPaperId(pid); setParty((n) => n + 1); toast({ title: "Your paper is ready 🎉", tone: "good" }); });
+  const job = useStudioJob((rid) => {
+    if (rid.startsWith("pl")) { setPlanId(rid); toast({ title: "Your research plan is ready", body: "Check it, edit anything, then start writing.", tone: "good" }); return; }
+    setPaperId(rid); setParty((n) => n + 1); toast({ title: "Your paper is ready 🎉", tone: "good" });
+  });
   useEffect(() => { api.get<typeof history>("/api/paper-studio").then(setHistory).catch(() => {}); }, [paperId]);
   const reload = useCallback(() => {
     if (paperId) api.get<StudioPaper>(`/api/paper-studio/${paperId}`).then(setPaper).catch(() => setPaperId(null));
@@ -330,20 +403,23 @@ export function PaperStudioTab({
     <div className="space-y-6">
       {party > 0 && <Confetti key={party} />}
       {/* composer */}
-      {!job.running && (
+      {planId && !job.running && (
+        <PlanReview planId={planId} onWrite={(jid) => { setPlanId(null); job.follow(jid); }} onDiscard={() => setPlanId(null)} />
+      )}
+      {!job.running && !planId && (
         <Card pop className="relative overflow-hidden p-6 md:p-8">
           <div className="pointer-events-none absolute -right-16 -top-16 size-64 rounded-full bg-pink/30 blur-3xl" />
           <div className="pointer-events-none absolute -bottom-20 left-1/3 size-64 rounded-full bg-lime/30 blur-3xl" />
           <div className="relative">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="sticker bg-yellow text-[#121212]">15 AI agents</span>
-              <span className="sticker bg-lime text-[#121212]">theorems + Algorithm 1</span>
-              <span className="sticker bg-blue text-white">300-DPI figures + ablations</span>
+              <span className="sticker bg-yellow text-[#121212]">Expert roundtable</span>
+              <span className="sticker bg-lime text-[#121212]">3-reviewer panel</span>
+              <span className="sticker bg-blue text-white">every citation checked</span>
             </div>
             <h2 className="mt-3 font-display text-3xl font-extrabold leading-tight md:text-4xl">
-              Topic in. <span className="gradient-text">Monograph-grade paper</span> out.
+              Topic in. <span className="gradient-text">Reviewed, verified paper</span> out.
             </h2>
-            <p className="mt-1 max-w-2xl text-ink-2">Specialist agents vet literature on OpenAlex &amp; Crossref, formulate mathematical notation &amp; assumptions, design Algorithm 1, derive formal propositions &amp; failure bounds, and audit every citation and claim.</p>
+            <p className="mt-1 max-w-2xl text-ink-2">Agents search OpenAlex, Semantic Scholar and arXiv, follow citation trails, hold an expert roundtable, flag where studies disagree, check your idea is new, then write in the right shape for your field. A three-reviewer panel scores the draft and every citation is checked against its source.</p>
             <div className="mt-5 grid gap-3 lg:grid-cols-[1.4fr_1fr]">
               <div>
                 <textarea value={topic} onChange={(e) => setTopic(e.target.value)} rows={2} placeholder="Your research topic, e.g. “Graph neural networks for traffic forecasting”"
@@ -359,8 +435,19 @@ export function PaperStudioTab({
                 </div>
                 <TopicIdeas onPick={(t, a) => { setTopic(t); setAngle(a); }} />
                 <SeedPapers ids={seeds} setIds={setSeeds} />
+                <DatasetUpload data={dataset} setData={setDataset} note={datasetNote} setNote={setDatasetNote} />
               </div>
               <div className="space-y-2.5 rounded-2xl border-[2.5px] border-edge bg-surface-2 p-4">
+                <label className="block text-xs font-extrabold uppercase tracking-wider text-muted">Kind of paper</label>
+                <Select value={paperType} onChange={(e) => setPaperType(e.target.value)}>
+                  <option value="auto">Choose for me (recommended)</option>
+                  <option value="method">Technical method paper (new model or algorithm)</option>
+                  <option value="empirical">Empirical study (data, hypotheses, analysis)</option>
+                  <option value="review">Literature review</option>
+                  <option value="position">Position / policy paper</option>
+                </Select>
+                <input value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="Target journal or conference (optional)"
+                  className="w-full rounded-xl border-2 border-edge bg-surface px-3 py-2 text-sm" />
                 <label className="block text-xs font-extrabold uppercase tracking-wider text-muted">Format</label>
                 <Select value={template} onChange={(e) => setTemplate(e.target.value)}>
                   <option value="ieee">IEEE Transactions / Access (two-column)</option>
@@ -375,9 +462,14 @@ export function PaperStudioTab({
                   <input type="checkbox" checked={disclose} onChange={(e) => setDisclose(e.target.checked)} className="mt-0.5 size-4 accent-[var(--pink)]" />
                   Add an AI-assistance acknowledgment (most journals and conferences require one)
                 </label>
+                <label className="flex items-start gap-2 text-xs text-ink-2">
+                  <input type="checkbox" checked={copilot} onChange={(e) => setCopilot(e.target.checked)} className="mt-0.5 size-4 accent-[var(--pink)]" />
+                  Let me review the plan before it&apos;s written (recommended: you can fix the title, question and sources first)
+                </label>
                 <Button variant="primary" className="w-full !py-3.5 text-lg" disabled={topic.trim().length < 6}
-                  onClick={() => job.start({ topic, angle, template, author, affiliation: affil, ai_disclosure: disclose, seed_document_ids: seeds.map((x) => x.id) })}>
-                  <Wand2 className="size-5" />Write my paper
+                  onClick={() => job.start({ topic, angle, template, author, affiliation: affil, ai_disclosure: disclose, seed_document_ids: seeds.map((x) => x.id),
+                    paper_type: paperType, venue, copilot, dataset_id: dataset?.id ?? "", dataset_note: datasetNote })}>
+                  <Wand2 className="size-5" />{copilot ? "Research & plan my paper" : "Write my paper"}
                 </Button>
               </div>
             </div>
@@ -386,7 +478,7 @@ export function PaperStudioTab({
         </Card>
       )}
 
-      {!job.running && (
+      {!job.running && !planId && (
         <StudioDemoPapers
           onUseSeed={(seedDoc, nextTopic, nextAngle) => {
             setSeeds((prev) => (prev.some((x) => x.id === seedDoc.id) ? prev : [...prev.slice(0, 7), seedDoc]));
@@ -450,13 +542,31 @@ export function PaperStudioTab({
               </Card>
               <Report p={shown} />
             </div>
+            {!!shown.measured_facts?.length && (
+              <details className="card group p-5">
+                <summary className="flex cursor-pointer list-none items-center gap-2 font-display text-lg font-extrabold">
+                  <Ruler className="size-5 text-blue" />Where the numbers come from<span className="ml-auto text-xs font-bold text-muted">{shown.measured_facts.length} measurements</span>
+                </summary>
+                <p className="mt-2 text-xs text-muted">Every number in the paper comes from one of these measurements or from a cited abstract.</p>
+                <ul className="mt-2 space-y-1.5 text-xs text-ink-2">{shown.measured_facts.map((f, i) => <li key={i} className="border-b border-dashed border-line pb-1.5">{f}</li>)}</ul>
+              </details>
+            )}
+            {citePop && <CitationPopover target={citePop} refs={shown.references} provenance={shown.provenance ?? {}} onClose={() => setCitePop(null)} />}
 
             <div className="grid gap-5 xl:grid-cols-[1fr_320px]">
               <Card className="bg-white p-0 text-[#111]">
-                <div ref={preview} className="paper-preview mx-auto max-w-[820px] px-6 py-8 md:px-12">
+                <div ref={preview} className="paper-preview mx-auto max-w-[820px] px-6 py-8 md:px-12"
+                  onClick={(e) => {
+                    const a = (e.target as HTMLElement).closest("a[data-cite]") as HTMLAnchorElement | null;
+                    if (!a) return;
+                    e.preventDefault();
+                    const r = a.getBoundingClientRect();
+                    const para = (a.closest("p, li, td") as HTMLElement | null)?.textContent ?? "";
+                    setCitePop({ nums: (a.dataset.cite ?? "").split(",").map(Number).filter(Boolean), x: r.left + r.width / 2, y: r.bottom, paragraph: para });
+                  }}>
                   <h1 className="mb-1 text-center font-serif text-2xl font-bold leading-snug md:text-3xl">{shown.title}</h1>
                   <p className="mb-6 text-center font-serif italic text-[#555]">{[author, affil].filter(Boolean).join(" · ")}</p>
-                  <RichMarkdown>{shown.markdown}</RichMarkdown>
+                  <RichMarkdown cites>{shown.markdown}</RichMarkdown>
                 </div>
                 {shown.locked && (
                   <div className="relative -mt-40 bg-[linear-gradient(to_bottom,transparent,white_35%)] px-4 pb-8 pt-40">

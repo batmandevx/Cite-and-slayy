@@ -69,10 +69,39 @@ function remarkMarks() {
   return (tree: MdNode) => walk(tree);
 }
 
-export function RichMarkdown({ children }: { children: string }) {
+const CITE = /\[(\d+(?:\s*[,–-]\s*\d+)*)\]/g;
+
+/** Turns citation markers like [3] or [2, 7] in prose into links (data-cite="2,7"), so a page can show their sources.
+ * Math is parsed into its own nodes by remark-math, so intervals such as $[0, 1]$ are never touched. */
+function remarkCites() {
+  const walk = (n: MdNode) => {
+    if (!n.children || ["inlineCode", "code", "link", "inlineMath", "math"].includes(n.type)) return;
+    n.children = n.children.flatMap((c) => {
+      if (c.type !== "text" || !c.value || !c.value.match(CITE)) { walk(c); return [c]; }
+      const out: MdNode[] = [];
+      let last = 0;
+      for (const m of c.value.matchAll(CITE)) {
+        const nums = m[1].split(/\s*,\s*/).flatMap((p) => {
+          const r = p.split(/\s*[–-]\s*/).map(Number);
+          return r.length === 2 && r[1] - r[0] < 15 ? Array.from({ length: r[1] - r[0] + 1 }, (_, i) => r[0] + i) : r;
+        });
+        if (nums.includes(0)) continue;
+        if (m.index! > last) out.push({ type: "text", value: c.value.slice(last, m.index) });
+        out.push({ type: "link", url: "#references", data: { hProperties: { "data-cite": nums.join(","), className: "cite-link" } },
+          children: [{ type: "text", value: m[0] }] } as unknown as MdNode);
+        last = m.index! + m[0].length;
+      }
+      if (last < c.value.length) out.push({ type: "text", value: c.value.slice(last) });
+      return out;
+    });
+  };
+  return (tree: MdNode) => walk(tree);
+}
+
+export function RichMarkdown({ children, cites }: { children: string; cites?: boolean }) {
   return (
     <div className="md">
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath, remarkMarks]} rehypePlugins={[rehypeKatex]}
+      <ReactMarkdown remarkPlugins={cites ? [remarkGfm, remarkMath, remarkMarks, remarkCites] : [remarkGfm, remarkMath, remarkMarks]} rehypePlugins={[rehypeKatex]}
         components={{
           img(props) {
             const src = typeof props.src === "string" && props.src.startsWith("/api/") ? `${API}${props.src}` : props.src;

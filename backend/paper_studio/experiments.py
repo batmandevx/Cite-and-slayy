@@ -14,7 +14,6 @@ experiments on public benchmark data and a toy simulation, not a full-scale eval
 from __future__ import annotations
 
 import asyncio
-import io
 import math
 import time
 from dataclasses import dataclass, field
@@ -72,6 +71,9 @@ SWEEPS = {   # model -> (parameter label, sklearn param, allowed values)
 
 
 class _Plan(BaseModel):
+    relevance: Literal["direct", "weak", "none"] = Field(
+        default="direct",
+        description="'direct' only if the paper's own task is classification on data like the chosen dataset; otherwise weak/none")
     dataset: Dataset
     models: list[Model] = Field(min_length=2, max_length=5)
     sweep_model: Model
@@ -324,17 +326,21 @@ async def run_for_paper(topic: str, method: str, summary: str, say) -> Experimen
             "You design small, honest pilot experiments for a research paper using ONLY the options offered.",
             f"Topic: {topic}\nProposed method: {method}\nSummary: {summary}\n\n"
             f"Datasets: {DATASET_INFO}\nModels: {MODEL_NAMES}\n"
-            "Choose the public dataset most related to the topic (use a synthetic one if none fits), 3-5 contrasting models that "
+            "First judge relevance: is the paper's own task classification on data like one of these datasets? Then choose the public dataset most related to the topic (use a synthetic one if none fits), 3-5 contrasting models that "
             "make sense as baselines, one model whose key hyperparameter to sweep, whether a label-noise robustness study is "
             "relevant, a one-sentence rationale, and a title + 2-sentence description for ONE toy simulation of the proposed "
             "mechanism on synthetic data (what it compares and which metric).", _Plan, effort="low", tier="fast")
     except llm.LLMError:
         return Experiments()
-    await say("experimenter", "run", f"Running pilot benchmark on {plan.dataset.replace('_', ' ')} ({len(plan.models)} models × 15 folds)…", 0.31)
-    try:
-        exp = await asyncio.to_thread(_run_vetted, plan, time.time() + 150)
-    except Exception as e:   # noqa: BLE001 - experiments are optional; never break paper generation
-        exp = Experiments(report={"error": f"{type(e).__name__}: {e}"[:200]})
+    if plan.relevance == "direct":
+        await say("experimenter", "run", f"Running pilot benchmark on {plan.dataset.replace('_', ' ')} ({len(plan.models)} models × 15 folds)…", 0.31)
+        try:
+            exp = await asyncio.to_thread(_run_vetted, plan, time.time() + 150)
+        except Exception as e:   # noqa: BLE001 - experiments are optional; never break paper generation
+            exp = Experiments(report={"error": f"{type(e).__name__}: {e}"[:200]})
+    else:
+        # A generic classification benchmark unrelated to the topic weakens the paper (every reviewer flags it), so skip it.
+        exp = Experiments(report={"benchmark_skipped": f"no benchmark dataset matches the topic ({plan.relevance} relevance)"})
     await say("experimenter", "run", "Writing and running a sandboxed toy simulation of the proposed mechanism…", 0.33)
     res, err = await _custom(topic, method, summary, plan)
     if res:
@@ -361,8 +367,9 @@ def section(exp: Experiments, fig_block) -> str:
     if not exp.facts:
         return ""
     figs = "\n\n".join(fig_block(k) for k in ("exp_bar", "exp_cm", "exp_sweep", "exp_noise", "exp_sim0", "exp_sim1") if k in exp.figures)
-    return ("# Pilot Experiments\n\nTo ground the discussion in measured evidence, the pipeline executed a small battery of pilot "
-            "experiments on public benchmark data and a toy simulation of the proposed mechanism. These runs are illustrative: they "
+    what = ("a toy simulation of the proposed mechanism on synthetic data" if "benchmark_skipped" in exp.report else
+            "a small battery of pilot experiments on public benchmark data and a toy simulation of the proposed mechanism")
+    return ("# Pilot Experiments\n\nTo ground the discussion in measured evidence, the pipeline executed " + what + ". These runs are illustrative: they "
             "characterise the problem setting and the baselines, and they are not a full-scale evaluation of the proposed method, "
             "which remains specified in the protocol below. All numbers in this section were computed by the executed code.\n\n"
             "## Measured results\n\n" + "\n".join(exp.facts) + "\n\n" + exp.markdown + "\n\n" + figs + "\n")

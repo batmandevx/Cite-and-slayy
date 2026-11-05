@@ -1,25 +1,32 @@
-"""Paper Studio: a multi-agent research team writes a complete, publication-grade research monograph from a topic.
+"""Paper Studio: a multi-agent research team plans, writes, reviews and verifies a research paper from a topic.
 
-Agents (each step streams live progress to the UI):
-  Scout      plans 4 targeted search queries, retrieves real papers (OpenAlex), incorporates seed papers, reranks by
-             embedding similarity, and excludes retracted / expression-of-concern works via Crossref update notices.
-  Analyst    runs real bibliometric measurements (10-year longitudinal trends, age profile, citation skew, top venues)
-             and renders 4 publication-grade 300 DPI figures.
-  Architect  designs a monograph-grade blueprint: title, named method + acronym, formal problem & assumptions,
-             theoretical claim + boundary condition, and section-specific briefs across 8 specialist writers.
-  Writers    eight specialist writers work in parallel (Introduction, Related Work + Positioning Table, Formal Problem &
-             Notation Table, Proposed Method + Algorithm 1 + Complexity, Theoretical Analysis + Proofs + Failure Bound,
-             Quantitative Bibliometric Synthesis, Experimental & Ablation Protocol, Discussion/Failure Modes/Conclusion).
-  Editor     drafts a structured 170–240 word abstract, keywords, highlights, and plain-language summary.
-  Verifier   audits every citation index, 8-word verbatim shingles, embedding paraphrase overlap, sampled claim-abstract
-             entailment, Mermaid syntax, KaTeX/LaTeX math validity, and unmeasured-claim guards.
-  Reviser    rewrites any flagged paragraphs and repairs equations; citations are renumbered by first use (IEEE style).
+PLAN (plan_paper; in co-pilot mode the user reviews and edits the plan before writing)
+  Scout        plans searches, picks the paper type (method / empirical study / review / position paper), searches
+               OpenAlex + Semantic Scholar (+ arXiv), reranks by embedding similarity.
+  Librarian    citation chaining: works cited by several of the most relevant papers join the pool; the reference list is
+               chosen with quotas for seminal and recent work; Crossref retraction screening.
+  Analyst      measured bibliometrics (10-year trends, age profile, citation skew, venues) and 300-DPI figures.
+  Roundtable   four topic-specific experts question the corpus; contradicting findings are extracted as explicit conflicts.
+  Dossier      a 2.5-3.5k-word grounded research dossier every writer works from.
+  Architect    outline for the paper type; best-of-N title and research question; target-venue style card.
+  Novelty      searches for prior work that already does the proposal; if found, cites it and repositions the contribution.
+WRITE (write_from_plan)
+  Data         the user's CSV is analysed with vetted statistics (real results); or, for method papers, pilot experiments
+               run only when a benchmark dataset actually matches the topic.
+  Writers      sections in dependency stages (foundations first, Introduction last) sharing a running paper memory;
+               content checklists instead of word-count targets.
+  Editor       whole-manuscript consistency pass (repetition, terminology, contradictions, cross-references).
+  Reviewers    three aspect reviewers on different model families score the draft; flagged sections are revised.
+  Librarian    finds claims that still lack evidence, searches again, cites a new source only if its abstract supports it.
+  Verifier     every cited sentence checked against each cited abstract (incl. multi-citation synthesis claims), verbatim and
+               paraphrase overlap, unmeasured numbers, Mermaid and LaTeX validity. Reviser fixes flagged paragraphs.
+  Figures      a vision model checks every figure against its caption.
+  Editor       three candidate abstracts, the best one chosen by a judge; per-citation provenance for the reader.
 
 Strict scientific honesty rules:
   - Every reference is a real scholarly record with a DOI or URL, checked against Crossref retraction notices.
-  - Every empirical/bibliometric number in the paper comes strictly from fetched OpenAlex/Crossref data in FACTS.
-  - Theoretical propositions derive purely from explicitly stated mathematical assumptions; empirical benchmarks that
-    have not been executed are presented as a rigorous evaluation & ablation protocol with "to be measured" cells.
+  - Every empirical/bibliometric number comes from fetched OpenAlex/Crossref data, executed experiments or the user's data.
+  - Work that has not been run is presented as a design, hypothesis or protocol, never as a result.
 """
 from __future__ import annotations
 
@@ -34,10 +41,11 @@ from datetime import date
 from typing import Any
 
 import numpy as np
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 from backend.cache.store import get_store, now
-from backend.citeguard import claims as claim_check
 from backend.citeguard.overlap import find_overlaps
 from backend.citeguard.phrases import find_phrases
 from backend.citeguard.resolver import retraction_status
@@ -45,7 +53,9 @@ from backend.common.schemas import Paper
 from backend.documents.parser import Paragraph
 from backend.embeddings.model import embed_async
 from backend.llm import client as llm
-from backend.paper_studio import experiments, figures
+from backend.paper_studio import dossier as dossier_mod
+from backend.paper_studio import experiments, figures, literature, quality, review, userdata
+from backend.paper_studio.paper_types import CLASSIFY_HINT, METHOD, PLANS, TYPE_LABEL, TypePlan
 from backend.sources import arxiv, openalex
 from backend.sources import semantic_scholar as s2
 from backend.sources.http import SourceError
@@ -71,6 +81,11 @@ class StudioRequest(BaseModel):
     ai_disclosure: bool = True
     max_refs: int = N_REFS           # set by the server from the user's plan, not trusted from the client
     seed_document_ids: list[str] = []   # the user's own study papers (uploaded PDFs), cited or mined for real refs
+    paper_type: str = "auto"         # auto | method | empirical | review | position
+    venue: str = ""                  # optional target journal / conference: its house style guides the writing
+    dataset_id: str = ""             # optional CSV the user uploaded: analysed for real results
+    dataset_note: str = ""           # what the dataset contains, in the user's words
+    copilot: bool = False            # stop after planning so the user can review and edit the plan
 
 
 # ---------- agent output schemas ----------
@@ -78,6 +93,8 @@ class StudioRequest(BaseModel):
 class _Plan(BaseModel):
     queries: list[str]
     trend_phrases: list[str]
+    paper_type: Literal["method", "empirical", "review", "position"]
+    type_reason: str
 
 
 class _Brief(BaseModel):
@@ -90,17 +107,35 @@ class _Outline(BaseModel):
     title: str
     research_question: str
     contributions: list[str]
-    method_acronym: str
-    method_name: str
-    method_summary: str
-    formal_assumptions: list[str]
-    formal_claim: str
-    failure_boundary: str
+    method_acronym: str = Field(description="method papers only, else empty")
+    method_name: str = Field(description="method papers: '<ACRONYM>: <full name>'; empirical: the study design name; else empty")
+    method_summary: str = Field(description="method: technical specification; empirical: design, population, measures, analysis; "
+                                            "review: scope and synthesis approach; position: the argument in brief")
+    formal_assumptions: list[str] = Field(description="method papers only (A1-A3), else empty")
+    formal_claim: str = Field(description="method papers only, else empty")
+    failure_boundary: str = Field(description="method papers only, else empty")
+    hypotheses: list[str] = Field(description="empirical: H1-H3; review: review questions RQ1-RQ3; else empty")
+    themes: list[str] = Field(description="review: 3-4 themes; position: the 3 supporting claims; else empty")
+    thesis: str = Field(description="position papers: one-sentence thesis; else empty")
     briefs: list[_Brief]
 
 
+class _TitleRQ(BaseModel):
+    title: str
+    research_question: str
+
+
+class _Candidates(BaseModel):
+    options: list[_TitleRQ]
+
+
+class _Pick(BaseModel):
+    best: int
+    reason: str
+
+
 class _Front(BaseModel):
-    abstract: str
+    abstracts: list[str] = Field(description="Three distinct candidate abstracts")
     keywords: list[str]
     highlights: list[str]
     summary: str
@@ -110,82 +145,44 @@ class _Rewrite(BaseModel):
     paragraph: str
 
 
-SECTIONS: list[tuple[str, str, str]] = [
-    ("intro", "Introduction",
-     "Open with the concrete technical bottleneck and failure modes of existing approaches, grounded in multiple citations. "
-     "State the sharp research question and thesis of the paper, previewing the proposed method (by name and acronym) and "
-     "referencing the longitudinal literature trajectory (Fig. 1). Provide a numbered 4-point list of contributions covering: "
-     "(1) formal problem/system formulation, (2) the proposed multi-component architecture and Algorithm 1, "
-     "(3) formal theoretical properties and explicit boundary/failure-mode analysis, and (4) quantitative bibliometric synthesis "
-     "paired with a leak-free ablation and evaluation protocol. Close with a concise paragraph outlining the section-by-section "
-     "organization of the paper."),
-    ("related", "Background and Related Work",
-     "Organise prior literature into 3 focused ## subsections by technical paradigm. Cite references accurately and densely "
-     "strictly for what their abstracts establish, comparing assumptions, mechanisms, and limitations across works. "
-     "Place the token [[TABLE:refs]] on its own line where the quantitative key-works summary table belongs. "
-     "Also include a Markdown comparison table preceded by 'Table: Qualitative positioning of the proposed framework against "
-     "representative prior paradigms' whose columns compare 4 prior method families (with citations) and the proposed method "
-     "across 5 concrete technical properties using 'Yes', 'Partial', or 'No'. End by pinpointing the exact structural gap "
-     "addressed by this paper."),
-    ("formulation", "Problem Formulation and System Model",
-     "Formally define the mathematical setting, input/output spaces, operational or threat/drift model, and optimization or "
-     "decision objective using 2–3 clear display equations in $$...$$ with every variable defined in prose. "
-     "Explicitly state 3 numbered structural assumptions (**Assumption A1**, **Assumption A2**, **Assumption A3**) specifying "
-     "what holds in the environment and what is NOT assumed. Include a comprehensive Markdown table preceded by "
-     "'Table: Summary of mathematical notation' with columns '| Symbol | Domain / Space | Meaning |' covering every core symbol "
-     "used in the formulation and proposed method."),
-    ("method", "Proposed Method",
-     "Present the proposed framework in full technical depth across 2–3 ## subsections corresponding to its core modules. "
-     "Provide 3–4 display equations in $$...$$ defining the scoring, update, or control laws, explaining the intuition and "
-     "edge-case behaviour of every term. Include one system architecture diagram as a Mermaid block preceded by "
-     "'Figure: Architecture of the proposed framework' ('flowchart LR', 6–8 nodes, single-letter node IDs A..H, plain words "
-     "inside [ ] or { } with no parentheses, quotes, or brackets inside labels). Include a structured **Algorithm 1** block "
-     "(using a Markdown blockquote or bold header '**Algorithm 1:** <Name>' followed by **Input:**, **Parameters:**, numbered "
-     "execution steps 1..k with inline $math$, and **Output:**). Conclude with a Markdown table preceded by "
-     "'Table: Per-step time and memory complexity by module' reporting asymptotic Big-O complexity in terms of the notation symbols."),
-    ("theory", "Theoretical and Formal Analysis",
-     "Develop the formal mathematical properties of the proposed method under Assumptions A1–A3. Present **Proposition 1**, "
-     "**Lemma 1**, and **Theorem 1**, each formatted with a bold header (e.g. '**Theorem 1 (Title).** *Formal statement...*') "
-     "followed immediately by '*Proof Sketch.*' deriving the bound or invariant step-by-step using valid LaTeX equations in $$...$$ "
-     "and closing with $\\square$. Then state **Proposition 2 (Boundary Condition and Failure Regime)** characterizing the exact "
-     "mathematical regime where an assumption is violated and deriving how performance or guarantees degrade. "
-     "Important: keep all results strictly mathematical/analytical consequences of the definitions and assumptions; never claim "
-     "empirical benchmark numbers."),
-    ("analysis", "Quantitative Literature and Bibliometric Synthesis",
-     "Report and interpret ONLY the real empirical bibliometric measurements provided in FACTS (do not invent any numbers). "
-     "Analyze the 10-year publication growth trajectory (explicitly noting that the current calendar year is partial), "
-     "the temporal age profile and recency of the cited corpus, citation concentration across foundational vs. recent works, "
-     "and the distribution across peer-reviewed venues. Place the tokens [[FIG:trend]], [[TABLE:trend]], [[FIG:years]], "
-     "[[FIG:impact]], and [[FIG:venues]] each on its own standalone line at the natural point where it is discussed."),
-    ("protocol", "Experimental Setup and Ablation Protocol",
-     "Design a rigorous, reproducible, leak-free empirical evaluation protocol to test the proposed method: state 3 falsifiable "
-     "hypotheses (**H1–H3**), specify strict development/calibration vs. held-out test split rules (preventing hyperparameter "
-     "leakage), describe datasets (naming specific datasets only if mentioned in cited abstracts, else specifying domain/scale "
-     "requirements), list concrete baselines from the cited references, define primary and diagnostic metrics with equations, "
-     "and specify paired non-parametric statistical testing (e.g. Wilcoxon signed-rank test with Holm–Bonferroni correction). "
-     "Include one Mermaid 'flowchart TD' workflow diagram preceded by 'Figure: Leak-free evaluation and ablation workflow' "
-     "(single-letter IDs, plain words in [ ] or { }, max 8 nodes). Include TWO Markdown tables: "
-     "(1) 'Table: Component ablation matrix' isolating each module/hyperparameter variant and what hypothesis it tests, and "
-     "(2) 'Table: Planned benchmark comparison' comparing cited baselines and the proposed method across primary metrics where "
-     "every unrun empirical cell reads 'to be measured'."),
-    ("discussion", "Discussion, Failure Modes and Limitations",
-     "Structure into ## Failure Modes and Operational Mitigations (concrete scenarios where the method can underperform or "
-     "degrade and practical safeguards), ## Threats to Validity (internal, external, construct, bibliographic coverage, and "
-     "the fact that empirical benchmarks remain planned rather than executed), and ## Broader Impact and Deployment Considerations. "
-     "Finish with a top-level '# Conclusion' section (1–2 crisp paragraphs) synthesizing the formal formulation, method, "
-     "theoretical guarantees, bibliometric evidence, and immediate experimental roadmap."),
-]
+class _Memory(BaseModel):
+    key_points: list[str] = Field(description="5-8 points this section establishes, specific enough to avoid repeating them")
+    terms: list[str] = Field(description="Terms, symbols or labels it defines, each as 'term: meaning'")
+
+
+class _Fix(BaseModel):
+    find: str = Field(description="Exact text copied from the paper (one sentence or less)")
+    replace: str = Field(description="Replacement text; empty string deletes it")
+    reason: str
+
+
+class _Fixes(BaseModel):
+    edits: list[_Fix]
+
+
+# The technical-paper section plan (other paper types live in paper_types.py).
+SECTIONS: list[tuple[str, str, str]] = [(x.key, x.heading, x.task) for x in METHOD.sections]
 
 RULES = """Writing rules (strict):
-- Authoritative IEEE journal monograph style (clear, dense, technically precise academic English; original wording).
+- Authoritative journal style: clear, dense, technically precise academic English in original wording. Every paragraph adds
+  a new point; no filler, no restating what another section already said (check PAPER MEMORY), no generic sentences that
+  would fit any paper.
 - Never copy or closely paraphrase sentences from reference abstracts. Synthesize ideas in fresh scholarly prose.
-- Cite only with bracketed numbers from REFERENCES, e.g. [3] or [2], [7]. Cite a paper ONLY for what its abstract supports.
+- Cite only with bracketed numbers from REFERENCES, e.g. [3] or [2], [7]. Cite a paper ONLY for what its abstract supports,
+  and prefer comparing papers to listing them.
 - Never invent empirical numbers, benchmark scores, dataset sizes, p-values, or experimental outcomes. The ONLY empirical/bibliometric numbers you may report are in FACTS (or explicitly attributed to a cited abstract that states them).
-- The proposed method has NOT been empirically executed yet. Never write that it achieves, outperforms, reduces error by X%, demonstrates empirically, or attains state-of-the-art results; phrase empirical expectations as hypotheses, design goals, or formal analytical properties under stated mathematical assumptions.
+- Use the terminology and notation in PAPER MEMORY exactly; introduce new terms explicitly.
 - Output Markdown only. Start with the exact level-1 heading you are given. Use ## for subsections.
 - Every Markdown table MUST be preceded on the immediately previous line by 'Table: <informative caption>'. Every Mermaid block MUST be preceded on the immediately previous line by 'Figure: <informative caption>'.
-- Math: valid KaTeX/LaTeX only, inline $...$ and display $$...$$; never place two ^ or two _ on one base (write {x^{a}}^{b}); balance all braces and \\left / \\right pairs.
+- Math: valid KaTeX/LaTeX only, inline $...$ and display $$...$$; never place two ^ or two _ on one base (write {x^{a}}^{b}); balance all braces and \\left / \\right pairs. Write intervals as $[0, 1]$ inside math.
 - No meta-commentary, no notes to the reader, and no mention of prompts or how the manuscript was drafted."""
+
+TYPE_RULES = {
+    "method": "- The proposed method has NOT been empirically executed. Never write that it achieves, outperforms, reduces error by X%, demonstrates empirically, or attains state-of-the-art results; phrase expectations as hypotheses, design goals, or formal properties under the stated assumptions.",
+    "empirical": "- Unless USER DATA ANALYSIS appears in FACTS, the study has NOT been run: describe it as a proposed study and never report its results. If USER DATA ANALYSIS is present, report only those numbers.",
+    "review": "- This is a review: every claim about findings must cite the studies that report them. Do not present your own new results; the only numbers are those in FACTS or stated in cited abstracts.",
+    "position": "- This is a position paper: separate evidence (cited) from argument (yours) explicitly. Do not present new empirical results.",
+}
 
 
 # ---------- helpers ----------
@@ -227,6 +224,28 @@ def _nums(group: str) -> list[int]:
     return out
 
 
+_PROTECT = re.compile(r"```.*?```|\$\$.*?\$\$|(?<![\\$])\$[^$\n]+?\$", re.S)
+
+
+def _sub_citations(md: str, fn) -> str:
+    """Apply a citation substitution only outside code fences and math, so intervals like $[0, 1]$ are never touched."""
+    out, pos = [], 0
+    for m in _PROTECT.finditer(md):
+        out.append(_CITE.sub(fn, md[pos:m.start()]))
+        out.append(m.group(0))
+        pos = m.end()
+    out.append(_CITE.sub(fn, md[pos:]))
+    return "".join(out)
+
+
+def _iter_citations(md: str):
+    """Citation groups outside code and math, in order (a group containing 0 is an interval, not a citation)."""
+    plain = _PROTECT.sub(lambda m: " " * len(m.group(0)), md)
+    for m in _CITE.finditer(plain):
+        if 0 not in _nums(m.group(1)):
+            yield m
+
+
 def _fix_citations(md: str, n_refs: int) -> tuple[str, int]:
     """Drop citation numbers outside 1..n_refs. Returns (markdown, removed)."""
     removed = 0
@@ -234,25 +253,30 @@ def _fix_citations(md: str, n_refs: int) -> tuple[str, int]:
     def sub(m: re.Match) -> str:
         nonlocal removed
         ns = _nums(m.group(1))
+        if 0 in ns:                       # "[0, 1]" in prose is an interval, not a citation
+            return m.group(0)
         ok = [n for n in dict.fromkeys(ns) if 1 <= n <= n_refs]
         removed += len(ns) - len(ok)
         return "[" + ", ".join(map(str, ok)) + "]" if ok else ""
-    return _CITE.sub(sub, md), removed
+    return _sub_citations(md, sub), removed
 
 
 def _renumber(md: str) -> tuple[str, list[int]]:
     """Renumber citations by first appearance. Returns (markdown, old ids in new order)."""
     order: list[int] = []
-    for m in _CITE.finditer(md):
+    for m in _iter_citations(md):
         for n in _nums(m.group(1)):
             if n not in order:
                 order.append(n)
     new = {old: i for i, old in enumerate(order, 1)}
 
     def sub(m: re.Match) -> str:
-        ns = sorted({new[n] for n in _nums(m.group(1)) if n in new})
+        ns = _nums(m.group(1))
+        if 0 in ns:
+            return m.group(0)
+        ns = sorted({new[n] for n in ns if n in new})
         return "[" + ", ".join(map(str, ns)) + "]" if ns else ""
-    return _CITE.sub(sub, md), order
+    return _sub_citations(md, sub), order
 
 
 def _sanitize_mermaid(md: str) -> str:
@@ -465,30 +489,119 @@ def _unmeasured(text: str, allowed: set[str], method: str = "") -> list[str]:
 
 
 # ---------- the run ----------
+#
+# Two stages. plan_paper() researches and designs the paper and stores a plan; write_from_plan() writes, checks and
+# reviews it. In co-pilot mode the user edits the plan in between (title, research question, contributions, section
+# briefs, excluded references, extra instructions). run() does both back to back.
+
+PLAN_KIND = "paper_plan"
+
+
+class _Reposition(BaseModel):
+    title: str
+    research_question: str
+    contributions: list[str]
+    method_summary: str
+
+
+def _say_fn(ctx):
+    async def say(agent: str, state: str, text: str, progress: float | None = None, **extra: Any) -> None:
+        await ctx.update(agent, json.dumps({"agent": agent, "state": state, "text": text, **extra}), progress)
+    return say
+
+
+def _squash(t: str) -> str:
+    """Normalised sentence key: whitespace and citation markers removed (numbers change when citations are renumbered)."""
+    return re.sub(r"\s+", " ", _CITE.sub("", t)).strip().lower()
+
 
 async def run(req: StudioRequest, ctx) -> str:
+    """Plan the paper and write it. In co-pilot mode, stop after planning and return the plan id (it starts with 'pl')."""
+    plan_id = await plan_paper(req, ctx)
+    if req.copilot:
+        return plan_id
+    return await write_from_plan(plan_id, {}, ctx)
+
+
+async def _pick(kind: str, options: list[str], rubric: str, context: str = "") -> int:
+    """LLM judge: index of the best option (0 if the judge is unavailable)."""
+    if len(options) < 2:
+        return 0
+    try:
+        out = await llm.complete_json(
+            f"You are a demanding senior editor choosing the best {kind}. {rubric}",
+            (f"CONTEXT:\n{context}\n\n" if context else "") + "\n\n".join(f"OPTION {i}:\n{o}" for i, o in enumerate(options))
+            + "\n\nReturn the number of the best option and a one-sentence reason.", _Pick, effort="low")
+        return out.best if 0 <= out.best < len(options) else 0
+    except llm.LLMError:
+        return 0
+
+
+async def _best_title_rq(outline: _Outline, dossier: str, ptype: str) -> _Outline:
+    """Best-of-N for the two shortest, highest-impact parts of the paper."""
+    try:
+        alts = await llm.complete_json(
+            "You propose alternative titles and research questions for a paper. Each must be specific, honest about what the "
+            "paper does (no overclaiming), and grounded in the dossier.",
+            f"PAPER TYPE: {TYPE_LABEL[ptype]}\nCURRENT TITLE: {outline.title}\nCURRENT RESEARCH QUESTION: {outline.research_question}\n"
+            f"CONTRIBUTIONS: {outline.contributions}\n\nDOSSIER (gap section is most relevant):\n{dossier[-6000:]}\n\n"
+            "Give 3 distinct alternatives.", _Candidates, effort="low", tier="fast")
+    except llm.LLMError:
+        return outline
+    opts = [_TitleRQ(title=outline.title, research_question=outline.research_question)] + alts.options[:3]
+    k = await _pick("title and research question",
+                    [f"Title: {o.title}\nResearch question: {o.research_question}" for o in opts],
+                    "Prefer: a precise, informative title; one sharp, answerable research question that the contributions really "
+                    "answer; no hype or claims of results that were not measured.",
+                    f"Contributions: {outline.contributions}")
+    outline.title, outline.research_question = opts[k].title, opts[k].research_question
+    return outline
+
+
+def _proposal(o: _Outline, ptype: str) -> str:
+    if ptype == "method":
+        return f"{o.method_name}. {o.method_summary}"
+    if ptype == "empirical":
+        return f"{o.research_question} {' '.join(o.hypotheses)} {o.method_summary}"
+    if ptype == "review":
+        return f"A literature review: {o.research_question} Themes: {'; '.join(o.themes)}"
+    return f"{o.thesis} {' '.join(o.themes)}"
+
+
+async def plan_paper(req: StudioRequest, ctx) -> str:
     pid = uuid.uuid4().hex[:10]
+    plan_id = "pl" + uuid.uuid4().hex[:10]
     store = get_store()
     topic = req.topic.strip()[:300]
     angle = req.angle.strip()[:1500]
     this_year = date.today().year
-
-    async def say(agent: str, state: str, text: str, progress: float | None = None, **extra: Any) -> None:
-        await ctx.update(agent, json.dumps({"agent": agent, "state": state, "text": text, **extra}), progress)
+    say = _say_fn(ctx)
 
     # ---- Scout ----
-    await say("scout", "run", "Planning multi-facet literature searches…", 0.02)
+    await say("scout", "run", "Planning literature searches and choosing the paper type…", 0.02)
     seeds, seed_notes = await _seed_papers(req.seed_document_ids[:8], say)
     seed_hint = ("\nStudy notes from user-uploaded papers:\n" + "\n".join(seed_notes[:3])) if seed_notes else ""
     plan = await llm.complete_json(
-        "You plan comprehensive scholarly literature searches for an IEEE-grade research monograph.",
-        f"Topic: {topic}\nAuthor's angle: {angle or '(none)'}{seed_hint}\n\n"
-        "Give 4 distinct, complementary search queries (3–6 words each) covering foundational theory, core algorithms, "
-        "recent architectures, and evaluation benchmarks for this topic, plus 2–3 concise noun phrases (1–3 words, as they "
-        "appear in paper titles/abstracts) whose 10-year publication trend should be measured.",
+        "You plan comprehensive scholarly literature searches and decide what kind of paper a topic calls for.",
+        f"Topic: {topic}\nAuthor's angle: {angle or '(none)'}{seed_hint}\n\nPAPER TYPES: {CLASSIFY_HINT}\n\n"
+        "Give 4 distinct, complementary search queries (3-6 words each) covering foundations, core methods or findings, recent "
+        "work, and evaluation or evidence; 2-3 concise noun phrases (1-3 words, as they appear in titles/abstracts) whose "
+        "10-year publication trend should be measured; the paper type that fits best; and a one-sentence reason.",
         _Plan, effort="low", tier="fast")
+    ptype = req.paper_type if req.paper_type in PLANS else plan.paper_type
+    tplan = PLANS[ptype]
+    await say("scout", "run", f"Paper type: {TYPE_LABEL[ptype]}", 0.03)
     queries = [q for q in plan.queries if q.strip()][:4] or [topic]
     cands: dict[str, Paper] = {}
+    sources_used: Counter = Counter()
+    raw_seen: Counter = Counter()
+
+    def _take(p: Paper, src: str) -> None:
+        raw_seen[src] += 1
+        if p.title and p.abstract and len(p.abstract) > 180 and p.id not in cands \
+                and not any(c.title.strip().lower() == p.title.strip().lower() for c in cands.values()):
+            cands[p.id] = p
+            sources_used[src] += 1
     for q in queries:
         await say("scout", "run", f"Searching OpenAlex: “{q}”", 0.05)
         try:
@@ -496,25 +609,15 @@ async def run(req: StudioRequest, ctx) -> str:
         except SourceError:
             continue
         for w in (f.data or {}).get("results", []):
-            p = openalex.to_paper(w)
-            if p.title and p.abstract and len(p.abstract) > 180 and p.id not in cands:
-                cands[p.id] = p
-    # OpenAlex can be rate-limited or thin on a topic: top up from Semantic Scholar, then arXiv.
-    def _take(p: Paper) -> None:
-        if p.title and p.abstract and len(p.abstract) > 180 and p.id not in cands \
-                and not any(c.title.strip().lower() == p.title.strip().lower() for c in cands.values()):
-            cands[p.id] = p
-    if len(cands) < 24:
-        for q in [topic] + queries[:3]:
-            await say("scout", "run", f"Searching Semantic Scholar: “{q}”", 0.06)
-            try:
-                f = await s2.search(q, limit=40)
-            except SourceError:
-                break
-            for w in (f.data or {}).get("data", []) or []:
-                _take(s2.to_paper(w))
-            if len(cands) >= 40:
-                break
+            _take(openalex.to_paper(w), "OpenAlex")
+    for q in [topic] + queries[:1]:
+        await say("scout", "run", f"Searching Semantic Scholar: “{q}”", 0.06)
+        try:
+            f = await s2.search(q, limit=40)
+        except SourceError:
+            break
+        for w in (f.data or {}).get("data", []) or []:
+            _take(s2.to_paper(w), "Semantic Scholar")
     if len(cands) < 24:
         for q in [topic] + queries[:2]:
             await say("scout", "run", f"Searching arXiv: “{q}”", 0.07)
@@ -523,7 +626,7 @@ async def run(req: StudioRequest, ctx) -> str:
             except SourceError:
                 break
             for p in arxiv.parse_feed(f.data):
-                _take(p)
+                _take(p, "arXiv")
             if len(cands) >= 40:
                 break
     for p in seeds:
@@ -532,10 +635,19 @@ async def run(req: StudioRequest, ctx) -> str:
         raise RuntimeError("The scholarly databases returned too few papers just now (they may be busy). "
                            "Please try again in a few minutes, or rephrase the topic with more specific keywords.")
     pool = list(cands.values())
-    tv, av = await embed_async([f"{topic}. {angle}"]), await embed_async([f"{p.title}. {p.abstract}" for p in pool])
-    sims = (av @ tv.T).ravel()
-    ranked = seeds + [pool[i] for i in np.argsort(-sims)][: req.max_refs + 10 - len(seeds)]
-    await say("scout", "run", f"Found {len(cands)} candidate papers; screening top {len(ranked)} against Crossref retractions…", 0.1)
+    tv = await embed_async([f"{topic}. {angle}"])
+    sims = (await embed_async([f"{p.title}. {p.abstract}" for p in pool]) @ tv.T).ravel()
+
+    # ---- Librarian: citation chaining from the most relevant papers ----
+    await say("librarian", "run", "Following the reference lists of the most relevant papers…", 0.08)
+    top = [pool[i] for i in np.argsort(-sims)[:20]] + seeds
+    snow = await literature.snowball(top, set(cands) | {p.id for p in seeds})
+    if snow:
+        pool += snow
+        sims = np.concatenate([sims, (await embed_async([f"{p.title}. {p.abstract}" for p in snow]) @ tv.T).ravel()])
+    await say("librarian", "done", f"{len(snow)} foundational work(s) found by citation chaining", 0.09)
+    ranked = literature.balanced_select(pool, sims, req.max_refs + 8, this_year, seeds, {p.id for p in snow})
+    await say("scout", "run", f"{len(pool)} candidate papers; screening {len(ranked)} against Crossref retractions…", 0.1)
     sem = asyncio.Semaphore(6)
 
     async def status(p: Paper) -> str:
@@ -550,7 +662,7 @@ async def run(req: StudioRequest, ctx) -> str:
     dropped = [p for p, s in zip(ranked, statuses) if s in ("retracted", "expression_of_concern")]
     refs = [p for p, s in zip(ranked, statuses) if s not in ("retracted", "expression_of_concern")][:req.max_refs]
     checked = sum(s in ("none_found", "corrected") for s in statuses)
-    await say("scout", "done", f"{len(refs)} verified references selected from {len(cands)} candidates · {checked} retraction-clear"
+    await say("scout", "done", f"{len(refs)} verified references selected from {len(pool)} candidates · {checked} retraction-clear"
               + (f" · {len(dropped)} retracted work(s) excluded" if dropped else ""), 0.14)
 
     # ---- Analyst ----
@@ -564,12 +676,9 @@ async def run(req: StudioRequest, ctx) -> str:
                 trends[ph] = counts
         except SourceError:
             pass
-    venue_counts = Counter(
-        p.venue.strip() for p in list(cands.values()) + refs
-        if p.venue and p.venue.strip() and p.venue.strip().lower() not in ("n/a", "unknown")
-    )
+    venue_counts = Counter(p.venue.strip() for p in pool + refs
+                           if p.venue and p.venue.strip() and p.venue.strip().lower() not in ("n/a", "unknown"))
     top_venues = venue_counts.most_common(8)
-
     figs: dict[str, tuple[bytes, str]] = {}
     if trends:
         figs["trend"] = (figures.trend_chart(trends), "Annual publication trajectory for core topic phrases "
@@ -580,13 +689,18 @@ async def run(req: StudioRequest, ctx) -> str:
                       "OpenAlex citation counts of the highest-impact anchoring works in the reference list.")
     if len(top_venues) >= 2:
         figs["venues"] = (figures.venues_chart(top_venues),
-                          f"Primary peer-reviewed journals and proceedings across the {len(cands)}-paper candidate pool (OpenAlex).")
+                          f"Primary peer-reviewed journals and proceedings across the {len(pool)}-paper candidate pool (OpenAlex).")
     for name, (png, _) in figs.items():
         store.put("paper_fig", f"{pid}-{name}", {"png": base64.b64encode(png).decode()})
-
     years = [p.year for p in refs if p.year]
     cites = [p.cited_by or 0 for p in refs]
-    facts = [f"- Candidate literature pool retrieved from OpenAlex: {len(cands)} works with full abstracts across {len(queries)} search queries; {len(refs)} selected into the final bibliography."]
+    facts = [f"- Literature search: {len(queries)} queries ({'; '.join(queries)}); {sum(raw_seen.values())} records retrieved ("
+             + ", ".join(f"{k}: {v}" for k, v in raw_seen.items()) + f"); {sum(raw_seen.values()) - len(cands)} removed as duplicates "
+             "or for lacking a usable abstract; kept per database: "
+             + ", ".join(f"{k} {v}" for k, v in sources_used.items())
+             + f"; {len(snow)} further works found by citation chaining from the 20 most relevant papers; {len(pool)} unique "
+             f"candidate works ranked by semantic relevance; {len(ranked)} screened against Crossref retraction notices; "
+             f"{len(refs)} included in the bibliography."]
     for ph, c in trends.items():
         full = {y: n for y, n in c.items() if y < this_year}
         if not full:
@@ -611,194 +725,381 @@ async def run(req: StudioRequest, ctx) -> str:
     facts_txt = "\n".join(facts)
     await say("analyst", "done", f"{len(trends)} trend series · {len(figs)} 300-DPI figures rendered", 0.22)
 
+    # ---- Roundtable + conflicts -> dossier (and the venue's style, in parallel) ----
+    await say("roundtable", "run", "Assembling an expert panel to question the literature…", 0.24)
+    style_task = asyncio.create_task(literature.venue_style(req.venue.strip())) if req.venue.strip() else None
+    notes, cs = await asyncio.gather(dossier_mod.roundtable(topic, angle, refs, facts_txt, say), dossier_mod.conflicts(refs))
+    await say("roundtable", "done", f"{len(notes)} expert(s) consulted · {len(cs)} conflict(s) found in the evidence", 0.32)
+    await say("dossier", "run", "Writing the research dossier…", 0.33)
+    try:
+        dossier = await dossier_mod.synthesize(topic, angle, TYPE_LABEL[ptype], refs, facts_txt, notes, cs)
+    except llm.LLMError:
+        dossier = "\n\n".join(t for _, t in notes)
+    await say("dossier", "done", f"Dossier: {len(dossier.split()):,} words", 0.4)
+    style = await style_task if style_task else None
+    if style_task:
+        await say("dossier", "done", f"Style guide from {style['stats']['venue']}" if style else f"Couldn't find “{req.venue}”; using general style")
+
     # ---- Architect ----
-    await say("architect", "run", "Architecting formal model, algorithm, theoretical bounds & section briefs…", 0.24)
+    await say("architect", "run", f"Designing the {TYPE_LABEL[ptype].lower()}…", 0.42)
+    specs = tplan.active(bool(req.dataset_id))
     outline = await llm.complete_json(
-        "You are a principal research scientist architecting a rigorous, IEEE-Transactions / IEEE-Access style research monograph "
-        "grounded strictly in the given references and measured bibliometric facts.",
-        f"Topic: {topic}\nAuthor's angle: {angle or '(none)'}{seed_hint}\n\nFACTS (measured):\n{facts_txt}\n\nREFERENCES:\n{_ref_listing(refs)}\n\n"
-        "Design an authoritative, technically deep paper:\n"
-        "1. title: A specific, scholarly title starting with '<ACRONYM>: ...' or featuring a precise technical subtitle.\n"
-        "2. method_acronym: A memorable 3–6 letter uppercase acronym (e.g. ADITI, ALIZA, CAST).\n"
-        "3. method_name: '<ACRONYM>: <Full Descriptive Method Name>'.\n"
-        "4. research_question: One sharp, falsifiable technical research question.\n"
-        "5. contributions: 4 concrete contributions (formulation, proposed algorithm/architecture, formal analytical guarantees + boundary analysis, bibliometric synthesis + leak-free ablation protocol). Phrase strictly as what this paper formulates, proposes, proves analytically, or measures bibliometrically—never as unrun empirical results.\n"
-        "6. method_summary: A concrete 5–6 sentence technical specification naming the mathematical state variables, modular pipeline, decision/update equations, and asymptotic complexity.\n"
-        "7. formal_assumptions: 3 explicit mathematical/system assumptions (A1–A3).\n"
-        "8. formal_claim: A specific mathematical property (e.g. invariance, monotonicity, calibration/error bound, stability, or complexity bound) derivable analytically from A1–A3.\n"
-        "9. failure_boundary: The exact regime where A1–A3 break down and how the method behaves.\n"
-        f"10. briefs: For EVERY key in {[k for k, *_ in SECTIONS]}, a detailed 3-sentence brief plus 6–14 relevant reference numbers from REFERENCES.",
+        f"You are a principal investigator designing a rigorous {TYPE_LABEL[ptype].lower()} grounded strictly in the dossier, "
+        "the references and the measured facts.",
+        f"Topic: {topic}\nAuthor's angle: {angle or '(none)'}{seed_hint}\nPAPER TYPE: {TYPE_LABEL[ptype]}. Design {tplan.architect}.\n"
+        + (f"USER DATASET (analysed after this plan; hypotheses must be testable with it): {req.dataset_note or 'provided'}\n" if req.dataset_id else "")
+        + f"\nDOSSIER:\n{dossier}\n\nFACTS (measured):\n{facts_txt}\n\nREFERENCES:\n{_ref_listing(refs, abstract_chars=220)}\n\n"
+        + (f"TARGET VENUE STYLE:\n{style['card']}\n\n" if style and style.get("card") else "")
+        + "Fill: title (specific and informative; method papers may start with '<ACRONYM>: '); research_question (one sharp "
+        "question); contributions (4, phrased as what this paper formulates, proposes, analyses or synthesises, never unrun "
+        "results); the fields for this paper type (leave the others empty); and briefs: for EVERY key in "
+        f"{[x.key for x in specs]}, a 3-sentence brief naming the points that section must make, plus 6-14 relevant reference numbers.",
         _Outline, effort="high")
+    outline = await _best_title_rq(outline, dossier, ptype)
+    await say("architect", "done", f"“{outline.title}”", 0.46, title=outline.title)
+
+    # ---- Novelty check ----
+    await say("novelty", "run", "Searching for prior work that already does this…", 0.47)
+    short = re.sub(r"\s*\(.*?\)", "", (outline.method_name or "").split(":")[-1]).strip()
+    nov = await literature.novelty(_proposal(outline, ptype), f"{topic} {short}".strip()[:200], {p.title.strip().lower() for p in refs})
+    if nov["verdict"] == "unchecked" and short:
+        nov = await literature.novelty(_proposal(outline, ptype), topic, {p.title.strip().lower() for p in refs})
+    close_papers = nov.pop("papers", [])
+    novelty_note = ""
+    if nov["verdict"] in ("incremental", "already_exists") and close_papers:
+        idx = []
+        for p in close_papers:
+            k = next((i for i, r in enumerate(refs, 1) if r.title.strip().lower() == p.title.strip().lower()), None)
+            if k is None:
+                refs.append(p)
+                k = len(refs)
+            idx.append(k)
+        try:
+            rp = await llm.complete_json(
+                "You reposition a paper's contribution honestly against closely related prior work.",
+                f"TITLE: {outline.title}\nRESEARCH QUESTION: {outline.research_question}\nCONTRIBUTIONS: {outline.contributions}\n"
+                f"SUMMARY: {outline.method_summary}\n\nCLOSEST PRIOR WORK:\n"
+                + "\n".join(f"[{i}] {refs[i - 1].title}: {(refs[i - 1].abstract or '')[:700]}" for i in idx)
+                + f"\n\nASSESSMENT: {nov['explanation']}\nSUGGESTION: {nov['repositioning']}\n\nRewrite the title, research question, "
+                "contributions and summary so the paper credits this prior work and claims only what is genuinely different.",
+                _Reposition, effort="medium")
+            outline.title, outline.research_question = rp.title, rp.research_question
+            outline.contributions, outline.method_summary = rp.contributions or outline.contributions, rp.method_summary or outline.method_summary
+        except llm.LLMError:
+            pass
+        novelty_note = (f"Closely related prior work: {', '.join(f'[{i}]' for i in idx)}. {nov['explanation']} Credit these works "
+                        "explicitly in the Introduction and Related Work and state precisely how this paper differs.")
+    await say("novelty", "done", {"novel": "Contribution looks novel", "incremental": "Close prior work found; contribution repositioned",
+                                  "already_exists": "Very similar work exists; paper repositioned to credit it"}.get(nov["verdict"], "Novelty check skipped"), 0.49)
+
+    store.put(PLAN_KIND, plan_id, {
+        "plan_id": plan_id, "pid": pid, "req": req.model_dump(), "paper_type": ptype, "type_reason": plan.type_reason,
+        "refs": [p.model_dump() for p in refs], "candidates": len(pool), "checked": checked, "snowballed": len(snow),
+        "dropped": [{"title": p.title, "doi": p.doi} for p in dropped], "queries": queries,
+        "facts": facts_txt, "trends": {k: sorted(v.items()) for k, v in trends.items()},
+        "figs": {k: cap for k, (_, cap) in figs.items()}, "outline": outline.model_dump(), "dossier": dossier,
+        "conflicts": cs, "experts": [p.role for p, _ in notes], "style": style, "novelty": nov, "novelty_note": novelty_note,
+        "seeded": [p.title for p in seeds], "created_at": now().isoformat(), "status": "planned",
+    })
+    await say("plan", "done", "Plan ready", 0.5, plan_id=plan_id)
+    return plan_id
+
+
+def _core(o: _Outline, ptype: str, method_label: str, facts_txt: str, novelty_note: str, style: dict | None, extra: str) -> str:
+    lines = [f"PAPER TYPE: {TYPE_LABEL[ptype]}", f"PAPER TITLE: {o.title}", f"RESEARCH QUESTION: {o.research_question}"]
+    if ptype == "method":
+        lines += [f"PROPOSED METHOD: {method_label} — {o.method_summary}",
+                  "FORMAL ASSUMPTIONS (A1–A3):\n" + "\n".join(f"- {a}" for a in o.formal_assumptions[:4]),
+                  f"TARGET ANALYTICAL PROPERTY: {o.formal_claim}", f"BOUNDARY / FAILURE REGIME: {o.failure_boundary}"]
+    elif ptype == "empirical":
+        lines += [f"STUDY DESIGN: {o.method_name} — {o.method_summary}", "HYPOTHESES:\n" + "\n".join(f"- {h}" for h in o.hypotheses)]
+    elif ptype == "review":
+        lines += [f"SCOPE AND APPROACH: {o.method_summary}", "REVIEW QUESTIONS:\n" + "\n".join(f"- {h}" for h in o.hypotheses),
+                  "THEMES:\n" + "\n".join(f"- {t}" for t in o.themes)]
+    else:
+        lines += [f"THESIS: {o.thesis}", f"ARGUMENT: {o.method_summary}", "CLAIMS:\n" + "\n".join(f"- {t}" for t in o.themes)]
+    lines.append("CONTRIBUTIONS:\n" + "\n".join(f"- {c}" for c in o.contributions[:5]))
+    if novelty_note:
+        lines.append(f"NOVELTY: {novelty_note}")
+    if style and style.get("card"):
+        lines.append(f"TARGET VENUE STYLE ({style['stats'].get('venue')}):\n{style['card']}")
+    if extra:
+        lines.append(f"AUTHOR'S INSTRUCTIONS FOR THE WRITERS: {extra}")
+    lines.append(f"\nFACTS (measured — the ONLY empirical/bibliometric numbers you may report):\n{facts_txt}")
+    return "\n".join(lines)
+
+
+async def _check_figure(png: bytes, caption: str) -> tuple[str | None, str | None]:
+    """Vision check: does the image show what the caption says, and is it readable? Returns (better caption, issue)."""
+    try:
+        txt = await llm.vision(
+            f"This figure will appear in a research paper with the caption: “{caption}”.\nCheck: (1) does the image show what "
+            "the caption says? (2) are axis labels, legends and text readable? Reply with JSON only: {\"matches\": true or "
+            "false, \"readable\": true or false, \"issue\": \"short description or empty\", \"better_caption\": \"a precise "
+            "caption describing exactly what is shown, or empty if the caption is right\"}", [("image/png", png)])
+        d = llm._extract_json(txt)
+    except Exception:   # noqa: BLE001 - the figure check is advisory
+        return None, None
+    if not isinstance(d, dict):
+        return None, None
+    better = (d.get("better_caption") or "").strip()
+    issue = (d.get("issue") or "").strip() if (d.get("matches") is False or d.get("readable") is False) else None
+    return (better if d.get("matches") is False and len(better) > 20 else None), issue
+
+
+async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
+    store = get_store()
+    pl = store.get(PLAN_KIND, plan_id)
+    if not pl:
+        raise RuntimeError("This plan has expired. Start the paper again.")
+    say = _say_fn(ctx)
+    req = StudioRequest.model_validate(pl["req"])
+    pid, ptype = pl["pid"], pl["paper_type"]
+    tplan: TypePlan = PLANS[ptype]
+    refs = [Paper.model_validate(r) for r in pl["refs"]]
+    outline = _Outline.model_validate(pl["outline"])
+    # ---- the author's edits from the co-pilot review ----
+    if (t := str(edits.get("title") or "").strip()):
+        outline.title = t[:300]
+    if (t := str(edits.get("research_question") or "").strip()):
+        outline.research_question = t[:600]
+    if isinstance(edits.get("contributions"), list) and any(str(c).strip() for c in edits["contributions"]):
+        outline.contributions = [str(c).strip()[:400] for c in edits["contributions"] if str(c).strip()][:6]
+    for b in outline.briefs:
+        if (t := str((edits.get("briefs") or {}).get(b.key) or "").strip()):
+            b.brief = t[:1500]
+    excluded = {int(n) for n in edits.get("exclude_refs") or [] if str(n).isdigit() and 1 <= int(n) <= len(refs)}
+    extra = str(edits.get("instructions") or "").strip()[:1500]
+    facts_txt, dossier, novelty_note, style = pl["facts"], pl["dossier"], pl.get("novelty_note", ""), pl.get("style")
+    captions: dict[str, str] = dict(pl["figs"])
+    trends = {k: dict(v) for k, v in pl["trends"].items()}
+    this_year = date.today().year
+    method_label = (outline.method_name if outline.method_acronym and outline.method_acronym in outline.method_name
+                    else f"{outline.method_name} ({outline.method_acronym})" if outline.method_acronym else outline.method_name)
     briefs = {b.key: b for b in outline.briefs}
-    method_label = outline.method_name if outline.method_acronym in outline.method_name else f"{outline.method_name} ({outline.method_acronym})"
-    await say("architect", "done", f"“{outline.title}”", 0.3, title=outline.title)
 
-    # ---- Experimenter: pilot experiments that actually run (vetted battery + sandboxed toy simulation) ----
-    exp = await experiments.run_for_paper(topic, method_label, outline.method_summary, say)
-    for name, (png, cap) in exp.figures.items():
-        figs[name] = (png, cap)
-        store.put("paper_fig", f"{pid}-{name}", {"png": base64.b64encode(png).decode()})
-    if exp.facts:
-        facts_txt += "\nPILOT EXPERIMENTS (executed by the pipeline; illustrative, not a full evaluation of the proposed method):\n" + "\n".join(exp.facts)
+    # ---- Data: the user's dataset, or pilot experiments for method papers ----
+    exp = experiments.Experiments()
+    data: userdata.DataResult | None = None
+    data_error = ""
+    if req.dataset_id and (rec := store.get("studio_data", req.dataset_id)):
+        await say("statistician", "run", "Analysing your dataset…", 0.51)
+        try:
+            data = await userdata.analyse(base64.b64decode(rec["csv"]), req.dataset_note or rec.get("note", ""),
+                                          "\n".join(outline.hypotheses) or outline.research_question, say)
+        except userdata.DataError as e:
+            data_error = str(e)
+        if data and data.facts:
+            facts_txt += ("\nUSER DATA ANALYSIS (executed by the pipeline on the author's dataset; report exactly these numbers):\n"
+                          + "\n".join(data.facts))
+            for name, (png, cap) in data.figures.items():
+                captions[name] = cap
+                store.put("paper_fig", f"{pid}-{name}", {"png": base64.b64encode(png).decode()})
+        await say("statistician", "done", f"{len(data.facts) - 1 if data else 0} analyses run" if data else f"Dataset skipped: {data_error}", 0.53)
+    elif tplan.experiments:
+        exp = await experiments.run_for_paper(req.topic, method_label, outline.method_summary, say)
+        for name, (png, cap) in exp.figures.items():
+            captions[name] = cap
+            store.put("paper_fig", f"{pid}-{name}", {"png": base64.b64encode(png).decode()})
+        if exp.facts:
+            facts_txt += "\nPILOT EXPERIMENTS (executed by the pipeline; illustrative, not a full evaluation of the proposed method):\n" + "\n".join(exp.facts)
+    specs = tplan.active(bool(data and data.facts))
 
-    # ---- Writers (8 specialists in parallel) ----
-    core = (
-        f"PAPER TITLE: {outline.title}\n"
-        f"RESEARCH QUESTION: {outline.research_question}\n"
-        f"PROPOSED METHOD: {method_label} — {outline.method_summary}\n"
-        f"FORMAL ASSUMPTIONS (A1–A3):\n" + "\n".join(f"- {a}" for a in outline.formal_assumptions[:4]) + "\n"
-        f"TARGET ANALYTICAL PROPERTY: {outline.formal_claim}\n"
-        f"BOUNDARY / FAILURE REGIME: {outline.failure_boundary}\n"
-        f"CONTRIBUTIONS:\n" + "\n".join(f"- {c}" for c in outline.contributions[:5]) + "\n\n"
-        f"FACTS (measured — the ONLY empirical/bibliometric numbers you may report):\n{facts_txt}"
-    )
+    # ---- Writers: in dependency stages, sharing a paper memory ----
+    core = _core(outline, ptype, method_label, facts_txt, novelty_note, style, extra)
+    system = (f"You are a senior journal author writing one section of a {TYPE_LABEL[ptype].lower()}.\n" + RULES + "\n" + TYPE_RULES[ptype])
+    texts: dict[str, str] = {}
+    memory: list[str] = []
+    foundation = {s.key for s in specs if s.stage == 1 and s.design}
     done_n = 0
 
-    async def write(key: str, heading: str, task: str) -> str:
+    async def write(sp, mem: str, found: str) -> str:
         nonlocal done_n
-        await say(f"writer:{key}", "run", f"Drafting {heading}…")
-        b = briefs.get(key)
-        ids = [i for i in (b.refs if b else []) if 1 <= i <= len(refs)]
-        text = await llm.complete(
-            "You are a senior IEEE Transactions / IEEE Access author drafting one section of a flagship research monograph.\n" + RULES,
-            f"{core}\n\nREFERENCES:\n{_ref_listing(refs, ids or None)}\n\nSECTION: # {heading}\n"
-            f"ARCHITECT BRIEF: {b.brief if b else ''}\nSECTION REQUIREMENTS: {task}\n"
-            "Target length: 1,200–1,600 words of substantive, non-repetitive technical prose, equations, and structured "
-            "tables/diagrams. Depth over breadth: explain mechanisms, give worked examples, and discuss edge cases.",
-            effort="medium", max_tokens=8000)
-        text = text.strip()
-        text = re.sub(r"^```(?:markdown)?\n|\n```$", "", text)
-        if len(text.split()) < 1000 and key != "analysis":   # models undershoot length targets: one deepening pass
-            await say(f"writer:{key}", "run", f"Deepening {heading} ({len(text.split())} words)…")
-            try:
-                deeper = await llm.complete(
-                    "You are a senior IEEE journal author deepening one section of a research monograph.\n" + RULES,
-                    f"{core}\n\nREFERENCES:\n{_ref_listing(refs, ids or None)}\n\nCURRENT SECTION:\n{text}\n\n"
-                    "Rewrite this section to about 1,400 words. Keep EVERY existing table, equation, diagram, token line ([[...]]), "
-                    "algorithm block and citation. Add depth: intuition behind each equation, a worked example, edge cases, "
-                    "design trade-offs and links to the cited work. No new numbers, results or references. "
-                    "Return the complete section starting with its level-1 heading.",
-                    effort="medium", max_tokens=8000)
-                deeper = re.sub(r"^```(?:markdown)?\n|\n```$", "", deeper.strip())
-                kept = all(t in deeper for t in re.findall(r"\[\[[A-Z]+:[a-z]+\]\]", text)) and deeper.count("```mermaid") >= text.count("```mermaid")
-                if len(deeper.split()) > len(text.split()) * 1.15 and kept:
-                    text = deeper
-            except llm.LLMError:
-                pass
+        await say(f"writer:{sp.key}", "run", f"Drafting {sp.heading}…", name=sp.heading)
+        b = briefs.get(sp.key)
+        ids = [i for i in (b.refs if b else []) if 1 <= i <= len(refs) and i not in excluded]
+        prompt = (f"{core}\n\nRESEARCH DOSSIER (what the literature establishes; your main source of substance):\n{dossier}\n\n"
+                  f"PAPER MEMORY (sections already written: do not repeat their points; reuse their terms):\n{mem}\n\n"
+                  + (f"FOUNDATION SECTIONS (full text; reuse this notation exactly):\n{found}\n\n" if found else "")
+                  + f"REFERENCES:\n{_ref_listing(refs, ids or None, abstract_chars=700)}\n"
+                  + (f"DO NOT CITE these excluded references: {sorted(excluded)}\n" if excluded else "")
+                  + f"\nSECTION: # {sp.heading}\nARCHITECT BRIEF: {b.brief if b else ''}\nCHECKLIST (every item is required): {sp.task}\n"
+                  "Length: as long as the checklist needs, typically 900-1,500 words. Every paragraph must add something new.")
+        tier = "fast" if sp.key == tplan.analysis_key else "main"     # reporting measured counts needs no frontier model
+        text = re.sub(r"^```(?:markdown)?\n|\n```$", "", (await llm.complete(system, prompt, effort="medium", max_tokens=8000, tier=tier)).strip())
         if not text.lstrip().startswith("# "):
-            text = f"# {heading}\n\n{text}"
-        text = normalize_section(text, heading)
+            text = f"# {sp.heading}\n\n{text}"
+        text = normalize_section(text, sp.heading)
         done_n += 1
-        await say(f"writer:{key}", "done", f"{heading}: {len(text.split())} words", 0.3 + 0.36 * done_n / len(SECTIONS))
+        await say(f"writer:{sp.key}", "done", f"{sp.heading}: {len(text.split())} words", 0.53 + 0.17 * done_n / len(specs), name=sp.heading)
         return text
 
-    parts = await asyncio.gather(*(write(k, h, t) for k, h, t in SECTIONS))
-    body = "\n\n".join(parts)
+    async def remember(sp, text: str) -> str:
+        try:
+            m = await llm.complete_json("Summarise what this paper section establishes, for the authors of later sections.",
+                                        text[:16000], _Memory, effort="low", tier="fast")
+            return f"## {sp.heading}\n" + "\n".join(f"- {p}" for p in m.key_points) + ("\nDefined: " + "; ".join(m.terms) if m.terms else "")
+        except llm.LLMError:
+            return f"## {sp.heading}\n" + text[:1200]
 
-    # ---- Editor ----
-    await say("editor", "run", "Drafting structured abstract, index terms & highlights…", 0.68)
-    front = await llm.complete_json(
-        "You are the Editor-in-Chief finalizing the front matter of an IEEE research monograph. Formal academic English, "
-        "original wording. Never invent empirical numbers; the only numbers allowed are in FACTS. Never mention how the text was produced.",
-        f"{core}\n\nPAPER BODY:\n{body[:llm.context_chars() - 8000]}\n\n"
-        "Write:\n"
-        "1. abstract: 175–235 words covering context/gap, formal problem & proposed method (naming the acronym), analytical "
-        "properties & failure-boundary characterization, quantitative bibliometric synthesis (using only FACTS numbers), and "
-        "the leak-free evaluation protocol. Include NO citations and claim NO unrun empirical results.\n"
-        "2. keywords: 6 technical IEEE Index Terms.\n"
-        "3. highlights: 4 crisp one-sentence takeaways.\n"
-        "4. summary: A 3–4 sentence plain-language summary for interdisciplinary readers.",
-        _Front, effort="medium")
-    await say("editor", "done", "Abstract, index terms, highlights & summary ready", 0.72)
+    for stage in sorted({s.stage for s in specs}):
+        batch = [s for s in specs if s.stage == stage]
+        found = "\n\n".join(texts[k] for k in texts if k in foundation)
+        mem = "\n\n".join(memory) or "(nothing written yet)"
+        # full foundation text only where notation is reused (design sections and the discussion); others get the memory
+        for sp, t in zip(batch, await asyncio.gather(*(write(sp, mem, found if (sp.design or sp.key == "discussion") else "")
+                                                       for sp in batch))):
+            texts[sp.key] = t
+        memory += await asyncio.gather(*(remember(sp, texts[sp.key]) for sp in batch))
+    body = "\n\n".join(texts[s.key] for s in specs)
+
+    # ---- Consistency editor: one pass over the whole manuscript ----
+    await say("editor", "run", "Reading the whole draft for repetition, terminology and contradictions…", 0.71)
+    consistency, consistency_error = 0, ""
+    ask = ("PAPER:\n{paper}\n\nList up to {n} edits: delete or shorten passages that repeat a point already made in an earlier "
+           "section; make terminology and notation consistent (keep the first definition); fix contradictions between sections; "
+           "fix wrong cross-references to sections, figures, tables or equations. Copy `find` exactly from the paper (one sentence "
+           "or less). Never edit tables, equations, Mermaid code or [[...]] tokens.")
+    fx = None
+    for n, tier in ((20, "main"), (12, "fast")):          # one retry on the other model if the first reply fails
+        try:
+            fx = await llm.complete_json("You are the handling editor doing a whole-manuscript consistency pass. You make surgical edits only.",
+                                         ask.format(paper=body[: llm.context_chars() - 8000], n=n), _Fixes, effort="medium",
+                                         max_tokens=9000, tier=tier)
+            break
+        except llm.LLMError as e:
+            consistency_error = str(e)[:200]
+    for e in (fx.edits if fx else []):
+        f_ = e.find.strip()
+        if len(f_) > 12 and body.count(f_) == 1 and not re.search(r"\[\[|```|\$\$|^\|", f_, re.M):
+            body = body.replace(f_, e.replace.strip())
+            consistency += 1
+    if fx:
+        consistency_error = ""
+    await say("editor", "done", f"{consistency} consistency edit(s) applied", 0.73)
+
+    # ---- Reviewer panel, then revise the sections it flags ----
+    await say("reviewers", "run", "Three reviewers are scoring the draft…", 0.74)
+    pan = await review.panel(f"# {outline.title}\n\n{body}", TYPE_LABEL[ptype].lower())
+    secs = _sections(body)
+    by_sec = review.issues_by_section(pan["issues"], secs)
+    targets = sorted(((h, iss) for h, iss in by_sec.items() if any(i["severity"] == "major" for i in iss) or len(iss) >= 2),
+                     key=lambda kv: -sum(i["severity"] == "major" for i in kv[1]))[:3]
+    await say("reviewers", "done", (f"Draft scored {pan['overall']}/10 · {len(pan['issues'])} issue(s) · revising {len(targets)} section(s)"
+                                    if pan["overall"] else "Review panel unavailable"), 0.76)
+    revised_sections = 0
+    if targets:
+        async def respond(h: str, iss: list[dict]) -> tuple[str, str | None]:
+            cur = dict(secs)[h]
+            await say("reviser", "run", f"Addressing reviewer comments in {h}…")
+            try:
+                new = await llm.complete(
+                    system, f"{core}\n\nREFERENCES:\n{_ref_listing(refs, sorted({n for g in _CITE.findall(cur) for n in _nums(g)}) or None, abstract_chars=400)}"
+                    f"\n\nCURRENT SECTION:\n{cur}\n\nREVIEWER ISSUES:\n"
+                    + "\n".join(f"- [{i['severity']}] {i['problem']} (quote: “{i['quote']}”). Fix: {i['fix']}" for i in iss)
+                    + "\n\nRevise the section so every issue is resolved. Keep every table, equation, diagram, algorithm block, token "
+                    "line ([[...]]) and valid citation; add no new numbers or references. Where an issue cannot be fixed honestly "
+                    "(e.g. it asks for results that were not measured), state the limitation instead. Return the complete section "
+                    "starting with its level-1 heading.", effort="medium", max_tokens=8000)
+            except llm.LLMError:
+                return h, None
+            new = normalize_section(re.sub(r"^```(?:markdown)?\n|\n```$", "", new.strip()), h)
+            kept = all(t in new for t in re.findall(r"\[\[[A-Z]+:[a-z]+\]\]", cur)) and new.count("```mermaid") >= cur.count("```mermaid")
+            return h, (new if kept and len(new.split()) > 0.6 * len(cur.split()) else None)
+        for h, new in await asyncio.gather(*(respond(h, iss) for h, iss in targets)):
+            if new:
+                body = body.replace(dict(secs)[h], new.rstrip() + "\n\n", 1)
+                revised_sections += 1
+
+    # ---- Gap filling: cite new evidence where claims still lack it ----
+    await say("librarian", "run", "Looking for claims that still need evidence…", 0.78)
+    body, new_refs, gaplog = await literature.fill_gaps(body, refs, {p.id for p in refs}, max_new=6, say=say)
+    refs += new_refs
+    await say("librarian", "done", f"{len(new_refs)} new source(s) cited for unsupported claims", 0.8)
 
     # ---- Verifier ----
-    await say("verifier", "run", "Auditing citations, originality, equations, diagrams & claims…", 0.74)
+    await say("verifier", "run", "Auditing every citation claim, originality, equations, diagrams & numbers…", 0.81)
     body, bad_cites = _fix_citations(body, len(refs))
+    if excluded:
+        def drop_excluded(m: re.Match) -> str:
+            ns = _nums(m.group(1))
+            if 0 in ns:
+                return m.group(0)
+            keep = [n for n in ns if n not in excluded]
+            return "[" + ", ".join(map(str, keep)) + "]" if keep else ""
+        body = _sub_citations(body, drop_excluded)
     body = _sanitize_mermaid(body)
     body, diagrams_repaired, diagrams_removed = await fix_diagrams(body)
-    body = await ensure_workflow_diagram(body)
+    if tplan.protocol_heading:
+        body = await ensure_workflow_diagram(body)
     abs_shingles = set().union(*(_shingles(p.abstract or "") for p in refs))
     paras = _paragraphs(body)
     flags: dict[int, list[str]] = {}
     for k, (_, _, t) in enumerate(paras):
-        v = _verbatim(t, abs_shingles)
-        if v:
+        if (v := _verbatim(t, abs_shingles)):
             flags.setdefault(k, []).append(f"{v} eight-word sequence(s) copied verbatim from a cited abstract")
     ov = await find_overlaps([Paragraph(page=0, start=0, end=0, text=t) for _, _, t in paras], refs, [])
     para_idx = {t: k for k, (_, _, t) in enumerate(paras)}
     for h in ov:
-        k = para_idx.get(h.paragraph)
-        if k is not None:
+        if (k := para_idx.get(h.paragraph)) is not None:
             flags.setdefault(k, []).append(f"too close to the abstract of “{h.matched.title}” (similarity {h.similarity:.2f}); "
                                            f"closest sentence: “{h.matched_text}”")
-    # claim support on single-citation sentences (sampled)
-    items: list[tuple[int, str, str, str]] = []
-    where: dict[int, int] = {}
-    for k, (_, _, t) in enumerate(paras):
-        for s in re.split(r"(?<=[.!?])\s+", t):
-            ms = _CITE.findall(s)
-            if len(ms) == 1 and len(_nums(ms[0])) == 1 and len(items) < 18:
-                n = _nums(ms[0])[0]
-                items.append((len(items), s.strip(), refs[n - 1].title, refs[n - 1].abstract or ""))
-                where[len(items) - 1] = k
-    judged = {}
-    if items:
-        try:
-            judged = await claim_check.judge(items)
-        except llm.LLMError:
-            judged = {}
+    claims = await quality.check_all_claims(body, [p.model_dump() for p in refs], cap=140)
+    judged = {(_squash(r["sentence"]), r["n"]): r for r in claims["pairs"]}
+    sq_paras = [(k, _squash(t)) for k, (_, _, t) in enumerate(paras)]
+
+    def para_of(sentence: str) -> int | None:
+        s_ = _squash(sentence)[:160]
+        return next((k for k, t in sq_paras if s_ in t), None)
+    for r in claims["pairs"]:
+        if r["label"] == "unsupported" and (k := para_of(r["sentence"])) is not None:
+            flags.setdefault(k, []).append(f"the sentence “{r['sentence']}” cites [{r['n']}], whose abstract does not support it ({r['rationale']})")
+    for s_ in claims["synthesis_flags"]:
+        if (k := para_of(s_)) is not None:
+            flags.setdefault(k, []).append(f"the sentence “{s_}” combines several citations into a claim none of them supports on its own")
     allowed = _allowed_numbers(facts_txt, *(p.abstract or "" for p in refs))
     body, fabricated_tables = strip_unmeasured_tables(body, allowed)
-    if fabricated_tables:
-        await say("verifier", "run", f"Removed {fabricated_tables} table(s) with numbers that were never measured")
-    design = {k for k, (st, _, _) in enumerate(paras) if _section_of(body, st) in DESIGN_SECTIONS}
+    paras = _paragraphs(body)
+    design = {s.heading for s in specs if s.design}
     unmeasured = 0
-    for k, (_, _, t) in enumerate(paras):
-        if k in design:
+    for k, (st, _, t) in enumerate(paras):
+        if _section_of(body, st) in design:
             continue
-        issues = _unmeasured(t, allowed, method_label)
-        if issues:
+        if (issues := _unmeasured(t, allowed, method_label)):
             unmeasured += len(issues)
             flags.setdefault(k, []).extend(issues)
-    unsupported = [(i, j) for i, j in judged.items() if j.label == "unsupported"]
-    for i, j in unsupported:
-        flags.setdefault(where[i], []).append(f"the sentence “{items[i][1]}” cites a paper whose abstract does not support it ({j.rationale})")
-    await say("verifier", "done", f"{len(items)} citation claims audited · {len(unsupported)} unsupported · "
-              f"{unmeasured} unmeasured claim(s) · {len(flags)} paragraph(s) queued for revision", 0.84)
+    flags = {k: v for k, v in flags.items() if k < len(paras)}
+    await say("verifier", "done", f"{claims['checked']} citation claims checked · {claims['unsupported']} unsupported · "
+              f"{unmeasured} unmeasured claim(s) · {len(flags)} paragraph(s) queued for revision", 0.86)
 
     # ---- Reviser ----
     revised = 0
     if flags:
-        await say("reviser", "run", f"Revising {len(flags)} flagged paragraph(s)…", 0.86)
+        await say("reviser", "run", f"Revising {len(flags)} flagged paragraph(s)…", 0.87)
 
         async def fix(k: int) -> tuple[int, str]:
             _, _, t = paras[k]
             try:
                 out = await llm.complete_json(
-                    "You revise one paragraph of a research paper to fix the listed problems. " + RULES,
+                    "You revise one paragraph of a research paper to fix the listed problems. " + RULES + "\n" + TYPE_RULES[ptype],
                     f"REFERENCES:\n{_ref_listing(refs, abstract_chars=300)}\n\nPARAGRAPH:\n{t.strip()}\n\nPROBLEMS:\n- "
-                    + "\n- ".join(flags[k]) + "\n\nRewrite the paragraph in original wording; remove or replace any citation that its abstract does "
-                    "not support; remove every number that is not in FACTS or a cited abstract; describe the proposed method only "
-                    "as a formal design or hypothesis, never with empirical results. Keep similar length.\n\nFACTS:\n" + facts_txt,
-                    _Rewrite, effort="low", tier="fast")
+                    + "\n- ".join(flags[k]) + "\n\nRewrite the paragraph in original wording; remove or replace any citation that its "
+                    "abstract does not support; remove every number that is not in FACTS or a cited abstract. Keep similar length."
+                    "\n\nFACTS:\n" + facts_txt, _Rewrite, effort="low", tier="fast")
                 return k, out.paragraph.strip()
             except llm.LLMError:
                 return k, t
         for k, new in await asyncio.gather(*(fix(k) for k in flags)):
             s, e, old = paras[k]
             if new and new != old.strip():
-                lead = old[: len(old) - len(old.lstrip())]
-                trail = old[len(old.rstrip()):]
-                body = body.replace(old, lead + new + trail, 1)
+                body = body.replace(old, old[: len(old) - len(old.lstrip())] + new + old[len(old.rstrip()):], 1)
                 revised += 1
         body, more_bad = _fix_citations(body, len(refs))
         bad_cites += more_bad
-        await say("reviser", "done", f"{revised} paragraph(s) rewritten", 0.92)
+        await say("reviser", "done", f"{revised} paragraph(s) rewritten", 0.9)
     bad_math = [(st, en, tex, disp, err) for st, en, tex, disp in _math_spans(body) if (err := math_problem(tex))]
     math_fixed = 0
     if bad_math:
-        await say("reviser", "run", f"Fixing {len(bad_math)} malformed equation(s)…")
-
         async def fix_tex(tex: str, err: str) -> str | None:
             try:
                 out = await llm.complete_json("You fix LaTeX math so it compiles in KaTeX and LaTeX. Keep the meaning. Return only the math, without $ delimiters.",
@@ -812,36 +1113,69 @@ async def run(req: StudioRequest, ctx) -> str:
             if new:
                 body = body[:st] + (f"$${new}$$" if disp else f"${new}$") + body[en:]
                 math_fixed += 1
-        await say("reviser", "done", f"{revised} paragraph(s) rewritten · {math_fixed} equation(s) repaired")
-    # Never ship broken math spans even if LLM repair skipped one
     for st, en, tex, disp in reversed(_math_spans(body)):
         if math_problem(tex):
             body = body[:st] + (f"`{tex}`" if not disp else f"```\n{tex}\n```") + body[en:]
 
-    abs_issues = _unmeasured(front.abstract, allowed, method_label)
+    # ---- Figure check (vision) ----
+    await say("figures", "run", "Checking every figure against its caption…", 0.91)
+    to_check = [(n, png) for n in captions if (n in ("trend", "years", "impact", "venues") or n.startswith(("exp_", "data")))
+                and (png := figure_png(pid, n))][:8]
+    fig_names = [n for n, _ in to_check]
+    fig_issues: list[str] = []
+    recaptioned = 0
+    for name, (better, issue) in zip(fig_names, await asyncio.gather(*(_check_figure(png, captions[n]) for n, png in to_check))):
+        if better:
+            captions[name] = better
+            recaptioned += 1
+        if issue:
+            fig_issues.append(f"{name}: {issue}")
+    await say("figures", "done", f"{len(fig_names)} figure(s) checked · {recaptioned} caption(s) corrected", 0.92)
+
+    # ---- Editor: front matter, best of three abstracts ----
+    await say("editor", "run", "Drafting three candidate abstracts and choosing the strongest…", 0.93)
+    st_ = (style or {}).get("stats") or {}
+    lo, hi = ((max(120, st_["abstract_words_median"] - 30), st_["abstract_words_median"] + 30) if st_.get("abstract_words_median") else (175, 235))
+    content = {
+        "method": "context and gap, the formal problem and proposed method (with its acronym), its analytical properties and failure boundary, the bibliometric synthesis (FACTS numbers only) and the evaluation protocol",
+        "empirical": "background, objective, design and methods, results (only if USER DATA ANALYSIS exists; otherwise what the study will measure), and conclusions",
+        "review": "background, review questions, how the literature was searched (FACTS counts), main themes and findings, conflicting evidence, and the research agenda",
+        "position": "the issue, the thesis, the supporting argument, the main counterargument, and the recommendations",
+    }[ptype]
+    front = await llm.complete_json(
+        "You are the Editor-in-Chief finalizing front matter. Formal academic English, original wording. Never invent empirical "
+        "numbers; the only numbers allowed are in FACTS. Never mention how the text was produced.",
+        f"{core}\n\nPAPER BODY:\n{body[: llm.context_chars() - 9000]}\n\nWrite:\n1. abstracts: THREE distinct candidate abstracts, "
+        f"each {lo}-{hi} words, covering {content}. No citations; no unmeasured results.\n2. keywords: 6 index terms.\n"
+        "3. highlights: 4 crisp one-sentence takeaways.\n4. summary: a 3-4 sentence plain-language summary.", _Front, effort="medium")
+    cands_abs = [a for a in front.abstracts if len(a.split()) > 60] or front.abstracts[:1] or [""]
+    abstract = cands_abs[await _pick("abstract", cands_abs, "Prefer the abstract that is most specific, accurate to the paper "
+                                     "body, free of hype, and states exactly what was done and found (or proposed).")]
+    abs_issues = _unmeasured(abstract, allowed, method_label)
     if abs_issues:
         try:
-            front.abstract = (await llm.complete_json(
-                "You revise a research-paper abstract to fix the listed problems. Keep it 175-235 words, original wording, no citations.",
-                f"FACTS (the only numbers allowed):\n{facts_txt}\n\nABSTRACT:\n{front.abstract}\n\nPROBLEMS:\n- " + "\n- ".join(abs_issues),
-                _Rewrite, effort="low", tier="fast")).paragraph.strip() or front.abstract
+            abstract = (await llm.complete_json(
+                f"You revise a research-paper abstract to fix the listed problems. Keep it {lo}-{hi} words, original wording, no citations.",
+                f"FACTS (the only numbers allowed):\n{facts_txt}\n\nABSTRACT:\n{abstract}\n\nPROBLEMS:\n- " + "\n- ".join(abs_issues),
+                _Rewrite, effort="low", tier="fast")).paragraph.strip() or abstract
         except llm.LLMError:
             pass
-    front.highlights = [h for h in front.highlights if not _unmeasured(h, allowed, method_label)]
-    remaining = sum(len(_unmeasured(t, allowed, method_label)) for k, (st, _, t) in enumerate(_paragraphs(body))
-                    if _section_of(body, st) not in DESIGN_SECTIONS) + len(_unmeasured(front.abstract, allowed, method_label))
+    highlights = [h for h in front.highlights if not _unmeasured(h, allowed, method_label)]
+    await say("editor", "done", "Abstract, keywords, highlights & summary ready", 0.95)
+
+    remaining = sum(len(_unmeasured(t, allowed, method_label)) for st, _, t in _paragraphs(body)
+                    if _section_of(body, st) not in design) + len(_unmeasured(abstract, allowed, method_label))
     copied_after = sum(1 for _, _, t in _paragraphs(body) if _verbatim(t, abs_shingles))
     phrase_hits = find_phrases([body], None)
 
     # ---- Assemble ----
+    body = enforce_headings(body, {s.heading for s in specs} | {"Conclusion", "Pilot Experiments"})
     body, order = _renumber(body)
     old_to_new = {old: new for new, old in enumerate(order, 1)}
     cited_refs = [refs[o - 1] for o in order]
 
     def fig_block(name: str) -> str:
-        if name not in figs:
-            return ""
-        return f"Figure: {figs[name][1]}\n![{figs[name][1]}]({FIG_URL.format(pid=pid, name=name)})"
+        return f"Figure: {captions[name]}\n![{captions[name]}]({FIG_URL.format(pid=pid, name=name)})" if name in captions else ""
 
     trend_rows = ""
     if trends:
@@ -854,60 +1188,97 @@ async def run(req: StudioRequest, ctx) -> str:
                  "| Ref. | Title | Year | Venue | Citations |\n|---|---|---|---|---|\n"
                  + "\n".join(f"| [{n}] | {p.title[:72].replace('|', '/')} | {p.year or ''} | {(p.venue or '–')[:40].replace('|', '/')} | {p.cited_by or 0:,} |"
                              for n, p in sorted(top, key=lambda t: t[0])))
+    heading_of = {s.key: s.heading for s in specs}
+    analysis_anchor = "\n# " + heading_of.get(tplan.analysis_key, "")
+    refs_anchor = "\n# " + heading_of.get(tplan.refs_table_key, heading_of.get(tplan.analysis_key, ""))
+    results_anchor = "\n# " + heading_of.get("results", heading_of.get("methods", ""))
     tokens = {
-        "[[FIG:trend]]": fig_block("trend"),
-        "[[FIG:years]]": fig_block("years"),
-        "[[FIG:impact]]": fig_block("impact"),
-        "[[FIG:venues]]": fig_block("venues"),
-        "[[TABLE:trend]]": trend_rows,
-        "[[TABLE:refs]]": ref_table,
+        "[[FIG:trend]]": (fig_block("trend"), analysis_anchor), "[[FIG:years]]": (fig_block("years"), analysis_anchor),
+        "[[FIG:impact]]": (fig_block("impact"), analysis_anchor), "[[FIG:venues]]": (fig_block("venues"), analysis_anchor),
+        "[[TABLE:trend]]": (trend_rows, analysis_anchor), "[[TABLE:refs]]": (ref_table, refs_anchor),
+        "[[DATA:tables]]": ("\n\n".join(data.tables) if data else "", results_anchor),
+        "[[DATA:figures]]": ("\n\n".join(fig_block(n) for n in (data.figures if data else {})), results_anchor),
     }
     exp_md = experiments.section(exp, fig_block)
-    if exp_md:
-        anchor = "\n# Experimental Setup and Ablation Protocol"
+    if exp_md and tplan.protocol_heading:
+        anchor = f"\n# {tplan.protocol_heading}"
         body = body.replace(anchor, f"\n{exp_md}\n{anchor}", 1) if anchor in body else body + f"\n\n{exp_md}"
-    for tok, rep in tokens.items():
+
+    def insert_after_section(md: str, anchor: str, block: str) -> str:
+        """Put a block at the end of the section that starts at `anchor` (or at the end of the body)."""
+        i = md.find(anchor)
+        if i < 0:
+            return md + f"\n\n{block}"
+        j = md.find("\n# ", i + len(anchor))
+        return md[:j] + f"\n\n{block}\n" + md[j:] if j >= 0 else md + f"\n\n{block}"
+    for tok, (rep, anchor) in tokens.items():
         if tok in body:
             body = body.replace(tok, rep, 1).replace(tok, "")
         elif rep:
-            anchor = "\n# Problem Formulation and System Model" if tok == "[[TABLE:refs]]" else "\n# Experimental Setup and Ablation Protocol"
-            body = body.replace(anchor, f"\n{rep}\n{anchor}", 1) if anchor in body else body + f"\n\n{rep}"
-    # Redraw citation impact chart with post-renumbering indices [1..N]
+            body = insert_after_section(body, anchor, rep)
     figs_png = figures.citation_impact_chart([(f"[{old_to_new[i]}]", p.cited_by or 0) for i, p in enumerate(refs, 1) if i in old_to_new])
     store.put("paper_fig", f"{pid}-impact", {"png": base64.b64encode(figs_png).decode()})
 
-    md = (f"# Abstract\n\n{front.abstract.strip()}\n\n**Keywords:** {', '.join(front.keywords[:6])}\n\n{body.strip()}\n\n"
+    md = (f"# Abstract\n\n{abstract.strip()}\n\n**Keywords:** {', '.join(front.keywords[:6])}\n\n{body.strip()}\n\n"
           + ("# Acknowledgment\n\nThe authors used AI-assisted research and drafting tools to prepare portions of this manuscript "
              "and verified all formal derivations, citations, and bibliometric figures. Bibliometric statistics were computed "
              "directly from OpenAlex and Crossref metadata.\n\n" if req.ai_disclosure else "")
           + "# References\n\n" + "\n".join(f"{i}. {_ieee_ref(p)}" for i, p in enumerate(cited_refs, 1)) + "\n")
 
+    # ---- Provenance: for every citation, the sentences that use it, the check verdict and the closest abstract sentence ----
+    provenance: dict[str, list[dict]] = {}
+    final_sents = quality.cited_sentences(md)
+    pairs = [(s_, n) for _, s_, ns in final_sents for n in ns if 1 <= n <= len(cited_refs)][:260]
+    if pairs:
+        abs_sents = {n: [x.strip() for x in re.split(r"(?<=[.!?])\s+", cited_refs[n - 1].abstract or "") if len(x.strip()) > 30][:14]
+                     for n in {n for _, n in pairs}}
+        flat = [(n, x) for n, xs in abs_sents.items() for x in xs]
+        if flat:
+            av = await embed_async([x for _, x in flat])
+            sv = await embed_async([s_ for s_, _ in pairs])
+            for (s_, n), vec in zip(pairs, sv):
+                rows = [i for i, (m, _) in enumerate(flat) if m == n]
+                quote = flat[max(rows, key=lambda i: float(av[i] @ vec))][1] if rows else ""
+                j = judged.get((_squash(s_), order[n - 1]))
+                lst = provenance.setdefault(str(n), [])
+                if len(lst) < 6:
+                    lst.append({"sentence": s_[:500], "label": j["label"] if j else "revised", "rationale": (j or {}).get("rationale", ""),
+                                "quote": quote[:400]})
+
     report = {
-        "references": len(cited_refs), "candidates": len(cands), "retraction_checked": checked,
-        "retracted_excluded": [{"title": p.title, "doi": p.doi} for p in dropped],
-        "invalid_citations_removed": bad_cites, "claims_checked": len(items), "claims_unsupported": len(unsupported),
-        "claims_supported": sum(j.label == "supported" for j in judged.values()),
+        "paper_type": ptype, "references": len(cited_refs), "candidates": pl["candidates"], "retraction_checked": pl["checked"],
+        "retracted_excluded": pl["dropped"], "snowballed": pl.get("snowballed", 0), "experts": pl.get("experts", []),
+        "conflicts_found": len(pl.get("conflicts") or []), "novelty": pl.get("novelty"),
+        "venue_style": (style or {}).get("stats", {}).get("venue"), "consistency_edits": consistency,
+        "consistency_error": consistency_error or None,
+        "review_panel": {"overall": pan["overall"], "scores": pan["scores"], "reviews": pan["reviews"],
+                         "issues": len(pan["issues"]), "sections_revised": revised_sections},
+        "gaps_filled": len(new_refs), "gap_log": gaplog[:8],
+        "invalid_citations_removed": bad_cites, "claims_checked": claims["checked"], "claims_unsupported": claims["unsupported"],
+        "claims_supported": claims["supported"], "claims_unclear": claims["unclear"], "synthesis_flags": len(claims["synthesis_flags"]),
         "paragraphs_flagged": len(flags), "diagrams_repaired": diagrams_repaired, "diagrams_removed": diagrams_removed,
         "equations_repaired": math_fixed, "equations_still_invalid": max(0, len(bad_math) - math_fixed),
-        "unmeasured_claims_found": unmeasured + len(abs_issues),
-        "unmeasured_claims_remaining": remaining, "paragraphs_revised": revised, "verbatim_paragraphs_after": copied_after, "unmeasured_tables_removed": fabricated_tables,
+        "unmeasured_claims_found": unmeasured + len(abs_issues), "unmeasured_claims_remaining": remaining,
+        "paragraphs_revised": revised, "verbatim_paragraphs_after": copied_after, "unmeasured_tables_removed": fabricated_tables,
         "tortured_phrases": [h.phrase for h in phrase_hits], "uncited_refs_dropped": len(refs) - len(cited_refs),
-        "experiments": exp.report,
+        "figures_checked": len(fig_names), "captions_corrected": recaptioned, "figure_issues": fig_issues,
+        "experiments": exp.report, "data_analysis": (data.report if data else ({"error": data_error} if data_error else None)),
     }
     result = {
-        "paper_id": pid, "topic": topic, "angle": angle, "title": outline.title, "markdown": md,
-        "highlights": front.highlights[:5], "summary": front.summary, "keywords": front.keywords[:6],
+        "paper_id": pid, "plan_id": plan_id, "paper_type": ptype, "topic": req.topic, "angle": req.angle, "title": outline.title,
+        "markdown": md, "highlights": highlights[:5], "summary": front.summary, "keywords": front.keywords[:6],
         "research_question": outline.research_question, "contributions": outline.contributions,
-        "report": report, "words": len(re.findall(r"\w+", md)),
+        "report": report, "words": len(re.findall(r"\w+", md)), "provenance": provenance,
+        "measured_facts": [ln[2:] for ln in facts_txt.splitlines() if ln.startswith("- ")],
         "references": [{"n": i, "title": p.title, "year": p.year, "doi": p.doi, "url": f"https://doi.org/{p.doi}" if p.doi else p.url,
                         "venue": p.venue, "cited_by": p.cited_by} for i, p in enumerate(cited_refs, 1)],
         "template": req.template, "author": req.author, "affiliation": req.affiliation, "created_at": now().isoformat(),
-        "seeded": [p.title for p in seeds],
-        # kept for revisions: the numbered reference records, measured facts and the method name
+        "seeded": pl.get("seeded", []),
         "_refs": [p.model_dump() for p in cited_refs], "_facts": facts_txt + ("\n" + exp.markdown if exp.markdown else ""),
         "_method": method_label, "versions": [],
     }
     store.put("paper_studio", pid, result)
+    store.put(PLAN_KIND, plan_id, {**pl, "status": "written", "paper_id": pid})
     await say("done", "done", "Paper ready", 1.0)
     return pid
 
@@ -1043,6 +1414,25 @@ def normalize_section(text: str, heading: str, allow: tuple[str, ...] = ("Conclu
     return repair_fences("\n".join(out))
 
 
+def enforce_headings(md: str, allowed: set[str]) -> str:
+    """Only planned sections may be top-level: any other '# X' (outside code) becomes '## X'; empty duplicate headings go."""
+    out, fence, seen = [], False, set()
+    for line in md.splitlines():
+        if line.strip().startswith("```"):
+            fence = not fence
+        m = None if fence else re.match(r"^# (.+)$", line)
+        if m:
+            t = m.group(1).strip()
+            if t not in allowed:
+                line = f"## {t}"
+            elif t in seen:
+                continue
+            else:
+                seen.add(t)
+        out.append(line)
+    return "\n".join(out)
+
+
 def _sections(md: str) -> list[tuple[str, str]]:
     parts = re.split(r"(?m)^(?=# )", md)
     out = []
@@ -1062,6 +1452,9 @@ async def revise(pid: str, instruction: str, ctx) -> str:
         raise RuntimeError("This paper was created before revisions were supported. Generate it again to revise it.")
     refs = [Paper.model_validate(r) for r in paper["_refs"]]
     facts, method = paper.get("_facts", ""), paper.get("_method", "")
+    ptype = paper.get("paper_type") or "method"
+    type_rules = TYPE_RULES.get(ptype, TYPE_RULES["method"])
+    design_secs = {x.heading for x in PLANS.get(ptype, METHOD).sections if x.design} | (DESIGN_SECTIONS if ptype == "method" else set())
 
     async def say(agent: str, state: str, text: str, progress: float | None = None) -> None:
         await ctx.update(agent, json.dumps({"agent": agent, "state": state, "text": text}), progress)
@@ -1089,7 +1482,7 @@ async def revise(pid: str, instruction: str, ctx) -> str:
         head = e.new_heading if e.action == "add_after" and e.new_heading else e.heading
         cur = body_of.get(e.heading, "") if e.action != "add_after" else ""
         text = await llm.complete(
-            "You are an expert academic writer revising one section of a research paper.\n" + RULES,
+            "You are an expert academic writer revising one section of a research paper.\n" + RULES + "\n" + type_rules,
             f"{core}\n\nREFERENCES:\n{ref_list}\n\nSECTION: # {head}\n"
             + (f"CURRENT TEXT:\n{cur}\n\n" if cur else "") + f"CHANGE REQUESTED: {e.instruction}\n"
             "Return the complete revised section in Markdown, starting with its level-1 heading.", effort="medium", max_tokens=6500)
@@ -1117,7 +1510,7 @@ async def revise(pid: str, instruction: str, ctx) -> str:
     md, _ = strip_unmeasured_tables(md, allowed)
     issues = 0
     for st, en, t in reversed(_paragraphs(md)):
-        if _section_of(md, st) in (DESIGN_SECTIONS | {"References"}):
+        if _section_of(md, st) in (design_secs | {"References"}):
             continue
         probs = _unmeasured(t, allowed, method)
         if probs:

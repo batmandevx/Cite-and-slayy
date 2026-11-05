@@ -23,7 +23,7 @@ export const FAQS: { topic: FaqTopic; q: string; a: string }[] = [
   { topic: "payments", q: "Can I get a refund?", a: "Yes in several cases: duplicate or wrong charges, and within 7 days of your first payment if you've generated at most one paper. Failed papers and checks are returned to your allowance automatically. See the refund policy." },
   { topic: "payments", q: "Do prices include GST?", a: "Yes, prices shown in INR include GST where applicable." },
 
-  { topic: "papers", q: "How long does a paper take?", a: "Most papers are ready in a few minutes. Longer monographs with experiments and figures can take longer; you can keep using the app (or play in the Arcade) while it works." },
+  { topic: "papers", q: "How long does a paper take?", a: "Planning takes about 3-5 minutes and writing about 8-12 more, because every paper is reviewed by a three-reviewer panel and every citation is checked. If you choose to review the plan first, writing starts when you approve it. You can keep using the app (or play in the Arcade) while it works." },
   { topic: "papers", q: "Which formats can I download?", a: "IEEE or Springer LaTeX as a .zip that opens in Overleaf, Word with embedded figures, and PDF. Paid plans can also turn a paper into a slide deck." },
   { topic: "papers", q: "A paper failed. Do I lose a credit?", a: "No. If a paper, revision, audit or verdict fails, its use goes back to your monthly allowance automatically. Try again in a few minutes." },
   { topic: "papers", q: "Can I submit the generated paper as my own?", a: "Treat it as a strong first draft: check claims against the sources, add your own analysis, and follow your university's and the publisher's rules on AI assistance and disclosure." },
