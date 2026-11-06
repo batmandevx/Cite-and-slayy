@@ -282,6 +282,42 @@ def _fix_citations(md: str, n_refs: int) -> tuple[str, int]:
     return _sub_citations(md, sub), removed
 
 
+def _clip(text: str, n: int) -> str:
+    """Shorten at a word boundary with an ellipsis (never mid-word)."""
+    text = " ".join((text or "").split())
+    return text if len(text) <= n else text[:n].rsplit(" ", 1)[0].rstrip(",;:") + "…"
+
+
+_INTERNAL_TAG = re.compile(r"\s*\[(?:pipeline|executed|sandbox|facts?|data analysis|measured)\]", re.I)
+
+
+def _merge_duplicate_refs(md: str, refs: list[Paper]) -> tuple[str, int]:
+    """The same work can arrive twice from different databases (an OpenAlex and a Semantic Scholar id with one DOI).
+    Point every citation of a duplicate at the first copy, so the reference list never shows one work twice."""
+    from rapidfuzz import fuzz
+    canon: dict[int, int] = {}
+    keys: list[tuple[int, str, str]] = []
+    for n, p in enumerate(refs, 1):
+        doi, nt = (p.doi or "").lower().strip(), literature._norm_title(p.title)
+        hit = next((k for k, d, t in keys if (doi and doi == d) or (nt and len(nt) > 15 and fuzz.ratio(nt, t) >= 94)), None)
+        if hit is None:
+            keys.append((n, doi, nt))
+        else:
+            canon[n] = hit
+    if not canon:
+        return md, 0
+
+    def sub(m: re.Match) -> str:
+        ns = _nums(m.group(1))
+        if 0 in ns:
+            return m.group(0)
+        out = list(dict.fromkeys(canon.get(n, n) for n in ns))
+        return "[" + ", ".join(map(str, out)) + "]"
+    md = _sub_citations(md, sub)
+    md = re.sub(r"(\[\d+(?:, \d+)*\])(?:,?\s*\1)+", r"\1", md)     # "[16], [16]" -> "[16]"
+    return md, len(canon)
+
+
 def _renumber(md: str) -> tuple[str, list[int]]:
     """Renumber citations by first appearance. Returns (markdown, old ids in new order)."""
     order: list[int] = []
@@ -1319,6 +1355,8 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
 
     # ---- Assemble ----
     body = enforce_headings(body, {s.heading for s in specs} | {"Conclusion", "Pilot Experiments", "Data Availability"})
+    body = _INTERNAL_TAG.sub("", body)      # provenance labels from FACTS that writers sometimes copy into prose
+    body, _ = _merge_duplicate_refs(body, refs)
     body, order = _renumber(body)
     old_to_new = {old: new for new, old in enumerate(order, 1)}
     cited_refs = [refs[o - 1] for o in order]
@@ -1334,7 +1372,7 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
     top = sorted(((old_to_new[i], p) for i, p in enumerate(refs, 1) if i in old_to_new), key=lambda t: -(t[1].cited_by or 0))[:10]
     ref_table = ("Table: Representative foundational and recent works in the cited corpus (metadata via OpenAlex)\n"
                  "| Ref. | Title | Year | Venue | Citations |\n|---|---|---|---|---|\n"
-                 + "\n".join(f"| [{n}] | {p.title[:72].replace('|', '/')} | {p.year or ''} | {(p.venue or '–')[:40].replace('|', '/')} | {p.cited_by or 0:,} |"
+                 + "\n".join(f"| [{n}] | {_clip(p.title, 110).replace('|', '/')} | {p.year or ''} | {_clip(p.venue or '–', 60).replace('|', '/')} | {p.cited_by or 0:,} |"
                              for n, p in sorted(top, key=lambda t: t[0])))
     heading_of = {s.key: s.heading for s in specs}
     analysis_anchor = "\n# " + heading_of.get(tplan.analysis_key, "")
@@ -1360,8 +1398,8 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
         j = md.find("\n# ", i + len(anchor))
         return md[:j] + f"\n\n{block}\n" + md[j:] if j >= 0 else md + f"\n\n{block}"
     for tok, (rep, anchor) in tokens.items():
-        if tok in body:
-            body = body.replace(tok, rep, 1).replace(tok, "")
+        if tok in body:   # a block always gets its own lines: writers often put the token mid-sentence
+            body = body.replace(tok, f"\n\n{rep}\n\n" if rep else "", 1).replace(tok, "")
         elif rep:
             body = insert_after_section(body, anchor, rep)
     figs_png = figures.citation_impact_chart([(f"[{old_to_new[i]}]", p.cited_by or 0) for i, p in enumerate(refs, 1) if i in old_to_new])
@@ -1537,8 +1575,13 @@ def ensure_keywords(md: str, keywords: list[str]) -> str:
     return md[: m.end(1)].rstrip() + f"\n\n**Keywords:** {', '.join(keywords[:6])}\n\n" + md[m.end(1):]
 
 
+_SPILL = re.compile(r"^(\s*\|.*\|)\s*([^|]{30,})$")
+
+
 def repair_fences(md: str) -> str:
-    """Close code fences the model left open: before the next level-1 heading, and at the end of the text."""
+    """Close code fences the model left open (before the next level-1 heading, and at the end of the text), and move
+    prose that was run onto the last row of a table (a table token placed mid-sentence) into its own paragraph:
+    Markdown renderers drop cells beyond the header, so that text was silently lost."""
     out, open_ = [], False
     for line in md.splitlines():
         if line.strip().startswith("```"):
@@ -1546,6 +1589,9 @@ def repair_fences(md: str) -> str:
         elif open_ and re.match(r"^#{1,2} \S", line):
             out.append("```")
             open_ = False
+        elif not open_ and (m := _SPILL.match(line)) and len(m.group(2).split()) >= 5:
+            out += [m.group(1), "", m.group(2).strip()]
+            continue
         out.append(line)
     if open_:
         out.append("```")

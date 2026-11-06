@@ -120,6 +120,17 @@ except Exception:
     _pd = None
 matplotlib.use("Agg")
 import matplotlib.pyplot as _plt
+from cycler import cycler as _cycler
+# Publication defaults: drawn near the printed size (one journal column ~3.5 in), so text stays readable after scaling;
+# colour-vision-deficiency-safe palette (Okabe-Ito); light grid; no top/right spines. Experiment code may override.
+_plt.rcParams.update({
+    "figure.figsize": (4.6, 3.0), "figure.dpi": 100, "savefig.dpi": 220, "figure.constrained_layout.use": True,
+    "font.family": "serif", "font.serif": ["DejaVu Serif"], "font.size": 9, "axes.titlesize": 9.5, "axes.titleweight": "bold",
+    "axes.labelsize": 9, "xtick.labelsize": 8, "ytick.labelsize": 8, "legend.fontsize": 7.5, "legend.frameon": False,
+    "axes.spines.top": False, "axes.spines.right": False, "axes.grid": True, "grid.alpha": 0.3, "grid.linestyle": "--",
+    "lines.linewidth": 1.6, "lines.markersize": 4.5, "errorbar.capsize": 3,
+    "axes.prop_cycle": _cycler(color=["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9", "#000000"]),
+})
 sys.addaudithook(_deny)
 _ready[0] = True
 
@@ -147,7 +158,7 @@ def save_figure(name, caption):
     if len(RESULTS["figures"]) >= %(max_figs)d:
         raise ValueError("too many figures")
     fn = "".join(ch for ch in str(name) if ch.isalnum())[:24] or f"fig{len(RESULTS['figures'])}"
-    _plt.gcf().savefig(os.path.join(WORK, fn + ".png"), dpi=200, bbox_inches="tight", facecolor="white")
+    _plt.gcf().savefig(os.path.join(WORK, fn + ".png"), dpi=220, bbox_inches="tight", facecolor="white")
     _plt.close("all")
     RESULTS["figures"].append({"name": fn, "caption": str(caption)[:240]})
 

@@ -45,7 +45,7 @@ def trend_chart(series: dict[str, dict[int, int]]) -> bytes:
     """Yearly publication counts per phrase. Current (partial) year is drawn hollow and explicitly annotated."""
     this_year = date.today().year
     with matplotlib.rc_context(_RC):
-        fig, ax = plt.subplots(figsize=(6.6, 3.5))
+        fig, ax = plt.subplots(figsize=(4.6, 3.0))
         for k, (name, counts) in enumerate(series.items()):
             ys = sorted(y for y in counts if y <= this_year)
             full = [y for y in ys if y < this_year]
@@ -71,7 +71,7 @@ def reference_years_chart(years: list[int]) -> bytes:
     cnt = Counter(y for y in years if y)
     xs = sorted(cnt)
     with matplotlib.rc_context(_RC):
-        fig, ax = plt.subplots(figsize=(6.6, 2.9))
+        fig, ax = plt.subplots(figsize=(4.6, 2.6))
         if xs:
             bars = ax.bar(xs, [cnt[x] for x in xs], color=SERIES[0], width=0.68, edgecolor="#1e3a8a", linewidth=0.5, alpha=0.9)
             for b in bars:
@@ -91,7 +91,7 @@ def citation_impact_chart(items: list[tuple[str, int]]) -> bytes:
     """Horizontal bars: citation counts of the most-cited works in the reference list (labels = [n])."""
     items = sorted(items, key=lambda t: t[1])[-12:]
     with matplotlib.rc_context(_RC):
-        fig, ax = plt.subplots(figsize=(6.6, max(2.4, 0.30 * len(items) + 0.9)))
+        fig, ax = plt.subplots(figsize=(4.6, max(2.2, 0.30 * len(items) + 0.9)))
         if items:
             max_v = max((t[1] for t in items), default=1) or 1
             ax.barh([t[0] for t in items], [t[1] for t in items], color=SERIES[2], height=0.62, edgecolor="#115e59", linewidth=0.5, alpha=0.92)
@@ -106,10 +106,11 @@ def citation_impact_chart(items: list[tuple[str, int]]) -> bytes:
 
 def venues_chart(venues: list[tuple[str, int]]) -> bytes:
     """Horizontal bars: top peer-reviewed journals & conferences in the retrieved candidate corpus."""
-    rows = [(v[:42] + ("…" if len(v) > 42 else ""), n) for v, n in venues[:8] if v and n > 0]
+    import textwrap
+    rows = [("\n".join(textwrap.wrap(v, 30, max_lines=2, placeholder="…")), n) for v, n in venues[:8] if v and n > 0]
     rows.reverse()  # highest at top
     with matplotlib.rc_context(_RC):
-        fig, ax = plt.subplots(figsize=(6.6, max(2.4, 0.34 * len(rows) + 0.85)))
+        fig, ax = plt.subplots(figsize=(4.6, max(2.4, 0.42 * len(rows) + 0.9)))
         if rows:
             max_v = max((r[1] for r in rows), default=1) or 1
             ax.barh([r[0] for r in rows], [r[1] for r in rows], color=SERIES[3], height=0.6, edgecolor="#5b21b6", linewidth=0.5, alpha=0.9)

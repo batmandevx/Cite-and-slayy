@@ -149,7 +149,7 @@ def _fmt(m, s):
 
 def _bar(names, means, stds, title):
     with plt.rc_context(_RC):
-        fig, ax = plt.subplots(figsize=(6.4, 3.4))
+        fig, ax = plt.subplots(figsize=(4.6, 3.0))
         order = np.argsort(means)[::-1]
         xs = np.arange(len(names))
         ax.bar(xs, np.array(means)[order] * 100, yerr=np.array(stds)[order] * 100, color=[SERIES[i % 4] for i in range(len(names))],
@@ -184,7 +184,7 @@ def _cm(cm, labels, title):
 
 def _line(xs, means, stds, title, xlabel, ylabel, logx=False):
     with plt.rc_context(_RC):
-        fig, ax = plt.subplots(figsize=(6.0, 3.2))
+        fig, ax = plt.subplots(figsize=(4.6, 3.0))
         m, s = np.array(means) * 100, np.array(stds) * 100
         ax.plot(xs, m, marker="o", color=SERIES[0], linewidth=2, markersize=5)
         ax.fill_between(xs, m - s, m + s, color=SERIES[0], alpha=0.15, linewidth=0)

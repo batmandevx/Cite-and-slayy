@@ -37,8 +37,33 @@ class Block:
     lang: str = ""
 
 
+_IMG = re.compile(r"!\[[^\]]*\]\([^)\s]+\)")
+
+
+def _split_images(md: str) -> str:
+    """Put every Markdown image on its own line (outside code fences). Writers often run the next sentence straight
+    after the image on the same line, and that text must not be lost."""
+    out, fence = [], False
+    for ln in md.split("\n"):
+        if ln.strip().startswith("```"):
+            fence = not fence
+        if fence or "![" not in ln or not _IMG.search(ln):
+            out.append(ln)
+            continue
+        pos = 0
+        for m in _IMG.finditer(ln):
+            before = ln[pos:m.start()].strip()
+            if before:
+                out += [before, ""]
+            out += [m.group(0), ""]
+            pos = m.end()
+        if ln[pos:].strip():
+            out.append(ln[pos:].strip())
+    return "\n".join(out)
+
+
 def parse_md(md: str) -> list[Block]:
-    lines = md.replace("\r\n", "\n").split("\n")
+    lines = _split_images(md.replace("\r\n", "\n")).split("\n")
     out: list[Block] = []
     i = 0
     pending_caption = ""
@@ -117,61 +142,156 @@ def parse_md(md: str) -> list[Block]:
 # ---------- LaTeX ----------
 
 _TEX_ESC = {"&": r"\&", "%": r"\%", "#": r"\#", "_": r"\_", "{": r"\{", "}": r"\}", "~": r"\textasciitilde{}",
-            "^": r"\textasciicircum{}", "\\": r"\textbackslash{}"}
+            "^": r"\textasciicircum{}", "\\": r"\textbackslash{}", "$": r"\$"}
+
+# Characters pdfLaTeX (Overleaf's default engine) can't take as raw UTF-8: (text-mode form, math-mode form).
+_GREEK = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega".split()
+_UNI: dict[str, tuple[str, str]] = {
+    "–": ("--", "-"), "—": ("---", "-"), "‐": ("-", "-"), "‑": ("-", "-"), "‒": ("--", "-"), "−": ("$-$", "-"),
+    "‘": ("`", "'"), "’": ("'", "'"), "‚": (",", ","), "“": ("``", "''"), "”": ("''", "''"), "„": (",,", ",,"),
+    "…": (r"\ldots{}", r"\ldots"), "•": (r"\textbullet{}", r"\bullet"), "·": (r"$\cdot$", r"\cdot"),
+    "×": (r"$\times$", r"\times"), "÷": (r"$\div$", r"\div"), "±": (r"$\pm$", r"\pm"), "∓": (r"$\mp$", r"\mp"),
+    "≤": (r"$\leq$", r"\leq"), "≥": (r"$\geq$", r"\geq"), "≠": (r"$\neq$", r"\neq"), "≈": (r"$\approx$", r"\approx"),
+    "∼": (r"$\sim$", r"\sim"), "≃": (r"$\simeq$", r"\simeq"), "≡": (r"$\equiv$", r"\equiv"), "∝": (r"$\propto$", r"\propto"),
+    "→": (r"$\rightarrow$", r"\rightarrow"), "←": (r"$\leftarrow$", r"\leftarrow"), "↔": (r"$\leftrightarrow$", r"\leftrightarrow"),
+    "⇒": (r"$\Rightarrow$", r"\Rightarrow"), "⇔": (r"$\Leftrightarrow$", r"\Leftrightarrow"), "↑": (r"$\uparrow$", r"\uparrow"),
+    "↓": (r"$\downarrow$", r"\downarrow"), "∞": (r"$\infty$", r"\infty"), "∑": (r"$\sum$", r"\sum"), "∏": (r"$\prod$", r"\prod"),
+    "∫": (r"$\int$", r"\int"), "√": (r"$\surd$", r"\surd"), "∂": (r"$\partial$", r"\partial"), "∇": (r"$\nabla$", r"\nabla"),
+    "∈": (r"$\in$", r"\in"), "∉": (r"$\notin$", r"\notin"), "⊂": (r"$\subset$", r"\subset"), "⊆": (r"$\subseteq$", r"\subseteq"),
+    "∪": (r"$\cup$", r"\cup"), "∩": (r"$\cap$", r"\cap"), "∅": (r"$\emptyset$", r"\emptyset"), "∀": (r"$\forall$", r"\forall"),
+    "∃": (r"$\exists$", r"\exists"), "¬": (r"$\neg$", r"\neg"), "∧": (r"$\wedge$", r"\wedge"), "∨": (r"$\vee$", r"\vee"),
+    "⊕": (r"$\oplus$", r"\oplus"), "⊗": (r"$\otimes$", r"\otimes"), "∘": (r"$\circ$", r"\circ"), "⟨": (r"$\langle$", r"\langle"),
+    "⟩": (r"$\rangle$", r"\rangle"), "′": (r"$'$", "'"), "″": (r"$''$", "''"), "°": (r"\textdegree{}", r"^\circ"),
+    "²": (r"\textsuperscript{2}", "^2"), "³": (r"\textsuperscript{3}", "^3"), "¹": (r"\textsuperscript{1}", "^1"),
+    "₀": (r"\textsubscript{0}", "_0"), "₁": (r"\textsubscript{1}", "_1"), "₂": (r"\textsubscript{2}", "_2"),
+    "§": (r"\S{}", r"\S"), "¶": (r"\P{}", r"\P"), "©": (r"\textcopyright{}", r"\copyright"), "®": (r"\textregistered{}", "(R)"),
+    "™": (r"\texttrademark{}", "TM"), "€": (r"\texteuro{}", "EUR"), "£": (r"\pounds{}", r"\pounds"), "₹": ("Rs.", "Rs."),
+    "✓": (r"$\checkmark$", r"\checkmark"), "✔": (r"$\checkmark$", r"\checkmark"), "✗": (r"$\times$", r"\times"),
+    "✘": (r"$\times$", r"\times"), "★": (r"$\star$", r"\star"), "\u00a0": ("~", "~"), "\u2009": (r"\,", r"\,"),
+    "\u202f": (r"\,", r"\,"), "\u200b": ("", ""), "\ufeff": ("", ""), "µ": (r"$\mu$", r"\mu"),
+    "ϵ": (r"$\epsilon$", r"\epsilon"), "ϑ": (r"$\vartheta$", r"\vartheta"), "ϕ": (r"$\phi$", r"\phi"), "ℓ": (r"$\ell$", r"\ell"),
+    "ℝ": (r"$\mathbb{R}$", r"\mathbb{R}"), "ℕ": (r"$\mathbb{N}$", r"\mathbb{N}"), "ℤ": (r"$\mathbb{Z}$", r"\mathbb{Z}"),
+    "ℙ": (r"$\mathbb{P}$", r"\mathbb{P}"), "𝔼": (r"$\mathbb{E}$", r"\mathbb{E}"), "ı": (r"\i{}", r"\imath"),
+}
+for _i, _n in enumerate(_GREEK):
+    for _c, _name in ((chr(0x3B1 + _i + (1 if _i >= 17 else 0)), _n), (chr(0x391 + _i + (1 if _i >= 17 else 0)), _n.capitalize())):
+        if _name in ("Alpha", "Beta", "Epsilon", "Zeta", "Eta", "Iota", "Kappa", "Mu", "Nu", "Omicron", "Rho", "Tau", "Chi", "omicron"):
+            _UNI.setdefault(_c, ({"Omicron": "O", "omicron": "o"}.get(_name, _name[0]),) * 2)   # no LaTeX command: the Latin look-alike
+        else:
+            _UNI.setdefault(_c, (f"$\\{_name}$", f"\\{_name}"))
+_UNI.setdefault("ς", (r"$\varsigma$", r"\varsigma"))
+_CYR = dict(zip("абвгдеёжзийклмнопрстуфхцчшщъыьэюя", "a b v g d e e zh z i y k l m n o p r s t u f kh ts ch sh shch  y  e yu ya".split(" ")))
+
+# Latin-1 / Latin Extended-A letters that T1 + utf8 inputenc typeset natively.
+_PDFLATEX_LETTERS = set("ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿĀāĂăĄąĆćĈĉĊċČčĎďĐđĒēĔĕĖėĘęĚěĜĝĞğĠġĢģĤĥĨĩĪīĬĭĮįİĲĳĴĵĶķĹĺĻļĽľŁłŃńŅņŇňŊŋŌōŎŏŐőŒœŔŕŖŗŘřŚśŜŝŞşŠšŢţŤťŨũŪūŬŭŮůŰűŲųŴŵŶŷŸŹźŻżŽž¡¿«»")
 
 
-def tex_inline(s: str) -> str:
+def _uni(c: str, math: bool = False) -> str:
+    """One non-ASCII character as something pdfLaTeX can typeset."""
+    if c in _UNI:
+        return _UNI[c][1 if math else 0]
+    if not math and c in _PDFLATEX_LETTERS:
+        return c
+    low = c.lower()
+    if low in _CYR:
+        t = _CYR[low]
+        return t.capitalize() if c != low else t
+    import unicodedata
+    base = unicodedata.normalize("NFKD", c).encode("ascii", "ignore").decode()   # ș -> s, ț -> t, ﬁ -> fi
+    if base:
+        return base if math else "".join(_TEX_ESC.get(x, x) for x in base)
+    return "" if math else "?"
+
+
+def tex_math(s: str) -> str:
+    return "".join(ch if ord(ch) < 128 else _uni(ch, math=True) for ch in s)
+
+
+_GREEK_SUB = re.compile("([\u0391-\u03c9])_([A-Za-z0-9]{1,12})")
+
+
+def _esc_text(s: str) -> str:
+    return "".join(_TEX_ESC.get(ch) or (ch if ord(ch) < 128 else _uni(ch)) for ch in s)
+
+
+def _tex_text(s: str) -> str:
+    """Plain text -> LaTeX. 'β_int' written as plain text is a subscripted symbol, so it is typeset as one."""
+    out, pos = [], 0
+    for m in _GREEK_SUB.finditer(s):
+        out += [_esc_text(s[pos:m.start()]), f"${_uni(m.group(1), math=True)}_{{\\mathrm{{{m.group(2)}}}}}$"]
+        pos = m.end()
+    return "".join(out) + _esc_text(s[pos:])
+
+
+_CITE = re.compile(r"\[(\d{1,3}(?:\s*(?:,|--|-|–)\s*\d{1,3})*)\](?!\()")
+
+
+def _cite(m: re.Match, n_refs: int) -> str:
+    """[3], [3, 5] or [2-4] -> \\cite{r3}, ... when every number is a real reference; anything else is left as text."""
+    keys: list[int] = []
+    for part in re.split(r"\s*,\s*", m.group(1)):
+        ends = [int(x) for x in re.split(r"\s*(?:--|-|–)\s*", part)]
+        lo, hi = ends[0], ends[-1]
+        keys += list(range(lo, hi + 1)) if 0 < lo <= hi and hi - lo < 30 else ends
+    if not keys or not all(1 <= k <= n_refs for k in keys):
+        return m.group(0)
+    return "\\cite{" + ",".join(f"r{k}" for k in keys) + "}"
+
+
+def tex_inline(s: str, n_refs: int = 0) -> str:
     parts = re.split(r"(\$[^$]+\$|`[^`]+`)", s)       # keep math and code spans intact
     out = []
     for p in parts:
         if p.startswith("$") and p.endswith("$") and len(p) > 1:
-            out.append(p)
+            out.append(tex_math(p))
         elif p.startswith("`") and p.endswith("`") and len(p) > 1:
-            out.append(r"\texttt{" + "".join(_TEX_ESC.get(c, c) for c in p[1:-1]) + "}")
+            out.append(r"\texttt{" + _tex_text(p[1:-1]) + "}")
         else:
-            t = "".join(_TEX_ESC.get(c, c) for c in p)
+            t = _tex_text(p)
             t = re.sub(r"\*\*(.+?)\*\*", r"\\textbf{\1}", t)
             t = re.sub(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?!\w)", r"\\emph{\1}", t)
-            t = re.sub(r"\[(.+?)\]\((https?://[^)]+)\)", r"\1\\footnote{\\url{\2}}", t)
+            t = re.sub(r"\[(.+?)\]\((https?://[^)]+)\)", lambda m: m.group(1) + "\\footnote{\\url{" + m.group(2).replace("\\_", "_").replace("\\%", "\\%").replace("\\#", "\\#") + "}}", t)
+            t = re.sub(r"(?<![{/\w])(https?://[^\s}]+[^\s}.,;:)])", lambda m: "\\url{" + m.group(1).replace("\\_", "_") + "}", t)
+            t = re.sub(r"\b[Dd][Oo][Ii]:\s*(10\.\d{4,9}/[^\s]+[^\s.,;])", lambda m: "doi: \\url{" + m.group(1).replace("\\_", "_") + "}", t)
             t = re.sub(r"\+\+(.+?)\+\+", r"\\underline{\1}", t)
             t = re.sub(r"==(.+?)==", r"\\colorbox{yellow}{\1}", t)
             t = re.sub(r"(?:\\textasciitilde\{\}){2}(.+?)(?:\\textasciitilde\{\}){2}", r"\1", t)
             t = re.sub(r"\\textasciicircum\{\}(\S+?)\\textasciicircum\{\}", r"\\textsuperscript{\1}", t)
+            if n_refs:
+                t = _CITE.sub(lambda m: _cite(m, n_refs), t)
             out.append(t)
     return "".join(out)
 
 
-PREAMBLES = {
-    "ieee": r"""\documentclass[journal]{IEEEtran}
-\usepackage{amsmath,amssymb,amsthm,graphicx,url,array,booktabs,hyperref,xcolor}
+_COMMON = r"""\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{textcomp,amsmath,amssymb,graphicx,array,booktabs,tabularx,xcolor}
+\usepackage{xurl}
+"""
+_TAIL = r"""\usepackage{hyperref}
 \hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
-\newtheorem{theorem}{Theorem}
+\setlength{\emergencystretch}{3em}
+\renewcommand{\arraystretch}{1.15}
+"""
+_THEOREMS = r"""\newtheorem{theorem}{Theorem}
 \newtheorem{lemma}{Lemma}
 \newtheorem{proposition}{Proposition}
 \newtheorem{assumption}{Assumption}
-\begin{document}
+"""
+
+PREAMBLES = {
+    "ieee": r"\documentclass[journal]{IEEEtran}" + "\n" + _COMMON + "\\usepackage{amsthm}\n\\usepackage{cite}\n" + _TAIL + _THEOREMS + r"""\begin{document}
 \title{%(title)s}
-\author{\IEEEauthorblockN{%(author)s}\IEEEauthorblockA{%(affil)s}}
+\author{%(author)s\\{}\textit{%(affil)s}}
 \maketitle
 """,
-    "springer": r"""\documentclass[runningheads]{llncs}
-\usepackage{amsmath,amssymb,graphicx,url,array,booktabs,hyperref,xcolor}
-\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
-\begin{document}
+    "springer": r"\documentclass[runningheads]{llncs}" + "\n" + _COMMON + _TAIL + r"""\begin{document}
 \title{%(title)s}
 \author{%(author)s}
 \institute{%(affil)s}
 \maketitle
 """,
-    "plain": r"""\documentclass[11pt]{article}
-\usepackage{amsmath,amssymb,amsthm,graphicx,url,array,booktabs,geometry,hyperref,xcolor}
-\geometry{margin=1in}
-\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
-\newtheorem{theorem}{Theorem}
-\newtheorem{lemma}{Lemma}
-\newtheorem{proposition}{Proposition}
-\newtheorem{assumption}{Assumption}
-\begin{document}
+    "plain": r"\documentclass[11pt]{article}" + "\n" + _COMMON + "\\usepackage{amsthm,geometry}\n\\usepackage{cite}\n\\geometry{margin=1in}\n" + _TAIL + _THEOREMS + r"""\begin{document}
 \title{%(title)s}
 \author{%(author)s \\ %(affil)s}
 \date{}
@@ -179,11 +299,134 @@ PREAMBLES = {
 """,
 }
 
+# Roughly how many characters of table text fit across one line (footnotesize for IEEE, small otherwise).
+_CAP = {("ieee", False): 58, ("ieee", True): 122, ("springer", False): 70, ("plain", False): 86}
+_NUMERIC = re.compile(r"^[\s$\\]*[-+−–<>≤≥~≈]?\s*[\d.,]+[\d.,%\s±()\[\]×eE\-+−–/:*]*$")
+
+
+def _plain_len(cell: str) -> int:
+    return len(re.sub(r"\*\*|`|\$|\\[a-z]+|[{}]", "", cell))
+
+
+def _longest_word(rows: list[list[str]], c: int) -> int:
+    return max((sum(1.35 if ch.isupper() else 1.0 for ch in w) for r in rows for w in re.sub(r"\*\*|`|\$", "", r[c]).split()),
+               default=4)   # capitals are wider than an average letter
+
+
+def _table(rows: list[list[str]], caption: str, template: str, n: int, n_refs: int) -> str:
+    ncol = max(len(r) for r in rows)
+    rows = [r + [""] * (ncol - len(r)) for r in rows]
+    body = rows[1:] or rows
+    lens = [[_plain_len(r[c]) for r in rows] for c in range(ncol)]
+    longest = [max(col) for col in lens]
+    numeric = [all(_NUMERIC.match(r[c].strip()) or not r[c].strip() for r in body) and any(r[c].strip() for r in body) for c in range(ncol)]
+    need = sum(min(x, 60) for x in longest) + 2 * ncol
+    wide = template == "ieee" and (ncol >= 5 or need > _CAP[("ieee", False)] * 1.6)
+    cap = _CAP.get((template, wide), _CAP[(template, False)])
+    if need <= cap * 0.9:      # fits as is: natural column widths, numbers right-aligned
+        spec = "".join("r" if numeric[c] else "l" for c in range(ncol))
+        open_t, close_t = f"\\begin{{tabular}}{{{spec}}}", "\\end{tabular}"
+    else:                      # wrap the text columns, share the width by how much text each one holds
+        fixed = [numeric[c] or longest[c] <= 12 for c in range(ncol)]
+        if all(fixed):          # every column is short or numeric: let them all wrap, numbers still flush right
+            fixed = [False] * ncol
+        weights = {c: max(4.0, sum(lens[c]) / len(lens[c])) ** 0.7 for c in range(ncol) if not fixed[c]}
+        tot = sum(weights.values())
+        avail = max(10.0, cap - sum(longest[c] + 2 for c in range(ncol) if fixed[c]) - 2 * len(weights))
+        # each wrapped column gets its share, but never less than its longest word (a word can't wrap)
+        width = {c: max(weights[c] / tot * avail, _longest_word(rows, c) + 1.5) for c in weights}
+        mean_w = sum(width.values()) / len(width)
+        spec = "".join(("r" if numeric[c] else "l") if fixed[c] else
+                       f">{{\\{'raggedleft' if numeric[c] else 'raggedright'}\\arraybackslash\\hspace{{0pt}}\\hsize={width[c] / mean_w:.2f}\\hsize}}X"
+                       for c in range(ncol))
+        open_t, close_t = f"\\begin{{tabularx}}{{\\linewidth}}{{{spec}}}", "\\end{tabularx}"
+    nl = " \\tabularnewline\n"                     # never "\\": a next row starting with "[12]" would be read as \\[12]
+    head = " & ".join(f"\\textbf{{{tex_inline(c, n_refs)}}}" for c in rows[0]) + nl + "\\midrule\n"
+    lines = "".join(" & ".join(tex_inline(c, n_refs) for c in r) + nl for r in rows[1:])
+    float_env = "table*" if wide else "table"
+    size = "\\footnotesize" if template == "ieee" else "\\small"
+    return (f"\\begin{{{float_env}}}[!t]\n\\centering\n{size}\n" + (f"\\caption{{{tex_inline(caption, n_refs)}}}\n" if caption else "")
+            + f"\\label{{tab:{n}}}\n{open_t}\n\\toprule\n{head}{lines}\\bottomrule\n{close_t}\n\\end{{{float_env}}}\n")
+
+
+def _visual_len(tex: str) -> int:
+    """About how many glyphs a formula prints (a command is one glyph; braces, scripts and spacing are free)."""
+    t = re.sub(r"\\(left|right|big|Big|bigg|Bigg)\b", "", tex)
+    t = re.sub(r"\\(mathrm|mathbf|mathit|text|operatorname|mathcal|mathbb|boldsymbol)\b", "", t)
+    t = re.sub(r"\\[a-zA-Z]+", "x", t)
+    return len(re.sub(r"[{}^_\s&]|\\[,;:! ]", "", t))
+
+
+def _break_long(body: str, width: int) -> str | None:
+    """Split a one-line formula at top-level =, + and - into an aligned block, each line within `width` glyphs."""
+    cuts, depth, lr, i = [], 0, 0, 0
+    while i < len(body):
+        c = body[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+        elif body.startswith("\\left", i):
+            lr += 1
+        elif body.startswith("\\right", i):
+            lr -= 1
+        elif depth == 0 and lr == 0 and c in "=+-" and i > 0 and body[i - 1] not in "^_{(\\" and body[i - 1:i + 1] != "--":
+            cuts.append(i)
+        i += 1
+    if not cuts:
+        return None
+    eq = next((k for k in cuts if body[k] == "="), None)
+    head = ""
+    if eq is not None:                       # "lhs =" stays on the first line, aligned on the =
+        head, cuts = body[:eq].strip() + " &", [k for k in cuts if k > eq]
+        atoms_from = eq
+    else:
+        atoms_from = 0
+    bounds = [atoms_from] + cuts + [len(body)]
+    atoms = [body[bounds[j]:bounds[j + 1]].strip() for j in range(len(bounds) - 1) if body[bounds[j]:bounds[j + 1]].strip()]
+    budget = width * 0.9
+    lines, cur = [], ""
+    for atom in atoms:
+        if cur and _visual_len(cur + atom) + (_visual_len(head) if not lines else 4) > budget:
+            lines.append(cur)
+            cur = ""
+        cur = f"{cur} {atom}".strip()
+    lines.append(cur)
+    if len(lines) < 2:
+        return None
+    out = [f"{head}{lines[0]}" if head else f"&{lines[0]}"] + [f"&\\quad {ln}" for ln in lines[1:]]
+    return "\\begin{aligned}\n" + " \\\\\n".join(out) + "\n\\end{aligned}"
+
+
+def _equation(body: str, width: int = 0) -> str:
+    body = tex_math(body.strip())
+    if re.match(r"\\begin\{(equation|align|gather|multline|eqnarray)\*?\}", body):
+        return body + "\n"                          # already a complete display environment
+    if "\\\\" in body and "\\begin{" not in body:   # several lines: align on & if given, else centre each line
+        inner = "aligned" if "&" in body else "gathered"
+        body = f"\\begin{{{inner}}}\n{body}\n\\end{{{inner}}}"
+    elif width and "\\begin{" not in body and "&" not in body and _visual_len(body) > width:
+        body = _break_long(body, width) or body     # too wide for the column: break it at top-level = + -
+    return "\\begin{equation}\n" + body + "\n\\end{equation}\n"
+
+
+def _ref_text(s: str) -> str:
+    return re.sub(r"^\s*(\[\d+\]|\d+[.)])\s*", "", s)
+
 
 def to_latex(md: str, title: str, template: Template = "ieee", author: str = "Author Name", affil: str = "Affiliation",
              assets: Assets | None = None) -> str:
     blocks = parse_md(md)
     assets = assets or Assets()
+    # number of references, so [n] in the text can become \cite{rn}
+    n_refs, in_r = 0, False
+    for b in blocks:
+        if b.kind == "heading":
+            in_r = b.text.strip().lower() in ("references", "bibliography")
+        elif in_r:
+            n_refs += len(b.items) if b.kind in ("ol", "ul") else (1 if b.kind == "para" else 0)
+    T = lambda s: tex_inline(s, n_refs)  # noqa: E731
+    fig_w = "\\linewidth" if template == "ieee" else "0.8\\linewidth"   # charts are drawn at about one journal column
     n_diag = 0
     out = [PREAMBLES[template] % {"title": tex_inline(title), "author": tex_inline(author), "affil": tex_inline(affil)}]
     in_refs = False
@@ -202,9 +445,9 @@ def to_latex(md: str, title: str, template: Template = "ieee", author: str = "Au
                     raw_p = blocks[i].text.strip()
                     km = re.match(r"^\*\*(?:Keywords|Index Terms):\*\*\s*(.+)$", raw_p, re.I)
                     if km:
-                        kw_line = tex_inline(km.group(1).strip())
+                        kw_line = T(km.group(1).strip())
                     else:
-                        body.append(tex_inline(raw_p))
+                        body.append(T(raw_p))
                 if template == "springer" and kw_line:
                     out.append("\\begin{abstract}\n" + "\n\n".join(body) + f"\n\\keywords{{{kw_line}}}\n\\end{{abstract}}\n")
                 else:
@@ -218,65 +461,54 @@ def to_latex(md: str, title: str, template: Template = "ieee", author: str = "Au
             else:
                 in_refs = False
                 cmd = {1: "section", 2: "subsection", 3: "subsubsection", 4: "paragraph"}[min(b.level, 4)]
-                out.append(f"\\{cmd}{{{tex_inline(b.text)}}}\n")
+                heading = re.sub(r"^(?:[IVX]+|\d+(?:\.\d+)*)[.)]?\s+(?=[A-Za-z])", "", b.text.strip())   # the class numbers sections
+                out.append(f"\\{cmd}{{{T(heading)}}}\n")
         elif in_refs and b.kind in ("ol", "ul", "para"):
-            refs += b.items if b.kind != "para" else [b.text]
+            refs += [_ref_text(x) for x in (b.items if b.kind != "para" else [b.text])]
         elif b.kind == "para":
-            out.append(tex_inline(b.text) + "\n")
+            out.append(T(b.text) + "\n")
         elif b.kind == "quote":
-            q_body = " \\\\\n".join(tex_inline(ln) for ln in b.text.splitlines() if ln.strip())
+            q_body = "\\\\{}\n".join(T(ln) for ln in b.text.splitlines() if ln.strip())
             if re.search(r"algorithm\s+\d", b.text, re.I):
                 out.append("\\par\\smallskip\\noindent\\fbox{\\parbox{0.96\\linewidth}{\\small\n" + q_body + "\n}}\\smallskip\\par\n")
             else:
                 out.append("\\begin{quote}\n" + q_body + "\n\\end{quote}\n")
         elif b.kind in ("ul", "ol"):
             env = "itemize" if b.kind == "ul" else "enumerate"
-            out.append(f"\\begin{{{env}}}\n" + "".join(f"  \\item {tex_inline(x)}\n" for x in b.items) + f"\\end{{{env}}}\n")
+            out.append(f"\\begin{{{env}}}\n" + "".join(f"  \\item {T(x)}\n" for x in b.items) + f"\\end{{{env}}}\n")
         elif b.kind == "check":
             box_done, box_open = r"$\boxtimes$", r"$\square$"
-            items = "".join("  \\item[" + (box_done if d else box_open) + "] " + tex_inline(x) + "\n" for d, x in b.items)
+            items = "".join("  \\item[" + (box_done if d else box_open) + "] " + T(x) + "\n" for d, x in b.items)
             out.append("\\begin{itemize}\n" + items + "\\end{itemize}\n")
         elif b.kind == "math":
-            out.append("\\begin{equation}\n" + b.text + "\n\\end{equation}\n")
+            out.append(_equation(b.text, {"ieee": 44, "springer": 62}.get(template, 80)))
         elif b.kind == "table" and b.rows:
             tab += 1
-            ncol = max(len(r) for r in b.rows)
-            rows = [r + [""] * (ncol - len(r)) for r in b.rows]
-            wide = template == "ieee" and (ncol >= 5 or max((sum(len(c) for c in r) for r in rows), default=0) > 55)
-            env_t = "table*" if (template == "ieee" and ncol >= 5) else "table"
-            hdr = " & ".join(f"\\textbf{{{tex_inline(c)}}}" for c in rows[0]) + r" \\ \midrule"
-            body_lines = [" & ".join(tex_inline(c) for c in r) + r" \\" for r in rows[1:]]
-            tabular = f"\\begin{{tabular}}{{{'l' * ncol}}}\n\\toprule\n" + "\n".join([hdr] + body_lines) + "\n\\bottomrule\n\\end{tabular}"
-            if wide and env_t == "table":
-                tabular = f"\\resizebox{{\\columnwidth}}{{!}}{{{tabular}}}"
-            elif env_t == "table*":
-                tabular = f"\\resizebox{{\\textwidth}}{{!}}{{{tabular}}}" if max((sum(len(c) for c in r) for r in rows), default=0) > 110 else tabular
-            out.append(f"\\begin{{{env_t}}}[t]\n\\centering\n" + (f"\\caption{{{tex_inline(b.caption)}}}\n" if b.caption else "")
-                       + f"\\label{{tab:{tab}}}\n{tabular}\n\\end{{{env_t}}}\n")
+            out.append(_table(b.rows, b.caption, template, tab, n_refs))
         elif b.kind == "image":
             fig += 1
             path = b.text
             if b.text in assets.images:
                 path = f"figures/fig{fig}.png"
                 assets.files[path] = assets.images[b.text]
-            out.append(f"\\begin{{figure}}[t]\n\\centering\n\\includegraphics[width=\\linewidth]{{{path}}}\n"
-                       + (f"\\caption{{{tex_inline(b.caption)}}}\n" if b.caption else "") + f"\\label{{fig:{fig}}}\n\\end{{figure}}\n")
+            out.append(f"\\begin{{figure}}[!t]\n\\centering\n\\includegraphics[width={fig_w}]{{{path}}}\n"
+                       + (f"\\caption{{{T(b.caption)}}}\n" if b.caption else "") + f"\\label{{fig:{fig}}}\n\\end{{figure}}\n")
         elif b.kind == "mermaid" and n_diag < len(assets.diagrams) and assets.diagrams[n_diag]:
             fig += 1
             path = f"figures/fig{fig}.png"
             assets.files[path] = assets.diagrams[n_diag]  # type: ignore[assignment]
             n_diag += 1
-            out.append(f"\\begin{{figure}}[t]\n\\centering\n\\includegraphics[width=\\linewidth]{{{path}}}\n"
-                       + (f"\\caption{{{tex_inline(b.caption)}}}\n" if b.caption else "") + f"\\label{{fig:{fig}}}\n\\end{{figure}}\n")
+            out.append(f"\\begin{{figure}}[!t]\n\\centering\n\\includegraphics[width={fig_w}]{{{path}}}\n"
+                       + (f"\\caption{{{T(b.caption)}}}\n" if b.caption else "") + f"\\label{{fig:{fig}}}\n\\end{{figure}}\n")
         elif b.kind == "mermaid":
             fig += 1
             n_diag += 1
-            src = "\n".join("% " + x for x in b.text.splitlines())
-            out.append("\\begin{figure}[t]\n\\centering\n\\fbox{\\parbox{0.9\\linewidth}{\\centering Diagram: export the Mermaid source below to PDF "
+            src = "\n".join("% " + tex_math(x) for x in b.text.splitlines())
+            out.append("\\begin{figure}[!t]\n\\centering\n\\fbox{\\parbox{0.9\\linewidth}{\\centering Diagram: export the Mermaid source below to PDF "
                        "(e.g. mermaid.live or mermaid-cli) and replace this box with \\texttt{\\textbackslash includegraphics}.}}\n"
-                       + (f"\\caption{{{tex_inline(b.caption)}}}\n" if b.caption else "\\caption{Diagram}\n") + f"\\label{{fig:{fig}}}\n{src}\n\\end{{figure}}\n")
+                       + (f"\\caption{{{T(b.caption)}}}\n" if b.caption else "\\caption{Diagram}\n") + f"\\label{{fig:{fig}}}\n{src}\n\\end{{figure}}\n")
         elif b.kind == "code":
-            out.append("\\begin{verbatim}\n" + b.text + "\n\\end{verbatim}\n")
+            out.append("\\begin{verbatim}\n" + tex_math(b.text) + "\n\\end{verbatim}\n")
         i += 1
     if refs:
         out.append("\\begin{thebibliography}{99}\n" + "".join(f"\\bibitem{{r{n}}} {tex_inline(r)}\n" for n, r in enumerate(refs, 1)) + "\\end{thebibliography}\n")
