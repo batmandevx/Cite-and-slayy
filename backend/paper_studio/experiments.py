@@ -350,14 +350,33 @@ CRITIC = ("You are a demanding methods reviewer auditing a simulation before it 
           "the brief asks: a data generator matching the stated assumptions, faithful method and baselines (or the planned "
           "analysis), enough seeds/replications, paired uncertainty (CIs, p-values) for the headline comparison, no bugs "
           "that make results meaningless (wrong axis, a baseline that is crippled, leakage, metrics computed on the wrong "
-          "data), and figures that show the main result with labelled axes and error bars. If it is sound, ok=true. "
-          "Otherwise list the problems and return the complete corrected script.")
+          "data), and figures that show the main result with labelled axes and error bars. For design simulations also check "
+          "that the false-positive rate is near alpha, CI coverage near 95%, power rises with N, and each hypothesis's test "
+          "uses the variance structure of the generator (a moderator or mediator built so it carries no signal is a bug). "
+          "If it is sound, ok=true. "
+          "Otherwise list each concrete problem; the author will fix them.")
 
 
-class _Critique(BaseModel):
+class _Verdict(BaseModel):
     ok: bool = Field(description="True if the simulation is sound enough to report as is")
-    problems: list[str]
-    revised_code: str = Field(description="Corrected full script if ok is false, else empty")
+    problems: list[str] = Field(description="Concrete problems to fix (empty if ok)")
+
+
+_FENCE = re.compile(r"```(?:python|py)?[ \t]*\n(.*?)```", re.S)
+
+
+async def write_code(system: str, prompt: str, *, prefer: list[str] | None = None, tokens: int = 10000) -> str:
+    """Ask for a script as plain text in a ```python block. Code is never wrapped in JSON: backslashes in plots
+    (r"$\\rho$") and regexes made JSON replies invalid and silently killed whole studies."""
+    ask = prompt + "\n\nReply with the complete script in ONE ```python code block and nothing else."
+    for _ in range(2):
+        text = await llm.complete(system, ask, effort="medium", max_tokens=tokens, prefer=prefer)
+        blocks = _FENCE.findall(text)
+        code = max(blocks, key=len) if blocks else (text if re.search(r"^\s*(import|from)\s", text, re.M) else "")
+        if code.strip():
+            return sandbox.autofix(code)
+        ask = prompt + "\n\nYour previous reply contained no code. Reply with ONE ```python block containing the full script."
+    raise llm.LLMError("the model returned no code")
 
 
 def _enough(res: sandbox.SandboxResult, need_figure: bool) -> str:
@@ -400,7 +419,39 @@ def study_checks(res: sandbox.SandboxResult) -> str:
     return ""
 
 
+def _lead_float(cell: object) -> float | None:
+    m = re.match(r"\s*[<>~≈]?\s*(-?\d+(?:\.\d+)?(?:e-?\d+)?)", str(cell))
+    return float(m.group(1)) if m else None
+
+
 def design_checks(res: sandbox.SandboxResult) -> str:
+    """Operating characteristics a correct simulation must show. Reviewers spot violations at once."""
+    for k, v in res.metrics.items():
+        lk = k.lower()
+        if re.search(r"(^|_)(fpr|false_?pos|type_?i(_|$)|type1|size_)", lk) and "assumed" not in lk and not 0.01 <= v <= 0.10:
+            return (f"{k} = {v:.3f}: with alpha = 0.05 a valid test rejects a true null about 5% of the time (0.01-0.10 allowing "
+                    "Monte Carlo error). This means the standard errors ignore the data structure (clustering / repeated "
+                    "measures / paired seeds) or the null data still contain the effect. Use cluster-robust or person-level "
+                    "inference that matches the data-generating process, and generate null data with the effect set to 0.")
+        if "coverage" in lk and "assumed" not in lk and not 0.88 <= v <= 0.99:
+            return (f"{k} = {v:.3f}: 95% intervals should cover the true value about 95% of the time (0.88-0.99). The interval "
+                    "or its standard error is wrong (ignored clustering, wrong degrees of freedom, or the 'true value' compared "
+                    "is not the estimand the model targets).")
+    for t in res.tables:
+        if "power" not in t["title"].lower() or len(t["rows"]) < 3:
+            continue
+        ns = [_lead_float(r[0]) for r in t["rows"]]
+        if None in ns or ns != sorted(ns):
+            continue                                   # not a power-by-N table
+        for j in range(1, max(len(r) for r in t["rows"])):
+            col = [_lead_float(r[j]) if j < len(r) else None for r in t["rows"]]
+            if None in col:
+                continue
+            drops = [a - b for a, b in zip(col, col[1:])]
+            if max(drops, default=0) > 0.06:
+                return (f"in '{t['title']}', power in column '{t['header'][j] if j < len(t['header']) else j}' falls as N grows "
+                        f"({col}). Power cannot decrease with sample size under a fixed effect: the estimator, the effect "
+                        "used, or the data generation changes with N. Fix it so the same model and effect are used at every N.")
     names = " ".join(res.metrics).lower()
     if "power" not in names and not any("power" in t["title"].lower() for t in res.tables):
         return "report the power of each hypothesis at the planned sample size (report('power_h1_planned_n', ...)) and a power table"
@@ -442,9 +493,9 @@ async def develop(system: str, task: str, *, prefer: list[str] | None = None, at
         except llm.LLMError as e:
             log.append(f"design skipped: {e}"[:200])
 
-    async def ask(prompt: str, tokens: int = 10000) -> str | None:
+    async def ask(prompt: str, tokens: int = 12000) -> str | None:
         try:
-            return sandbox.autofix((await llm.complete_json(system, prompt, _Code, effort="medium", max_tokens=tokens, prefer=prefer)).code)
+            return await write_code(system, prompt, prefer=prefer, tokens=tokens)
         except llm.LLMError as e:
             log.append(f"model error: {e}"[:200])
             return None
@@ -472,15 +523,20 @@ async def develop(system: str, task: str, *, prefer: list[str] | None = None, at
         if critiques >= critic_rounds:
             break
         try:
-            cr = await llm.complete_json(CRITIC, f"{task}\n\nCODE:\n{code}\n\nRESULTS:\n{_results_summary(res)}", _Critique,
-                                         effort="medium", max_tokens=10000, prefer=prefer)
+            cr = await llm.complete_json(CRITIC, f"{task}\n\nCODE:\n{code}\n\nRESULTS:\n{_results_summary(res)}", _Verdict,
+                                         effort="medium", max_tokens=4000, prefer=prefer)
         except llm.LLMError:
             break
         critiques += 1
         log.append(f"critic {critiques}: {'sound' if cr.ok else '; '.join(cr.problems)[:240]}")
-        if cr.ok or not cr.revised_code.strip():
+        if cr.ok or not cr.problems:
             break
-        code = sandbox.autofix(cr.revised_code)        # the corrected script runs next; the last good run is kept if it fails
+        revised = await ask(f"{task}\n\nCURRENT CODE:\n{code}\n\nRESULTS IT PRODUCED:\n{_results_summary(res)}\n\n"
+                            "A methods reviewer found these problems; fix every one and return the complete script:\n- "
+                            + "\n- ".join(cr.problems))
+        if revised is None:
+            break
+        code = revised                                 # the corrected script runs next; the last good run is kept if it fails
     return (best[0], best[1], log) if best else (None, "", log)
 
 

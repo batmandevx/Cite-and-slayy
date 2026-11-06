@@ -47,8 +47,7 @@ class _Code(BaseModel):
 
 class _Critique(BaseModel):
     ok: bool = Field(description="True if the analysis is sound enough to report as is")
-    problems: list[str]
-    revised_code: str = Field(description="Corrected full script if ok is false, else empty")
+    problems: list[str] = Field(description="Concrete problems to fix (empty if ok)")
 
 
 @dataclass
@@ -76,9 +75,9 @@ async def run(ds: Dataset, design: str, say=None, prefer: list[str] | None = Non
     rules = RULES.replace("{name}", ds.name)
     task = (f"RESEARCH DESIGN (what the paper asks and hypothesises):\n{design}\n\nDATASET '{ds.name}' PROFILE:\n{ds.profile}\n\n"
             f"SOURCES: {[s['title'] for s in ds.sources]}\n\n{rules}")
+    from backend.paper_studio.experiments import write_code
     try:
-        code = _clean((await llm.complete_json("You are a careful quantitative researcher writing analysis code.", task, _Code,
-                                               effort="medium", max_tokens=9000, prefer=prefer)).code)
+        code = await write_code("You are a careful quantitative researcher writing analysis code.", task, prefer=prefer)
     except llm.LLMError as e:
         out.report["error"] = f"model error: {e}"[:200]
         return out
@@ -94,9 +93,8 @@ async def run(ds: Dataset, design: str, say=None, prefer: list[str] | None = Non
         except sandbox.SandboxError as e:
             out.log.append(f"attempt {attempt + 1}: {str(e)[:200]}")
             try:
-                code = _clean((await llm.complete_json(
-                    "You fix analysis code that failed in a restricted sandbox. Keep the scientific design; make it run.",
-                    f"{task}\n\nCURRENT CODE:\n{code}\n\nERROR:\n{e}", _Code, effort="medium", max_tokens=9000, prefer=prefer)).code)
+                code = await write_code("You fix analysis code that failed in a restricted sandbox. Keep the scientific design; make it run.",
+                                        f"{task}\n\nCURRENT CODE:\n{code}\n\nERROR:\n{e}", prefer=prefer)
             except llm.LLMError:
                 break
             continue
@@ -109,15 +107,20 @@ async def run(ds: Dataset, design: str, say=None, prefer: list[str] | None = Non
                 "You are a demanding methods reviewer auditing an analysis before it goes into a paper. Check: data leakage, "
                 "train/test discipline, wrong or misread variables, missing uncertainty (CIs / sd across folds / robust SEs), "
                 "inappropriate models, causal overclaiming in names or captions, figures that do not show the main result. "
-                "If it is sound, ok=true. Otherwise return the complete corrected script.",
+                "If it is sound, ok=true. Otherwise list each concrete problem.",
                 f"{task}\n\nCODE:\n{code}\n\nRESULTS:\n{_summary(res)}", _Critique, effort="medium", max_tokens=9000, prefer=prefer)
         except llm.LLMError:
             break
         critiques += 1
         out.log.append(f"critic {critiques}: {'sound' if cr.ok else '; '.join(cr.problems)[:240]}")
-        if cr.ok or not cr.revised_code.strip():
+        if cr.ok or not cr.problems:
             break
-        code = _clean(cr.revised_code)
+        try:
+            code = await write_code("You are a careful quantitative researcher fixing an analysis after a methods review.",
+                                    f"{task}\n\nCURRENT CODE:\n{code}\n\nRESULTS:\n{_summary(res)}\n\nFix every problem the "
+                                    "reviewer found:\n- " + "\n- ".join(cr.problems), prefer=prefer)
+        except llm.LLMError:
+            break
     if not best:
         out.report["error"] = "the analysis could not be run: " + (out.log[-1] if out.log else "unknown")
         return out

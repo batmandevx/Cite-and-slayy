@@ -175,6 +175,11 @@ RULES = """Writing rules (strict):
   supports it; describe work this paper proposes but has not run in the future or conditional tense.
 - Never announce a table, figure or list ("as follows:", "the table below") unless you include it right there.
 - Numbers, thresholds, sample sizes and hypothesis wording must be identical everywhere they appear.
+- Hypotheses state a direction or a range decided before analysis, never an estimated value from FACTS.
+- Never restate a formula in a simplified or different form (especially in the Abstract, Discussion or Conclusion): refer to
+  it by its name or equation number, or copy it exactly.
+- Say each point once, in the section where it belongs; later sections refer back instead of restating it.
+- Claims of absence ("no study has...", "none of the works...") must be limited to the corpus reviewed here and say so.
 - Never invent empirical numbers, benchmark scores, dataset sizes, p-values, or experimental outcomes. The ONLY empirical/bibliometric numbers you may report are in FACTS (or explicitly attributed to a cited abstract that states them).
 - Use the terminology and notation in PAPER MEMORY exactly; introduce new terms explicitly.
 - Output Markdown only. Start with the exact level-1 heading you are given. Use ## for subsections.
@@ -461,6 +466,44 @@ def _paragraphs(md: str) -> list[tuple[int, int, str]]:
         if len(s.split()) >= 25:
             out.append((start, end, chunk))
     return out
+
+
+class _Redundant(BaseModel):
+    ids: list[int] = Field(description="Paragraph numbers whose every point is already made earlier in the paper")
+    reasons: list[str] = Field(description="For each id, where the point was already made")
+
+
+_KEEP_SECTIONS = re.compile(r"abstract|result|simulation|experiment|data availability|conclusion", re.I)
+
+
+async def cut_redundant(body: str, prefer: list[str] | None = None, max_share: float = 0.12) -> tuple[str, int]:
+    """Delete prose paragraphs that only restate points made earlier (semantic repetition that sentence-level edits miss).
+    Never touches results / simulation sections, the abstract or conclusion, tables, equations or figures."""
+    paras = [(st, en, t) for st, en, t in _paragraphs(body) if not _KEEP_SECTIONS.search(_section_of(body, st))]
+    if len(paras) < 12:
+        return body, 0
+    listing, sec = [], ""
+    for k, (st, _, t) in enumerate(paras, 1):
+        if (s_ := _section_of(body, st)) != sec:
+            sec = s_
+            listing.append(f"\n## {sec}")
+        listing.append(f"[P{k}] {' '.join(t.split())}")
+    limit = max(1, int(len(paras) * max_share))
+    try:
+        r = await llm.complete_json(
+            "You are a journal editor cutting a manuscript for concision. You remove whole paragraphs that add nothing new.",
+            "PARAGRAPHS (in paper order; results sections are not shown and stay as they are):\n" + "\n".join(listing)[: llm.context_chars() - 6000]
+            + f"\n\nReturn the numbers of at most {limit} paragraphs whose EVERY point (claim, gap, motivation, definition, "
+            "argument) is already made in an earlier paragraph, so deleting them loses nothing. Never pick a paragraph that is "
+            "the only place a number, a citation's specific finding, a definition, a hypothesis or a design decision appears. "
+            "If nothing is redundant, return an empty list.", _Redundant, effort="medium", max_tokens=3000, prefer=prefer)
+    except llm.LLMError:
+        return body, 0
+    picked = sorted({i for i in r.ids if 1 <= i <= len(paras)})[:limit]
+    for i in sorted(picked, reverse=True):
+        st, en, _ = paras[i - 1]
+        body = body[:st] + body[en:]
+    return re.sub(r"\n{3,}", "\n\n", body), len(picked)
 
 
 def _section_of(md: str, pos: int) -> str:
@@ -829,7 +872,11 @@ async def plan_paper(req: StudioRequest, ctx) -> str:
     if not req.dataset_id:
         await say("datascout", "run", "Searching 8,900 open datasets (OpenML, Our World in Data, World Bank)…", 0.405)
         try:
-            sc = await datasets.scout(topic, angle, dossier[-4000:])
+            need = ("This is a METHOD paper: a dataset qualifies ONLY if the proposed kind of method can itself be trained and "
+                    "evaluated on it (same task, same data structure, e.g. sensors on a graph over time for a traffic GNN). "
+                    "A generic tabular benchmark that a different model family would be run on is NOT acceptable: answer "
+                    "use=false, and the paper will rely on its controlled simulation." if ptype == "method" else "")
+            sc = await datasets.scout(topic, angle, dossier[-4000:], need=need)
             if sc and sc["candidates"]:
                 ds = await datasets.fetch(sc["candidates"])
                 if ds and ds.rows >= 30:
@@ -1308,6 +1355,11 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
         if math_problem(tex):
             body = body[:st] + (f"`{tex}`" if not disp else f"```\n{tex}\n```") + body[en:]
 
+    # ---- Concision: cut paragraphs that only restate earlier ones (reviewers' lowest score is always concision) ----
+    await say("editor", "run", "Cutting paragraphs that repeat earlier points…", 0.905)
+    body, cut = await cut_redundant(body, prefer=_best())
+    await say("editor", "done", f"{cut} redundant paragraph(s) removed", 0.908)
+
     # ---- Figure check (vision) ----
     await say("figures", "run", "Checking every figure against its caption…", 0.91)
     to_check = [(n, png) for n in captions if (n in ("trend", "years", "impact", "venues") or n.startswith(("exp_", "data")))
@@ -1389,6 +1441,8 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
     # ---- Assemble ----
     body = enforce_headings(body, {s.heading for s in specs} | {"Conclusion", "Pilot Experiments", "Simulation Study", "Simulation-Based Design Analysis", "Data Availability"})
     body = _INTERNAL_TAG.sub("", body)      # provenance labels from FACTS that writers sometimes copy into prose
+    body = re.sub(r"\b(DESIGN SIMULATION|SIMULATION STUDY|DATA ANALYSIS|PILOT EXPERIMENTS|PAPER MEMORY|FACTS)\b",
+                  lambda m: {"PAPER MEMORY": "this paper", "FACTS": "the measured results"}.get(m.group(1), m.group(1).lower()), body)
     body, _ = _merge_duplicate_refs(body, refs)
     body, order = _renumber(body)
     old_to_new = {old: new for new, old in enumerate(order, 1)}

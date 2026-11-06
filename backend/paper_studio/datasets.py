@@ -144,7 +144,7 @@ class _Choice(BaseModel):
     questions: list[str] = Field(description="2-3 concrete, testable questions this data can answer for the paper")
 
 
-async def scout(topic: str, angle: str, context: str, say=None) -> dict | None:
+async def scout(topic: str, angle: str, context: str, say=None, need: str = "") -> dict | None:
     """Shortlist and choose datasets for a topic. Returns {"choice", "candidates"} or None."""
     items, emb = await catalogue()
     if not items:
@@ -175,7 +175,8 @@ async def scout(topic: str, angle: str, context: str, say=None) -> dict | None:
             "construct validity: the outcome must be able to respond to the explanatory variables over the period studied "
             "(e.g. prefer enrolment, completion or test-score rates over slow-moving stocks such as adult attainment), and "
             "prefer series with broad country and year coverage.",
-            f"TOPIC: {topic}\nANGLE: {angle or '(none)'}\nCONTEXT:\n{context[:3000]}\n\nCANDIDATES:\n{listing}", _Choice,
+            f"TOPIC: {topic}\nANGLE: {angle or '(none)'}\n" + (f"REQUIREMENT: {need}\n" if need else "")
+            + f"CONTEXT:\n{context[:3000]}\n\nCANDIDATES:\n{listing}", _Choice,
             effort="medium", tier="fast")
     except llm.LLMError:
         return None
@@ -209,16 +210,43 @@ def profile(df) -> str:
     return "\n".join(lines)
 
 
-async def _download(client, url: str) -> bytes:
-    async with client.stream("GET", url, headers=UA, timeout=120, follow_redirects=True) as r:
+async def _download(client, url: str, cap: int = MAX_BYTES) -> bytes:
+    async with client.stream("GET", url, headers=UA, timeout=180, follow_redirects=True) as r:
         if r.status_code != 200:
             raise ValueError(f"HTTP {r.status_code} for {url}")
         buf = bytearray()
         async for chunk in r.aiter_bytes():
             buf += chunk
-            if len(buf) > MAX_BYTES:
-                raise ValueError("dataset larger than 25 MB")
+            if len(buf) > cap:
+                raise ValueError(f"dataset larger than {cap // 1_000_000} MB")
         return bytes(buf)
+
+
+def _arff_frame(raw: bytes):
+    """A dense ARFF file (OpenML's original format) as a DataFrame: attribute names from the header, rows as CSV."""
+    import pandas as pd
+    text = raw.decode("utf-8", errors="replace")
+    parts = re.split(r"(?im)^\s*@data\s*$", text, maxsplit=1)
+    if len(parts) != 2:
+        raise ValueError("not an ARFF file")
+    head, body = parts
+    names = [m.group(1).strip("'\"") for m in re.finditer(r"(?im)^\s*@attribute\s+('[^']+'|\"[^\"]+\"|\S+)", head)]
+    if not names or body.lstrip().startswith("{"):
+        raise ValueError("sparse or empty ARFF is not supported")
+    return pd.read_csv(io.StringIO(body), header=None, names=names, na_values=["?"], quotechar="'", skipinitialspace=True,
+                       comment="%", low_memory=False)
+
+
+async def _openml_frame(client, file_id: str):
+    """OpenML table: the CSV export, or the original ARFF when a dataset has no CSV export (newer uploads)."""
+    import pandas as pd
+    try:
+        raw = await _download(client, f"https://www.openml.org/data/get_csv/{file_id}")
+        return pd.read_csv(io.BytesIO(raw), low_memory=False, na_values=["?"])
+    except ValueError as e:
+        if "HTTP 404" not in str(e):
+            raise
+    return _arff_frame(await _download(client, f"https://api.openml.org/data/v1/download/{file_id}", cap=60_000_000))
 
 
 def _short(name: str) -> str:
@@ -231,8 +259,7 @@ async def fetch(picks: list[dict]) -> Dataset | None:
     async with httpx.AsyncClient() as client:
         if picks and picks[0]["src"] == "openml":
             c = picks[0]
-            raw = await _download(client, f"https://www.openml.org/data/get_csv/{c['file_id']}")
-            df = pd.read_csv(io.BytesIO(raw), low_memory=False, na_values=["?"])
+            df = await _openml_frame(client, c["file_id"])
             if len(df) > MAX_ROWS:
                 df = df.sample(MAX_ROWS, random_state=0)
             name = f"openml_{c['id']}"

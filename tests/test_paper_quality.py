@@ -58,6 +58,41 @@ def test_check_all_claims_flags_unsupported_synthesis(monkeypatch):
     assert out["synthesis_flags"] == ["These findings combined prove causation [1, 2]."]
 
 
+def test_claim_checker_is_uncapped_by_default(monkeypatch):
+    class J:
+        label = "supported"
+        rationale = "r"
+
+    async def fake_judge(items):
+        return {i: J() for i, *_ in items}
+
+    monkeypatch.setattr(quality, "judge", fake_judge)
+    md = "# Results\n\n" + " ".join(f"Finding {i} is reported [1]." for i in range(12))
+    refs = [{"title": "A", "abstract": "abstract"}]
+    out = asyncio.run(quality.check_all_claims(md, refs))
+    assert len(out["pairs"]) == 12
+
+
+def test_publication_readiness_is_conservative():
+    blocked = quality.publication_readiness(
+        claims={"checked": 10, "unsupported": 1, "unclear": 0, "support_rate": 0.9},
+        unmeasured_remaining=0, references=20, review_overall=8,
+    )
+    assert not blocked["ready"] and "unsupported" in blocked["blockers"][0]
+    ready = quality.publication_readiness(
+        claims={"checked": 10, "unsupported": 0, "unclear": 0, "support_rate": 1.0},
+        references=20, review_overall=8,
+    )
+    assert ready["ready"] and ready["score"] == 10.0
+
+
+def test_structural_issues_catch_incomplete_manuscripts():
+    md = "# Abstract\n\n" + "word " * 90 + "\n\n**Keywords:** one, two\n\n# Conclusion\n\nDone."
+    issues = quality.structural_issues(md, {"Methods", "Results"})
+    assert "missing required section: Methods" in issues
+    assert "missing required section: Results" in issues
+
+
 def test_balanced_select_keeps_seminal_and_recent_and_seeds():
     pool = [Paper(id=f"W{i}", title=f"t{i}", year=2010 + i % 15, cited_by=(5000 if i == 39 else i), abstract="x" * 200) for i in range(40)]
     sims = np.linspace(1, 0, 40)               # W0 most relevant, W39 least (but most cited)
@@ -172,12 +207,15 @@ def test_experiment_agent_fixes_errors_and_respects_the_critic(monkeypatch):
     good = ("import numpy as np\ndf = load_data('demo')\nreport('corr_a_b', float(np.corrcoef(df.a, df.b)[0, 1]))\n"
             "report_table('Summary', ['n'], [[len(df)]])")
 
-    async def fake(system, prompt, model, **kw):
+    async def fake_code(system, prompt, **kw):        # code arrives as plain text in a ```python block
         calls["n"] += 1
-        if model is X._Code:
-            return X._Code(code=good if "ERROR" in prompt else broken)
-        return X._Critique(ok=True, problems=[], revised_code="")
-    monkeypatch.setattr(X.llm, "complete_json", fake)
+        return "```python\n" + (good if "ERROR" in prompt else broken) + "\n```"
+
+    async def fake_json(system, prompt, model, **kw):
+        calls["n"] += 1
+        return X._Critique(ok=True, problems=[])
+    monkeypatch.setattr(X.llm, "complete", fake_code)
+    monkeypatch.setattr(X.llm, "complete_json", fake_json)
     out = asyncio.run(X.run(ds, "Is a related to b?"))
     assert any("corr a b = 1" in f for f in out.facts) and out.tables and out.report["critic_rounds"] == 1
     assert out.log[0].startswith("attempt 1:") and "ran" in out.log[1]

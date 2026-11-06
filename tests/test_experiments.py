@@ -76,3 +76,24 @@ def test_placeholder_results_tables_are_dropped():
     md = "Text.\n\nTable: Planned comparison\n| Method | MAE | RMSE |\n|---|---|---|\n| Ours | to be measured | TBD |\n| Base | — | to be measured |\n\nMore."
     out = repair_fences(md)
     assert "to be measured" not in out and "Planned comparison" not in out and "More." in out
+
+
+def test_openml_arff_is_read_when_no_csv_export_exists():
+    from backend.paper_studio.datasets import _arff_frame
+    raw = (b"% comment\n@RELATION loans\n@ATTRIBUTE 'amount' REAL\n@ATTRIBUTE type STRING\n@ATTRIBUTE default {0,1}\n"
+           b"@DATA\n100.5,'salaried',0\n?,'self employed',1\n")
+    df = _arff_frame(raw)
+    assert list(df.columns) == ["amount", "type", "default"] and df.shape == (2, 3)
+    assert df["type"].tolist() == ["salaried", "self employed"] and df["amount"].isna().sum() == 1
+
+
+def test_design_checks_catch_invalid_operating_characteristics():
+    from backend.paper_studio import experiments, sandbox
+    power = {"title": "Power by sample size and hypothesis", "header": ["N", "H1", "H2"],
+             "rows": [["100", "0.40 ± 0.02", "0.42"], ["200", "0.61 ± 0.02", "0.35"], ["300", "0.78", "0.28"]]}
+    base = {"assumed_effect": 0.3, "power_h1_n200": 0.61}
+    assert "rejects a true null" in experiments.design_checks(sandbox.SandboxResult(metrics={**base, "fpr_h1": 0.345}, tables=[power]))
+    assert "cover" in experiments.design_checks(sandbox.SandboxResult(metrics={**base, "coverage_h1": 0.645}, tables=[power]))
+    assert "falls as N grows" in experiments.design_checks(sandbox.SandboxResult(metrics={**base, "fpr_h1": 0.05}, tables=[power]))
+    ok = {**power, "rows": [["100", "0.40", "0.30"], ["200", "0.61", "0.47"], ["300", "0.78", "0.60"]]}
+    assert experiments.design_checks(sandbox.SandboxResult(metrics={**base, "fpr_h1": 0.05, "coverage_h1": 0.94}, tables=[ok])) == ""
