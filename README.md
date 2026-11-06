@@ -84,7 +84,8 @@ inside spending rules its owner writes in plain English.
 **PayPal APIs used:** OAuth 2.0 client credentials · Orders v2 (create, get, capture) · vaulted PayPal wallet
 (save during purchase, merchant-initiated charges with `vault_id`) · Payments v2 refunds · webhook signature
 verification (`PAYMENT.CAPTURE.COMPLETED`) · PayPal JS SDK Smart Buttons. PayPal is also a **USD checkout for plans
-and the Paper Pack** next to Razorpay (INR).
+and the Paper Pack** next to Razorpay (INR). Buyers can also pay through **[PayPal.me](https://paypal.me/slayaliza)** and submit the
+transaction ID; the owner approves it in *Payments & members*.
 
 **AI used:** an LLM (Amazon Bedrock: Claude / Kimi, or OpenAI, Gemini, local Ollama; see `LLM_PROVIDER`) compiles
 spending rules into a typed mandate (JSON schema output) and writes the spending summary. CiteGuard itself checks every

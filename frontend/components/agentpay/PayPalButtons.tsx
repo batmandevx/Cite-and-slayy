@@ -16,7 +16,7 @@ declare global {
   interface Window { paypal?: PayPalNS }
 }
 
-export type PayPalConfig = { enabled: boolean; client_id: string | null; env: string; currency: string };
+export type PayPalConfig = { enabled: boolean; client_id: string | null; env: string; currency: string; paypal_me?: string | null };
 
 let sdk: Promise<void> | null = null;
 function loadSdk(clientId: string, currency: string): Promise<void> {

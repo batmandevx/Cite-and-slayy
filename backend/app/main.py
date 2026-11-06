@@ -463,7 +463,7 @@ async def admin_upi_decide(cid: str, decision: str, body: ClaimDecision, request
                     base = cur
             except ValueError:
                 pass
-            user.update(plan=rec["item"], plan_expires=(base + timedelta(days=30)).isoformat(), plan_source="upi")
+            user.update(plan=rec["item"], plan_expires=(base + timedelta(days=30)).isoformat(), plan_source=rec.get("method", "upi"))
             store.put("user", user["uid"], user)
     rec.update(status="approved" if decision == "approve" else "rejected", decided_at=store_now().isoformat(), note=body.note[:300],
                decided_by=boss.get("email"))

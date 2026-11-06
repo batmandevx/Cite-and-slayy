@@ -1,0 +1,58 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=JetBrains+Mono:wght@600&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1500px;height:1000px;overflow:hidden}
+  body{font-family:"Bricolage Grotesque",system-ui,sans-serif;color:#121212;background:#fff5e6;
+    background-image:radial-gradient(#12121222 1.6px,transparent 1.6px);background-size:28px 28px;position:relative}
+  .brut{border:5px solid #121212;box-shadow:10px 10px 0 #121212;border-radius:28px}
+  .left{position:absolute;left:80px;top:78px;width:800px}
+  .brand{display:flex;align-items:center;gap:18px;font-weight:800;font-size:46px;letter-spacing:-.02em}
+  .brand img{width:78px;height:78px}
+  .slayy{background:#ffd23f;border:4px solid #121212;border-radius:14px;padding:0 12px;box-shadow:4px 4px 0 #121212}
+  .sticker{display:inline-block;margin-top:44px;background:#121212;color:#fff5e6;font-weight:800;font-size:26px;
+    padding:10px 22px;border-radius:999px;letter-spacing:.04em;text-transform:uppercase}
+  h1{margin-top:30px;font-size:92px;line-height:.95;font-weight:800;letter-spacing:-.035em}
+  h1 .hl{background:#c6f24e;border:5px solid #121212;border-radius:18px;padding:0 14px;box-shadow:7px 7px 0 #121212;display:inline-block;transform:rotate(-1.5deg);margin-top:10px}
+  .sub{margin-top:36px;font-size:32px;font-weight:600;line-height:1.3;color:#3b3833;max-width:720px}
+  .chips{position:absolute;left:80px;bottom:76px;display:flex;gap:14px;width:760px}
+  .chip{font-weight:800;font-size:24px;padding:9px 16px;border:4px solid #121212;border-radius:16px;box-shadow:5px 5px 0 #121212}
+  .card{position:absolute;right:80px;top:110px;width:540px;background:#fff;padding:30px 30px 26px}
+  .card .head{display:flex;justify-content:space-between;align-items:center;font-weight:800;font-size:30px}
+  .bot{background:#9b6bff;color:#fff;border:4px solid #121212;border-radius:14px;padding:4px 14px;font-size:24px}
+  .mono{font-family:"JetBrains Mono",monospace;font-size:19px;color:#3b3833;margin:14px 0 18px}
+  .ref{display:flex;align-items:center;gap:14px;border:4px solid #121212;border-radius:16px;padding:14px 16px;margin-bottom:14px;font-weight:600;font-size:23px}
+  .tag{font-weight:800;font-size:20px;border:3px solid #121212;border-radius:999px;padding:3px 12px;white-space:nowrap}
+  .ok{background:#dcf8c9;color:#0b6b35}.bad{background:#ffd9d9;color:#b01818}
+  .paid{margin-top:20px;display:flex;justify-content:space-between;align-items:center;background:#ffd23f;border:4px solid #121212;border-radius:16px;padding:16px 18px;font-weight:800;font-size:28px}
+  .rule{position:absolute;left:890px;top:715px;background:#ff4fa3;padding:18px 22px;transform:rotate(-3deg);width:300px}
+  .rule .k{font-size:20px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;opacity:.8}
+  .rule .v{font-size:27px;font-weight:800;line-height:1.15;margin-top:4px}
+  .approve{position:absolute;right:80px;top:735px;background:#4d6bfe;color:#fff;padding:18px 24px;transform:rotate(3deg);font-weight:800;font-size:26px;width:210px;text-align:center;line-height:1.15}
+</style></head>
+<body>
+  <div class="left">
+    <div class="brand"><img src="../../frontend/public/slayy-icon.svg" alt=""><span>Cite &amp; <span class="slayy">Slayy</span></span></div>
+    <div class="sticker">Agent Pay · PayPal + AI</div>
+    <h1>AI agents that pay<br>for <span class="hl">real citations</span></h1>
+    <p class="sub">Any AI agent checks every reference and pays per answer from a PayPal wallet, inside rules you write in plain English.</p>
+  </div>
+  <div class="chips">
+    <span class="chip" style="background:#c6f24e">PayPal wallet</span>
+    <span class="chip" style="background:#ffd23f">Approvals</span>
+    <span class="chip" style="background:#5ce1b9">Refunds</span>
+    <span class="chip" style="background:#ff8a3d">MCP tool</span>
+  </div>
+
+  <div class="card brut">
+    <div class="head"><span>CiteGuard check</span><span class="bot">writer-bot</span></div>
+    <div class="mono">POST /api/agent/v1/verify · 3 refs</div>
+    <div class="ref"><span class="tag ok">✓ verified</span>Attention Is All You Need, 2017</div>
+    <div class="ref"><span class="tag ok">✓ verified</span>BERT, NAACL 2019</div>
+    <div class="ref"><span class="tag bad">✗ not found</span>“Quantum gradient folding…”</div>
+    <div class="paid"><span>Paid with PayPal wallet</span><span>$0.15</span></div>
+  </div>
+  <div class="rule brut"><div class="k">Your rule</div><div class="v">“Ask me before any call over $1”</div></div>
+  <div class="approve brut">Needs approval → you tap OK</div>
+</body></html>

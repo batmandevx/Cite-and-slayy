@@ -29,7 +29,7 @@ def owner(request: Request) -> dict:
 def paypal_config():
     s = get_settings()
     return {"enabled": paypal.enabled(), "client_id": s.paypal_client_id if paypal.enabled() else None,
-            "env": s.paypal_env, "currency": paypal.CURRENCY}
+            "env": s.paypal_env, "currency": paypal.CURRENCY, "paypal_me": s.paypal_me_url or None}
 
 
 # ---------- owner: wallet, mandate, keys ----------
@@ -183,6 +183,48 @@ async def plan_order(body: PlanIn, request: Request):
 @router.post("/api/billing/paypal/order/{order_id}/capture")
 async def plan_capture(order_id: str, request: Request):
     return await paypal_billing.finish(owner(request), order_id)
+
+
+# ---------- PayPal.me (manual) ----------
+
+class PayPalMeClaim(BaseModel):
+    item: str
+    txn_id: str = Field(max_length=40)
+    email: str = Field(default="", max_length=160)
+
+
+@router.post("/api/billing/paypal-me-claim")
+def paypal_me_claim(body: PayPalMeClaim, request: Request):
+    """Buyer paid with the PayPal.me link and tells us the transaction id. Lands in the same owner review queue as
+    UPI claims; nothing is activated until the owner checks the payment in PayPal and approves."""
+    import re
+    import time
+    import uuid
+    from backend.accounts.plans import PAPER_PACK, PLANS
+    user = owner(request)
+    item = body.item.strip().lower()
+    if item not in paypal_billing.ITEMS:
+        raise HTTPException(400, "Unknown plan or pack")
+    txn = re.sub(r"[^A-Za-z0-9]", "", body.txn_id).upper()
+    if not 12 <= len(txn) <= 20:
+        raise HTTPException(400, "Enter the PayPal transaction ID from your receipt (usually 17 letters and numbers)")
+    store = get_store()
+    if store.get("upi_utr", f"PP-{txn}"):
+        raise HTTPException(409, "This transaction ID has already been submitted. If that wasn't you, contact support.")
+    rl_key = f"upi-claim:{user['uid']}"
+    recent = [t for t in (store.get("rate", rl_key) or {}).get("ts", []) if t > time.time() - 86400]
+    if len(recent) >= 5:
+        raise HTTPException(429, "Too many payment claims today. Contact support if you need help.")
+    store.put("rate", rl_key, {"ts": recent + [time.time()]})
+    info = PAPER_PACK if item == "pack" else PLANS[item]
+    cid = uuid.uuid4().hex[:10]
+    rec = {"claim_id": cid, "item": item, "item_name": info["name"], "amount_inr": info["price_inr"],
+           "amount_usd": info["price_usd"], "method": "paypal_me", "upi_id": get_settings().paypal_me_url,
+           "utr": txn, "email": (body.email.strip() or user.get("email") or "")[:160], "uid": user.get("uid"),
+           "status": "pending_verification", "created_at": now().isoformat()}
+    store.put("upi_claim", cid, rec)
+    store.put("upi_utr", f"PP-{txn}", {"claim_id": cid})
+    return {"ok": True, **rec}
 
 
 # ---------- PayPal webhook ----------

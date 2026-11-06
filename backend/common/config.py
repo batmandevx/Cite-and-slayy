@@ -95,6 +95,7 @@ class Settings(BaseSettings):
     paypal_client_secret: str | None = None
     paypal_env: Literal["sandbox", "live"] = "sandbox"
     paypal_webhook_id: str | None = None   # Webhooks -> the id PayPal shows for your listener (signature checks)
+    paypal_me_url: str = "https://paypal.me/slayaliza"   # manual PayPal.me payments (owner approves the claim)
     # Agent Pay: what an AI agent pays per reference CiteGuard checks, and the hard ceilings any mandate is clamped to
     agent_price_per_ref_usd: float = 0.05
     agent_max_monthly_usd: float = 500.0

@@ -226,3 +226,19 @@ def test_rules_parser_fallback_and_clamps():
                  auto_topup_amount_usd=10, allowed_agents=[], summary="")
     assert decide(m2, agent="a", n_refs=10, cost_cents=50, month_spent_cents=60)[0] == "deny"
     assert decide(m2, agent="a", n_refs=10, cost_cents=40, month_spent_cents=60)[0] == "allow"
+
+
+def test_paypal_me_claim_needs_owner_approval(env, monkeypatch):
+    app, _ = env
+    monkeypatch.setenv("OWNER_EMAILS", "boss@citeslayy.com")
+    get_settings.cache_clear()
+    assert TestClient(app).get("/api/paypal/config").json()["paypal_me"] == "https://paypal.me/slayaliza"
+    buyer = login(app, "intl@uni.edu")
+    assert buyer.post("/api/billing/paypal-me-claim", json={"item": "pro", "txn_id": "abc"}).status_code == 400
+    r = buyer.post("/api/billing/paypal-me-claim", json={"item": "pro", "txn_id": "5TY05013RG002845M"})
+    assert r.status_code == 200 and r.json()["amount_usd"] == 79 and r.json()["method"] == "paypal_me"
+    assert buyer.post("/api/billing/paypal-me-claim", json={"item": "pro", "txn_id": "5TY05013RG002845M"}).status_code == 409
+    assert buyer.get("/api/auth/me").json()["plan"] == "free"                      # nothing until the owner checks PayPal
+    boss = login(app, "boss@citeslayy.com")
+    assert boss.post(f"/api/admin/upi-claims/{r.json()['claim_id']}/approve", json={"note": "seen in PayPal"}).status_code == 200
+    assert buyer.get("/api/auth/me").json()["plan"] == "pro"

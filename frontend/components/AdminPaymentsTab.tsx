@@ -8,7 +8,7 @@ import { api, toast } from "@/lib/api";
 import { Button, Card } from "./ui";
 
 interface Claim {
-  claim_id: string; item: string; item_name: string; amount_inr: number; utr: string; email: string; uid?: string | null;
+  claim_id: string; item: string; item_name: string; amount_inr: number; amount_usd?: number; method?: string; utr: string; email: string; uid?: string | null;
   status: "pending_verification" | "approved" | "rejected"; created_at: string; decided_at?: string; note?: string;
 }
 
@@ -26,7 +26,10 @@ export function AdminPaymentsTab() {
     return () => { alive = false; };
   }, [status]);
   const decide = async (c: Claim, d: "approve" | "reject") => {
-    if (d === "approve" && !confirm(`Confirm you received ₹${c.amount_inr.toLocaleString("en-IN")} with UTR ${c.utr} in your bank / UPI app?`)) return;
+    const ask = c.method === "paypal_me"
+      ? `Confirm you received $${c.amount_usd} in PayPal with transaction ID ${c.utr}?`
+      : `Confirm you received ₹${c.amount_inr.toLocaleString("en-IN")} with UTR ${c.utr} in your bank / UPI app?`;
+    if (d === "approve" && !confirm(ask)) return;
     setBusy(c.claim_id);
     try {
       await api.post(`/api/admin/upi-claims/${c.claim_id}/${d}`, { note: "" });
@@ -63,14 +66,15 @@ export function AdminPaymentsTab() {
               <motion.div key={c.claim_id} layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }} transition={{ delay: i * 0.03 }}
                 className="card p-4">
                 <div className="flex items-center gap-2">
-                  <span className="font-display text-2xl font-extrabold">₹{c.amount_inr.toLocaleString("en-IN")}</span>
+                  <span className="font-display text-2xl font-extrabold">{c.method === "paypal_me" ? `$${c.amount_usd}` : `₹${c.amount_inr.toLocaleString("en-IN")}`}</span>
+                  {c.method === "paypal_me" && <span className="rounded-full border-2 border-edge bg-blue px-2 text-[11px] font-extrabold text-white">PayPal.me</span>}
                   <span className="rounded-full border-2 border-edge bg-pink px-2 text-[11px] font-extrabold text-[#121212]">{c.item_name}</span>
                   <span className={clsx("ml-auto rounded-full border-2 border-edge px-2 text-[10px] font-extrabold uppercase",
                     c.status === "approved" ? "bg-lime text-[#121212]" : c.status === "rejected" ? "bg-crit text-white" : "bg-yellow text-[#121212]")}>
                     {c.status.replace("_", " ")}</span>
                 </div>
                 <div className="mt-2 space-y-0.5 text-sm">
-                  <div className="flex items-center gap-2"><span className="w-12 text-xs font-bold text-muted">UTR</span><code className="font-mono">{c.utr}</code>
+                  <div className="flex items-center gap-2"><span className="w-12 text-xs font-bold text-muted">{c.method === "paypal_me" ? "Txn" : "UTR"}</span><code className="font-mono">{c.utr}</code>
                     <button onClick={() => { navigator.clipboard.writeText(c.utr); toast({ title: "UTR copied", tone: "good" }); }} className="opacity-50 hover:opacity-100"><ClipboardCopy className="size-3.5" /></button></div>
                   <div><span className="inline-block w-12 text-xs font-bold text-muted">Email</span>{c.email || "—"}</div>
                   <div><span className="inline-block w-12 text-xs font-bold text-muted">When</span>{new Date(c.created_at).toLocaleString()}</div>
