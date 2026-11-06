@@ -438,6 +438,11 @@ contribution margin at roughly **63–84%** after GST and gateway fees, even at 
 The paywall is enforced **on the server**: a free user's paper is truncated before it leaves the API, and every paid
 endpoint returns HTTP 402 with a feature-specific upgrade screen. Locked tools show a live, blurred preview.
 
+Paper Studio also runs a final publication-readiness gate after editing. It re-checks the final manuscript (without a
+claim-count shortcut) and reports blockers for unsupported citations, unmeasured claims, copied source wording, invalid
+equations, and low reviewer scores. A generated paper can therefore be exported for review, but is not labelled
+submission-ready while those automated blockers remain.
+
 ```mermaid
 sequenceDiagram
   actor U as Customer

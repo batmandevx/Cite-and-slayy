@@ -27,7 +27,7 @@ async def score(pid: str) -> dict:
     await literature.enrich([p for p in refs if not p.corpus_id])
     p1 = await review.panel(md)
     p2 = await review.panel(md + "\n")        # different prompt bytes: a fresh, uncached second opinion
-    claims = await quality.check_all_claims(md, [p.model_dump() for p in refs], cap=160, fulltext_cap=40)
+    claims = await quality.check_all_claims(md, [p.model_dump() for p in refs], fulltext_cap=40)
     overall = [x for x in (p1["overall"], p2["overall"]) if x]
     return {"panel": round(statistics.mean(overall), 2) if overall else None, "support": claims["support_rate"],
             "unsupported": claims["unsupported"], "checked": claims["checked"]}

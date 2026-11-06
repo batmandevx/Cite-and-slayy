@@ -78,7 +78,7 @@ async def bench_one(i: int, label: str, extra: dict) -> dict:
     eval_uid = run_uid + ":eval"
     llm.set_meter(eval_uid)
     print(f"[{tag}] evaluating ({secs}s to write, ${write_usd})", flush=True)
-    panel, claims = await asyncio.gather(review.panel(md), quality.check_all_claims(md, refs, cap=160))
+    panel, claims = await asyncio.gather(review.panel(md), quality.check_all_claims(md, refs))
     allowed = studio._allowed_numbers(rec.get("_facts", ""), *((r.get("abstract") or "") for r in refs))
     # same rules as the pipeline: prose paragraphs only, and each paper type's design sections are exempt
     from backend.paper_studio.paper_types import PLANS
