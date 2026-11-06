@@ -838,7 +838,8 @@ async def plan_paper(req: StudioRequest, ctx) -> str:
     if nov["verdict"] in ("incremental", "already_exists") and close_papers:
         idx = []
         for p in close_papers:
-            k = next((i for i, r in enumerate(refs, 1) if r.title.strip().lower() == p.title.strip().lower()), None)
+            k = next((i for i, r in enumerate(refs, 1) if literature._norm_title(r.title) == literature._norm_title(p.title)
+                      or (p.doi and r.doi and p.doi.lower() == r.doi.lower())), None)
             if k is None:
                 refs.append(p)
                 k = len(refs)

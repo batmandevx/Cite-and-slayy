@@ -171,7 +171,10 @@ async def scout(topic: str, angle: str, context: str, say=None) -> dict | None:
             "You are a research data scientist choosing open datasets for a paper. Be strict: a dataset is useful only if it can "
             "test a real question on this topic (not a loosely related benchmark). For people/country/policy topics prefer a "
             "panel of OWID / World Bank country-year series (pick series that can be related to each other, e.g. an outcome and "
-            "its plausible drivers). For a machine-learning method topic prefer one OpenML dataset of the right task type.",
+            "its plausible drivers). For a machine-learning method topic prefer one OpenML dataset of the right task type. Check "
+            "construct validity: the outcome must be able to respond to the explanatory variables over the period studied "
+            "(e.g. prefer enrolment, completion or test-score rates over slow-moving stocks such as adult attainment), and "
+            "prefer series with broad country and year coverage.",
             f"TOPIC: {topic}\nANGLE: {angle or '(none)'}\nCONTEXT:\n{context[:3000]}\n\nCANDIDATES:\n{listing}", _Choice,
             effort="medium", tier="fast")
     except llm.LLMError:

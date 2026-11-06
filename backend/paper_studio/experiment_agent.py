@@ -34,6 +34,8 @@ Scientific standards (reviewers will check):
   (e.g. year fixed effects, log of skewed variables, cluster-robust standard errors by country when data are repeated),
   effect sizes with 95% confidence intervals; never claim causality.
 - One robustness check (alternative specification, subsample or period) and, where several tests are run, a Holm correction.
+- Format p-values sensibly: '< 0.001' for tiny values and '> 0.99' for adjusted values capped at 1 (never '1.0000').
+- Analyse exactly the population the research design names (e.g. only developing countries if that is the question).
 - Figures: clearly labelled axes with units, legend, title; one figure of the main relationship or comparison.
 - Name metrics descriptively (e.g. 'gdp_coef_per_log_unit', 'cv_f1_gradient_boosting_mean').
 Return only the code."""

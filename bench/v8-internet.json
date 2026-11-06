@@ -1,0 +1,160 @@
+{
+  "label": "v8-internet",
+  "at": "2026-11-06T10:00:50.662356+00:00",
+  "rows": [
+    {
+      "topic": "Internet access and educational attainment in developing countries",
+      "paper_id": "113f7cf6f7",
+      "title": "Internet Penetration and Primary Education Completion: A Panel Analysis of Correlates in Developing Countries, 1990\u20132025",
+      "seconds": 1457,
+      "words": 8574,
+      "references": 24,
+      "write_usd": 2.2362,
+      "eval_usd": 0.135,
+      "panel": 4.33,
+      "panel_scores": {
+        "soundness": 5,
+        "evidence": 4,
+        "novelty": 4,
+        "significance": 3,
+        "positioning": 5,
+        "clarity": 6,
+        "coherence": 6,
+        "concision": 4
+      },
+      "panel_reviews": {
+        "soundness": {
+          "overall": 4,
+          "summary": "The paper is unusually candid about its own structural limitations\u2014acknowledging upfront that the chosen dependent variable is a cumulative adult stock incapable of registering contemporaneous effects\u2014yet this honesty exposes a fatal design flaw that undermines the substantive value of every result reported. Evidence quality is further weakened by duplicate references passed off as distinct citations, reliance on several 2026 works whose credibility cannot be independently verified, and loose citation practices that attribute specific quantitative claims to sources that may not support them.",
+          "scores": {
+            "soundness": 5,
+            "evidence": 4
+          }
+        },
+        "significance": {
+          "overall": 4,
+          "summary": "The paper's main strength is its unusually candid methodological self-reflection about the mismatch between its stock-based dependent variable and flow-based research questions. Its main weakness is that the entire analysis is deliberately designed to produce null results that the authors explicitly advise against interpreting, making the paper essentially a methodological warning masquerading as empirical research.",
+          "scores": {
+            "novelty": 4,
+            "significance": 3,
+            "positioning": 5
+          }
+        },
+        "clarity": {
+          "overall": 5,
+          "summary": "The paper is methodologically transparent and honestly flags its critical design limitation (cumulative stock outcome), but it is verbose, repetitive across sections, and undermines its own credibility by presenting null results from a framework the authors acknowledge cannot detect effects.",
+          "scores": {
+            "clarity": 6,
+            "coherence": 6,
+            "concision": 4
+          }
+        }
+      },
+      "panel_issues": [
+        {
+          "section": "Methods",
+          "quote": "the cumulative nature of the dependent variable...builds in substantial inertia",
+          "problem": "The paper openly concedes that the chosen dependent variable (SE.PRM.CUAT.ZS, cumulative adult stock aged 25+) is structurally incapable of detecting contemporaneous or even medium-run effects of internet penetration, yet proceeds to test H1\u2013H3 anyway and reports null results as a 'null finding.' This renders the three formal hypothesis tests uninformative by the authors' own admission: 'near-zero annual coefficients are expected on mechanical grounds.' A paper whose main empirical contribution is acknowledged to be uninterpretable as a substantive test cannot be treated as a research contribution rather than a methods demonstration.",
+          "fix": "Either replace the dependent variable with a flow-based measure (e.g., SE.PRM.CMPT.ZS) before submission, or reframe the entire paper explicitly as a replication of analytic framework only, remove the three substantive hypotheses, and title it accordingly. Do not present structurally predetermined null results as empirical findings about the internet\u2013education relationship.",
+          "severity": "major",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Literature Review",
+          "quote": "| [16] | Digital divide among higher education faculty | 2020 | ... | 284 |\n| [17] | Digital divide among higher education faculty | 2020 | ... | 201 |",
+          "problem": "References [16] and [17] are identical articles (same title, same journal, same year, same DOI 10.1186/s41239-020-00191-5 in the reference list) cited as two separate works. This inflates the apparent breadth of the literature review and is either a bibliographic error or a deliberate padding of the reference list. Similarly, references [14] and [15] and references [21] and [22] are duplicate pairs with the same DOIs.",
+          "fix": "Merge each duplicate pair into a single reference, renumber the reference list, and update all in-text citations accordingly. Audit the full reference list for any additional duplicates.",
+          "severity": "major",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Introduction",
+          "quote": "Haider and Ullah [4] provide the closest precedent in scope: their panel analysis employs country and year fixed effects...finding that effects attenuate substantially when global time trends are controlled.",
+          "problem": "Reference [4] is Haider & Ullah (2026) published in 'Digital Culture and Education Review' with DOI 10.63718/dcer.v1i2.12. This is a 2026 work in what appears to be a very new or obscure journal; the paper relies heavily on this single source as its primary empirical precedent (cited at least 8 times) to motivate all three hypotheses, yet the credibility and peer-review status of this outlet cannot be confirmed. Specific quantitative claims attributed to [4]\u2014e.g., 'ICT effects on secondary enrollment were strongest prior to 2010,' 'effects attenuate substantially once global time trends are controlled'\u2014are presented with specificity suggesting direct reading but may be paraphrased loosely.",
+          "fix": "Provide fuller methodological detail from [4] (sample years, ICT index construction, exact attenuation magnitude) to allow readers to assess whether the comparison is apt. If this source is a predatory or unreviewed publication, replace it with a more established empirical anchor or explicitly caveat its provenance.",
+          "severity": "major",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Introduction",
+          "quote": "The empirical literature linking internet access to educational achievement is methodologically limited.",
+          "problem": "The paper claims to extend Haider and Ullah [4] but actually runs a substantively identical two-way fixed effects model; the supposed innovations (continuous vs. composite measure, primary vs. secondary) are minor operational variations that do not represent meaningful theoretical or methodological advancement. The framing as 'three extensions' overstates differentiation from prior work.",
+          "fix": "Reframe the contribution honestly: this is a replication with alternative operationalizations, not an extension. Compare estimated coefficients directly to [4] and discuss why operational choices matter for inference, rather than claiming novelty.",
+          "severity": "major",
+          "reviewer": "significance"
+        },
+        {
+          "section": "Methods",
+          "quote": "The cumulative adult-stock outcome measure structurally limits the detection of contemporaneous effects.",
+          "problem": "The authors knowingly employ a dependent variable they describe as 'structurally incapable of registering such effects at an annual frequency' and 'structurally mismatched with the annual panel estimator.' This is not a limitation to acknowledge but a fatal design flaw that invalidates the entire exercise. No amount of technical sophistication can rescue hypotheses that are mechanically untestable with these data.",
+          "fix": "Abandon the current analysis and use a flow-based completion indicator (SE.PRM.CMPT.ZS) or age-specific enrollment data. If unavailable, do not publish; the present design cannot answer the stated research questions.",
+          "severity": "major",
+          "reviewer": "significance"
+        },
+        {
+          "section": "Results",
+          "quote": "The baseline specification yielded a coefficient of 0.0008 on internet penetration (clustered standard error 0.0318), with Holm-adjusted p = 1.0000",
+          "problem": "Reporting p = 1.0000 is statistically illiterate\u2014Holm adjustment cannot produce probabilities of exactly 1.0000 unless the algorithm is misimplemented. The enormous standard error relative to the point estimate (SE 40\u00d7 larger than \u03b2) suggests severe multicollinearity or near-zero residual variation, yet this receives no diagnostic attention.",
+          "fix": "Report actual Holm-adjusted p-values with precision; investigate and report why standard errors are so large; consider whether TWFE is appropriate given the near-unit-root properties of both variables.",
+          "severity": "major",
+          "reviewer": "significance"
+        },
+        {
+          "section": "Discussion",
+          "quote": "These results do not demonstrate that internet access is irrelevant to education; rather, they indicate that country-level internet penetration... lacks the resolution to detect effects",
+          "problem": "The paper's conclusion\u2014that aggregate indicators cannot capture educational returns\u2014is exactly what the paper assumed in its methods section before running any analysis. The empirical exercise adds nothing beyond what was already conceded; the 'results' are baked into the measurement choices. This is circular reasoning presented as empirical discovery.",
+          "fix": "Restructure the paper as a conceptual/methodological critique with simulation evidence showing how stock vs. flow measures differentially attenuate estimates, rather than pretending to conduct a hypothesis test whose outcome was predetermined by construction.",
+          "severity": "major",
+          "reviewer": "significance"
+        },
+        {
+          "section": "References",
+          "quote": "S. L. Haider and S. Ullah, 'Bridging the Digital Divide: How ICT Expansion Shapes Secondary Enrollment and Gender Equity in Education', Digital Culture and Education Review, 2026",
+          "problem": "The claimed retrieval date 'coinciding with the study's literature search protocol' combined with a 2026 publication date for Haider and Ullah [4] creates temporal impossibility: the authors could not have retrieved a 2026 paper during a literature search conducted in (presumably) 2024 or earlier. This suggests fabricated or misreported bibliometric procedures.",
+          "fix": "Verify actual retrieval dates and publication status of all cited works; correct [4] to forthcoming/preprint status with accurate access date; ensure bibliometric search protocol dates are internally consistent with cited publication years.",
+          "severity": "major",
+          "reviewer": "significance"
+        },
+        {
+          "section": "Abstract",
+          "quote": "The cumulative adult-stock outcome measure structurally limits the detection of contemporaneous effects.",
+          "problem": "The paper buries the fatal design flaw that invalidates the study in a single sentence at the end of the abstract, after stating all results as if they were meaningful. This placement obscures the core problem: the dependent variable is incapable of registering effects the study purports to test.",
+          "fix": "Move this sentence to the opening of the abstract and reframe the entire study as methodological-illustration rather than hypothesis-testing. Lead with the limitation, not the results.",
+          "severity": "major",
+          "reviewer": "clarity"
+        },
+        {
+          "section": "Introduction",
+          "quote": "Yet empirical evidence from a panel of 117 developing countries covering 1127 observations yields no detectable association between internet penetration and primary completion rates (\u03b2 = 0.0008, 95% CI [\u22120.062, 0.063], p = 0.980)",
+          "problem": "The introduction presents the null result as substantive evidence (with CI and p-value) before the Methods section has been read. Given that the paper itself later states this result is mechanically expected due to the stock-measure outcome, leading with it as a finding is misleading.",
+          "fix": "Defer reporting of point estimates to the Results section. In the Introduction, frame the study as testing a framework that has known limitations, not as answering the research question.",
+          "severity": "major",
+          "reviewer": "clarity"
+        },
+        {
+          "section": "Methods",
+          "quote": "The mismatch between the slow-moving dependent variable and the faster-moving independent variable represents a structural constraint on inference: near-zero annual coefficients are expected on mechanical grounds regardless of whether internet access has genuine effects on schooling among children and adolescents. Consequently, the study should be understood not as a substantive test of whether internet penetration improves primary education completion, but rather as a methodological demonstration of the panel framework applied to the best available\u2014though clearly inadequate\u2014outcome measure.",
+          "problem": "This critical caveat is buried 40 pages into a Methods subsection, after the reader has already absorbed the Abstract and Introduction framing the study as testing hypotheses. By this point, the disclaimer reads as an afterthought rather than a defining constraint. Additionally, the paper proceeds to formally test H1, H2, H3 and report p-values as if they were meaningful, directly contradicting this statement.",
+          "fix": "Either (a) restructure the entire paper to forefront this limitation in the abstract and introduction as the core rationale for the study, and present all hypothesis tests as illustrative examples only, with large-font warnings; or (b) do not pursue formal hypothesis testing at all\u2014instead, present only descriptive analysis and robustness checks.",
+          "severity": "major",
+          "reviewer": "clarity"
+        },
+        {
+          "section": "Literature Review, Evidence Base and Bibliometric Overview, Methods",
+          "quote": "Bibliometric analysis of the 159-candidate corpus reveals a structural asymmetry in the field: indexed works containing 'digital divide' grew from 835 in 2016 to 7,169 in 2025 (8.6\u00d7), while 'internet penetration' rose from 121 to 755 (6.2\u00d7), yet 'mobile learning'\u2014the term closest to implementation research\u2014remained essentially flat at approximately 1,155 to 1,303 (1.1\u00d7).",
+          "problem": "The bibliometric narrative is repeated verbatim or near-verbatim across three separate sections (Abstract, Literature Review subsection 'The Gap This Study Addresses', and Evidence Base). The same statistics, motivation, and phrasing recur, wasting space and signaling lack of differentiated development across sections.",
+          "fix": "Consolidate the bibliometric content into a single section early in the paper (e.g., within Literature Review or as a standalone 'Bibliometric Context'). In other sections, refer back to that section or summarize only the specific aspect relevant to that section's point.",
+          "severity": "major",
+          "reviewer": "clarity"
+        }
+      ],
+      "support": 0.841,
+      "checked": 69,
+      "unsupported": 4,
+      "synthesis_flags": 0,
+      "repetition": 0.0069,
+      "unmeasured": 4,
+      "paper_type": "empirical"
+    }
+  ]
+}

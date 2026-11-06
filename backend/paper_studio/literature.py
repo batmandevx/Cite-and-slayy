@@ -229,11 +229,12 @@ async def fill_gaps(md: str, refs: list[Paper], known_ids: set[str], max_new: in
             out += [s2.to_paper(w) for w in (f.data or {}).get("data", []) or []]
         except SourceError:
             pass
-        titles = set()
+        titles = {_norm_title(r.title) for r in refs} | {_norm_title(r.title) for r in new}
+        dois = {(r.doi or "").lower() for r in refs + new if r.doi}
         res = []
         for p in out:
-            t = (p.title or "").strip().lower()
-            if _ok(p) and p.id not in seen and t not in titles:
+            t = _norm_title(p.title)
+            if _ok(p) and p.id not in seen and t not in titles and not (p.doi and p.doi.lower() in dois):
                 titles.add(t)
                 res.append(p)
         return res
