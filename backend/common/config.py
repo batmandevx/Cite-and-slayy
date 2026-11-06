@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     contact_email: str | None = None  # Crossref/OpenAlex "polite pool"
     s2_api_key: str | None = None
     openalex_api_key: str | None = None
+    kaggle_api_token: str | None = None   # Kaggle API token (KGAT_...): open datasets for Paper Studio
     http_timeout: float = 20.0
 
     # Parsing

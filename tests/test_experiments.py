@@ -97,3 +97,13 @@ def test_design_checks_catch_invalid_operating_characteristics():
     assert "falls as N grows" in experiments.design_checks(sandbox.SandboxResult(metrics={**base, "fpr_h1": 0.05}, tables=[power]))
     ok = {**power, "rows": [["100", "0.40", "0.30"], ["200", "0.61", "0.47"], ["300", "0.78", "0.60"]]}
     assert experiments.design_checks(sandbox.SandboxResult(metrics={**base, "fpr_h1": 0.05, "coverage_h1": 0.94}, tables=[ok])) == ""
+
+
+def test_only_openly_licensed_kaggle_datasets_are_used():
+    from backend.paper_studio.datasets import open_licence
+    for ok in ("CC0: Public Domain", "Attribution 4.0 International (CC BY 4.0)", "CC BY-SA 4.0", "Open Database License (ODbL)",
+               "World Bank Dataset Terms of Use"):
+        assert open_licence(ok), ok
+    for bad in ("Other (specified in description)", "Unknown", "Data files © Original Authors", "CC BY-NC-ND 4.0",
+                "Attribution-NoDerivatives 4.0 International (CC BY-ND 4.0)"):
+        assert not open_licence(bad), bad

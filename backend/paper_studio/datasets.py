@@ -112,6 +112,105 @@ async def catalogue() -> tuple[list[dict], np.ndarray]:
     return items, emb
 
 
+# ---------- Kaggle (searched per topic; needs KAGGLE_API_TOKEN) ----------
+
+KAGGLE = "https://www.kaggle.com/api/v1"
+# Only licences that allow analysis and republishing results with attribution
+_OPEN = re.compile(r"cc0|public domain|cc[- ]by|attribution|odbl|open database|open data commons|"
+                   r"pddl|world bank|u\.?s\.? government|community data license", re.I)
+# No-derivatives licences forbid building on the data; non-commercial ones don't fit a paid product
+_RESTRICTED = re.compile(r"\bnd\b|noderiv|\bnc\b|noncommercial|non-commercial", re.I)
+
+
+def open_licence(name: str | None) -> bool:
+    return bool(_OPEN.search(name or "")) and not _RESTRICTED.search(name or "")
+
+
+def _kaggle_headers() -> dict:
+    from backend.common.config import get_settings
+    tok = get_settings().kaggle_api_token
+    return {**UA, "Authorization": f"Bearer {tok}"} if tok else {}
+
+
+async def _kaggle_search(client, query: str, k: int = 8) -> list[dict]:
+    """Openly licensed, documented CSV datasets on Kaggle for a topic (most-voted first)."""
+    h = _kaggle_headers()
+    if not h:
+        return []
+    r = await client.get(f"{KAGGLE}/datasets/list", params={"search": query[:80], "filetype": "csv", "sortBy": "votes", "page": 1},
+                         headers=h, timeout=30)
+    if r.status_code != 200:
+        return []
+    out = []
+    for d in r.json() or []:
+        size = int(d.get("totalBytes") or 0)
+        if not (open_licence(d.get("licenseName")) and 0 < size <= 60_000_000 and (d.get("usabilityRating") or 0) >= 0.6):
+            continue
+        out.append({"src": "kaggle", "id": d["ref"], "title": d.get("title") or d["ref"], "licence": d.get("licenseName"),
+                    "url": f"https://www.kaggle.com/datasets/{d['ref']}", "bytes": size, "votes": d.get("voteCount"),
+                    "text": f"{d.get('title', '')}. {d.get('subtitle', '')}"})
+        if len(out) >= k:
+            break
+    return out
+
+
+class _Queries(BaseModel):
+    queries: list[str] = Field(description="2-3 word dataset search phrases")
+
+
+_STOP = set("a an the of for and or in on to with by from versus vs using use effect effects impact role study analysis "
+            "machine learning based towards toward new novel approach model models method methods data".split())
+
+
+async def _kaggle_topic_search(client, topic: str, angle: str) -> list[dict]:
+    """Kaggle's search needs every word to match, so a topic sentence finds nothing: search 3 short keyword phrases."""
+    try:
+        from backend.llm import client as llm
+        qs = (await llm.complete_json("You write dataset search queries.", f"TOPIC: {topic}\nANGLE: {angle or '(none)'}\n\nGive 3 "
+                                      "short phrases (2-3 words each) naming the DATA a study of this topic needs (the population "
+                                      "or system and the outcome), e.g. 'credit default', 'adolescent sleep', 'traffic sensors'.",
+                                      _Queries, effort="low", tier="fast")).queries[:3]
+    except Exception:  # noqa: BLE001 - no model: fall back to the topic's keywords
+        words = [w for w in re.findall(r"[a-z]+", topic.lower()) if w not in _STOP and len(w) > 2]
+        qs = [" ".join(words[:2]), " ".join(words[2:4])]
+    found: dict[str, dict] = {}
+    for q in [q.strip() for q in qs if q.strip()]:
+        for c in await _kaggle_search(client, q):
+            found.setdefault(c["id"], c)
+    return sorted(found.values(), key=lambda c: -(c.get("votes") or 0))[:8]
+
+
+async def _kaggle_frame(client, ref: str):
+    """The main CSV of a Kaggle dataset (the largest one in its archive)."""
+    import zipfile
+    import pandas as pd
+    raw = await _download_h(client, f"{KAGGLE}/datasets/download/{ref}", _kaggle_headers(), cap=60_000_000)
+    z = zipfile.ZipFile(io.BytesIO(raw))
+    csvs = sorted((i for i in z.infolist() if i.filename.lower().endswith(".csv") and i.file_size < 400_000_000),
+                  key=lambda i: -i.file_size)
+    if not csvs:
+        raise ValueError("no CSV file in the Kaggle dataset")
+    data = z.read(csvs[0])
+    for enc in ("utf-8", "latin-1"):
+        try:
+            return pd.read_csv(io.BytesIO(data), low_memory=False, encoding=enc), csvs[0].filename
+        except UnicodeDecodeError:
+            continue
+    raise ValueError("could not decode the Kaggle CSV")
+
+
+async def _download_h(client, url: str, headers: dict, cap: int) -> bytes:
+    async with client.stream("GET", url, headers=headers, timeout=180, follow_redirects=True) as r:
+        if r.status_code != 200:
+            raise ValueError(f"HTTP {r.status_code} for {url}")
+        buf = bytearray()
+        async for chunk in r.aiter_bytes():
+            buf += chunk
+            if len(buf) > cap:
+                raise ValueError(f"dataset larger than {cap // 1_000_000} MB")
+        return bytes(buf)
+
+
 # ---------- search and selection ----------
 
 async def _details(client, c: dict) -> dict:
@@ -128,6 +227,11 @@ async def _details(client, c: dict) -> dict:
             m = r.json().get("chart", {})
             c = {**c, "title": m.get("title") or c["title"], "desc": (m.get("subtitle") or "")[:400],
                  "citation": (m.get("citation") or "")[:300], "url": f"https://ourworldindata.org/grapher/{c['id']}", "licence": "CC BY 4.0"}
+        elif c["src"] == "kaggle":
+            r = await client.get(f"{KAGGLE}/datasets/view/{c['id']}", headers=_kaggle_headers(), timeout=30)
+            d = r.json() if r.status_code == 200 else {}
+            c = {**c, "desc": re.sub(r"\s+", " ", (d.get("subtitleNullable") or "") + ". " + (d.get("descriptionNullable") or ""))[:700],
+                 "citation": f"{d.get('creatorNameNullable') or c['id'].split('/')[0]}, Kaggle dataset '{c['title']}'"}
         else:
             c = {**c, "desc": c.get("note", ""), "url": f"https://data.worldbank.org/indicator/{c['id']}",
                  "citation": "World Bank, World Development Indicators", "licence": "CC BY 4.0"}
@@ -138,7 +242,8 @@ async def _details(client, c: dict) -> dict:
 
 class _Choice(BaseModel):
     use: bool = Field(description="False if none of the candidates can genuinely test a question on this topic")
-    kind: str = Field(description="'openml' (exactly one OpenML dataset) or 'panel' (1-4 OWID / World Bank series merged by country-year)")
+    kind: str = Field(description="'openml' (exactly one OpenML dataset), 'kaggle' (exactly one Kaggle dataset) or 'panel' "
+                                   "(1-4 OWID / World Bank series merged by country-year)")
     picks: list[int] = Field(description="Candidate numbers to use")
     rationale: str
     questions: list[str] = Field(description="2-3 concrete, testable questions this data can answer for the paper")
@@ -156,6 +261,10 @@ async def scout(topic: str, angle: str, context: str, say=None, need: str = "") 
         idx = [i for i in np.argsort(-sims) if items[i]["src"] == src][:k]
         short += [{**items[i], "sim": float(sims[i])} for i in idx]
     async with httpx.AsyncClient() as client:
+        try:
+            short += await _kaggle_topic_search(client, topic, angle)
+        except (httpx.HTTPError, ValueError):
+            pass                                        # Kaggle is a bonus source; the catalogue still works
         sem = asyncio.Semaphore(4)
 
         async def det(c):
@@ -165,6 +274,7 @@ async def scout(topic: str, angle: str, context: str, say=None, need: str = "") 
     listing = "\n".join(
         f"[{i}] {c['src'].upper()}: {c['title']}"
         + (f" ({c['n']:,} rows, {c['features']} features" + (f", target '{c.get('target')}'" if c.get("target") else "") + ")" if c["src"] == "openml" else "")
+        + (f" ({c.get('licence')}, {c.get('votes') or 0} votes)" if c["src"] == "kaggle" else "")
         + (f"\n    {c.get('desc', '')[:260]}" if c.get("desc") else "") for i, c in enumerate(short))
     try:
         ch = await llm.complete_json(
@@ -174,7 +284,9 @@ async def scout(topic: str, angle: str, context: str, say=None, need: str = "") 
             "its plausible drivers). For a machine-learning method topic prefer one OpenML dataset of the right task type. Check "
             "construct validity: the outcome must be able to respond to the explanatory variables over the period studied "
             "(e.g. prefer enrolment, completion or test-score rates over slow-moving stocks such as adult attainment), and "
-            "prefer series with broad country and year coverage.",
+            "prefer series with broad country and year coverage. A KAGGLE dataset is acceptable when it is real, documented "
+            "data with a clear provenance (a survey, registry, sensor log, trial or institutional release); REJECT any dataset "
+            "whose description says it is synthetic, simulated, generated or fabricated, or whose source is unclear.",
             f"TOPIC: {topic}\nANGLE: {angle or '(none)'}\n" + (f"REQUIREMENT: {need}\n" if need else "")
             + f"CONTEXT:\n{context[:3000]}\n\nCANDIDATES:\n{listing}", _Choice,
             effort="medium", tier="fast")
@@ -183,8 +295,8 @@ async def scout(topic: str, angle: str, context: str, say=None, need: str = "") 
     if not ch.use:
         return {"choice": ch.model_dump(), "candidates": []}
     picks = [short[i] for i in ch.picks if 0 <= i < len(short)]
-    if ch.kind == "openml":
-        picks = [p for p in picks if p["src"] == "openml"][:1]
+    if ch.kind in ("openml", "kaggle"):
+        picks = [p for p in picks if p["src"] == ch.kind][:1]
     else:
         picks = [p for p in picks if p["src"] in ("owid", "worldbank")][:4]
     if not picks:
@@ -263,6 +375,13 @@ async def fetch(picks: list[dict]) -> Dataset | None:
             if len(df) > MAX_ROWS:
                 df = df.sample(MAX_ROWS, random_state=0)
             name = f"openml_{c['id']}"
+        elif picks and picks[0]["src"] == "kaggle":
+            c = picks[0]
+            df, fname = await _kaggle_frame(client, c["id"])
+            if len(df) > MAX_ROWS:
+                df = df.sample(MAX_ROWS, random_state=0)
+            picks = [{**c, "title": f"{c['title']} (file {fname})"}]
+            name = "kaggle_" + re.sub(r"[^a-z0-9]+", "_", c["id"].split("/")[-1].lower())[:40]
         else:
             frames, used = [], []
             for c in picks:
