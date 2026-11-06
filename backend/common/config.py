@@ -90,6 +90,16 @@ class Settings(BaseSettings):
     razorpay_key_id: str | None = None
     razorpay_key_secret: str | None = None
     razorpay_webhook_secret: str | None = None
+    # PayPal (developer.paypal.com -> Apps & Credentials). "sandbox" until you go live.
+    paypal_client_id: str | None = None
+    paypal_client_secret: str | None = None
+    paypal_env: Literal["sandbox", "live"] = "sandbox"
+    paypal_webhook_id: str | None = None   # Webhooks -> the id PayPal shows for your listener (signature checks)
+    paypal_me_url: str = "https://paypal.me/slayaliza"   # manual PayPal.me payments (owner approves the claim)
+    # Agent Pay: what an AI agent pays per reference CiteGuard checks, and the hard ceilings any mandate is clamped to
+    agent_price_per_ref_usd: float = 0.05
+    agent_max_monthly_usd: float = 500.0
+    agent_max_topup_usd: float = 200.0
 
     def fast_model_for(self, provider: str) -> str:
         """Cheaper model for high-volume, simple tasks. Falls back to the main model where no cheaper tier exists."""

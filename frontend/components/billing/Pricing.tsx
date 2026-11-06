@@ -6,10 +6,11 @@ import { Check, CheckCircle2, Copy, Crown, ExternalLink, QrCode, Rocket, ShieldC
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { api, toast } from "@/lib/api";
+import { PayPalPlanCheckout } from "./PayPalPlanCheckout";
 import { Confetti } from "../Confetti";
 
-export interface PlanInfo { id: "free" | "pro" | "max"; name: string; price_inr: number; perks: string[]; engine: string }
-export interface PackInfo { id: "pack"; name: string; price_inr: number; perks: string[]; days: number }
+export interface PlanInfo { id: "free" | "pro" | "max"; name: string; price_inr: number; price_usd?: number; perks: string[]; engine: string }
+export interface PackInfo { id: "pack"; name: string; price_inr: number; price_usd?: number; perks: string[]; days: number }
 
 interface UpiTarget {
   id: "pro" | "max" | "pack";
@@ -375,6 +376,8 @@ export function Pricing({ current, onChoose, onBuyPack, compact }: {
       </div>
 
       {pack && (onBuyPack || !razorpay) && <PackCard pack={pack} onBuy={handlePackClick} />}
+
+      {!compact && <PayPalPlanCheckout plans={plans} pack={pack} onPaid={() => { setParty((n) => n + 1); window.dispatchEvent(new CustomEvent("slayy:auth")); }} />}
 
       {!razorpay && !compact && (
         <motion.div initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}

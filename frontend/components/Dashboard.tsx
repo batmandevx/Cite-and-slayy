@@ -2,11 +2,12 @@
 
 
 import clsx from "clsx";
-import { ArrowLeft, BookOpen, IndianRupee, Landmark, Menu, ScanSearch, Wand2, Wrench, Compass, FilePen, Gamepad2, Gavel, LayoutDashboard, NotebookPen, ShieldCheck, X, Zap } from "lucide-react";
+import { ArrowLeft, Bot, BookOpen, IndianRupee, Landmark, Menu, ScanSearch, Wand2, Wrench, Compass, FilePen, Gamepad2, Gavel, LayoutDashboard, NotebookPen, ShieldCheck, X, Zap } from "lucide-react";
 import Link from "next/link";
 import { AnimatePresence, motion, MotionConfig, useScroll, useSpring } from "motion/react";
 import { useEffect, useState } from "react";
 import { AuditTab } from "@/components/AuditTab";
+import { AgentPayTab } from "@/components/agentpay/AgentPayTab";
 import { DraftTab } from "@/components/DraftTab";
 import { AuroraChat, AuroraLauncher, type AppLink } from "@/components/aurora/AuroraChat";
 import { AuroraOrb } from "@/components/aurora/AuroraOrb";
@@ -37,8 +38,8 @@ import { LockedTab } from "@/components/billing/ProLock";
 import { API, api, usePersistent, writePersistent } from "@/lib/api";
 import type { Health } from "@/lib/types";
 
-type Tab = "home" | "studio" | "turnitin" | "venues" | "explore" | "draft" | "audit" | "verdict" | "notes" | "library" | "toolbox" | "play" | "admin";
-const VALID_TABS = new Set<string>(["home", "studio", "turnitin", "venues", "explore", "draft", "audit", "verdict", "notes", "library", "toolbox", "play", "admin"]);
+type Tab = "home" | "studio" | "turnitin" | "venues" | "explore" | "draft" | "audit" | "verdict" | "notes" | "library" | "toolbox" | "play" | "admin" | "agentpay";
+const VALID_TABS = new Set<string>(["home", "studio", "turnitin", "venues", "explore", "draft", "audit", "verdict", "notes", "library", "toolbox", "play", "admin", "agentpay"]);
 const ADMIN: { id: Tab; label: string; q: string; icon: typeof Compass; color: string; badge?: string }[] = [
   { id: "admin", label: "Payments & members", q: "UPI payments, subscriptions", icon: IndianRupee, color: "bg-yellow" },
 ];
@@ -52,6 +53,7 @@ const CREATE: { id: Tab; label: string; q: string; icon: typeof Compass; color: 
   { id: "studio", label: "Paper Studio", q: "Topic in, full paper out", icon: Wand2, color: "bg-pink", badge: "new" },
   { id: "turnitin", label: "AI & Plag Check", q: "Turnitin report & reducer", icon: ScanSearch, color: "bg-violet text-white", badge: "pro" },
   { id: "venues", label: "Find a venue", q: "Right journal or conference", icon: Landmark, color: "bg-blue text-white", badge: "new" },
+  { id: "agentpay", label: "Agent Pay", q: "AI agents pay with PayPal", icon: Bot, color: "bg-lime", badge: "new" },
 ];
 const WORK: { id: Tab; label: string; q: string; icon: typeof Compass; color: string; badge?: string }[] = [
   { id: "notes", label: "Notes", q: "Pages, stickies, to-dos, export", icon: NotebookPen, color: "bg-yellow" },
@@ -89,7 +91,14 @@ function StatusChips({ health, offline }: { health: Health | null; offline: bool
   );
 }
 
+// Deep links such as /app?tab=agentpay (the approval link an agent hands its owner) open that tab.
+function deepLinkTab(): void {
+  const t = new URLSearchParams(window.location.search).get("tab");
+  if (t && VALID_TABS.has(t)) localStorage.setItem("slayy:tab", JSON.stringify(t));
+}
+
 function Dashboard() {
+  useState(deepLinkTab);   // runs once, before the persisted tab is read below
   const [tab, setTab] = usePersistent<Tab>("tab", "home");
   const { me, config: authCfg } = useAuth();
   const authCfgRequired = !!authCfg?.auth_required;
@@ -236,6 +245,7 @@ function Dashboard() {
                   />
                 )}
                 {safeTab === "venues" && <LockedTab feature="venues" title="Find the right journal or conference" perks={["Ranked venues matched to your title and abstract", "Live open calls for papers with deadline countdowns", "Journal activity, review speed and APCs, with quality warnings"]}><VenuesTab /></LockedTab>}
+                {safeTab === "agentpay" && <AgentPayTab />}
                 {safeTab === "toolbox" && <ToolboxTab />}
                 {safeTab === "admin" && me?.is_owner && <div className="space-y-6"><SiteInsights /><MembersAdmin /><AdminPaymentsTab /></div>}
                 {safeTab === "notes" && <NotesTab />}

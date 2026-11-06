@@ -44,6 +44,8 @@ from backend.autoclaw_bridge.llm_bridge import router as _claw_llm_router  # noq
 app.include_router(_claw_llm_router)
 from backend.app.site_ops import router as _site_router  # noqa: E402  (contact form + conversion counters)
 app.include_router(_site_router)
+from backend.agentpay.router import router as _agentpay_router  # noqa: E402  (PayPal checkout + Agent Pay)
+app.include_router(_agentpay_router)
 
 
 @app.on_event("startup")
@@ -79,7 +81,8 @@ async def security_headers(request: Request, call_next):
 
 # Endpoints anyone may call without signing in (landing page, sign-in itself, payment-provider webhooks, demo showcase PDFs).
 PUBLIC = ("/api/health", "/api/stats", "/api/auth/", "/api/billing/plans", "/api/billing/webhook", "/api/demo-papers",
-          "/api/contact", "/api/events")
+          "/api/contact", "/api/events",
+          "/api/agent/v1/", "/api/paypal/webhook", "/api/paypal/config")   # agents authenticate with their own key
 
 
 @app.middleware("http")
@@ -460,7 +463,7 @@ async def admin_upi_decide(cid: str, decision: str, body: ClaimDecision, request
                     base = cur
             except ValueError:
                 pass
-            user.update(plan=rec["item"], plan_expires=(base + timedelta(days=30)).isoformat(), plan_source="upi")
+            user.update(plan=rec["item"], plan_expires=(base + timedelta(days=30)).isoformat(), plan_source=rec.get("method", "upi"))
             store.put("user", user["uid"], user)
     rec.update(status="approved" if decision == "approve" else "rejected", decided_at=store_now().isoformat(), note=body.note[:300],
                decided_by=boss.get("email"))

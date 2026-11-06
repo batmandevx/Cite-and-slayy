@@ -14,7 +14,7 @@ from __future__ import annotations
 
 PLANS: dict[str, dict] = {
     "free": {
-        "name": "Free", "price_inr": 0, "engine": "standard", "ai_budget_inr": 12,
+        "name": "Free", "price_inr": 0, "price_usd": 0, "engine": "standard", "ai_budget_inr": 12,
         "limits": {"papers": 1, "revisions": 0, "kits": 0, "decks": 0, "reviews": 0, "audits": 0, "fixes": 0,
                    "integrity_scans": 0, "humanize_fixes": 0, "scans": 0, "drafts": 0,
                    "chats_day": 3, "assists_day": 3},
@@ -22,7 +22,7 @@ PLANS: dict[str, dict] = {
                   "Notes editor, library, research toolbox & 2 arcade games"],
     },
     "pro": {
-        "name": "Pro", "price_inr": 6999, "engine": "premium", "ai_budget_inr": 750,
+        "name": "Pro", "price_inr": 6999, "price_usd": 79, "engine": "premium", "ai_budget_inr": 750,
         "limits": {"papers": 3, "revisions": 8, "kits": 2, "decks": 3, "reviews": 2, "audits": 6, "fixes": 2,
                    "integrity_scans": 20, "humanize_fixes": 12, "scans": 6, "drafts": 1,
                    "chats_day": 40, "assists_day": 80},
@@ -32,7 +32,7 @@ PLANS: dict[str, dict] = {
                   "8 AI revisions · 2 submission kits · 2 reviewer verdicts"],
     },
     "max": {
-        "name": "Max", "price_inr": 12999, "engine": "premium", "ai_budget_inr": 4000,
+        "name": "Max", "price_inr": 12999, "price_usd": 149, "engine": "premium", "ai_budget_inr": 4000,
         "limits": {"papers": 25, "revisions": 100, "kits": 40, "decks": 40, "reviews": 15, "audits": 150, "fixes": 60,
                    "integrity_scans": 250, "humanize_fixes": 150, "scans": 80, "drafts": 25,
                    "chats_day": 300, "assists_day": 600},
@@ -46,7 +46,7 @@ PLANS: dict[str, dict] = {
 
 # One-time "done-for-you" pack, on top of any plan. Net ~₹8,238 after GST and gateway; AI budget ₹2,500 -> ≥ ~₹5,700 left.
 PAPER_PACK = {
-    "id": "pack", "name": "Paper Pack", "price_inr": 9999, "days": 60,
+    "id": "pack", "name": "Paper Pack", "price_inr": 9999, "price_usd": 119, "days": 60,
     "grant": {"papers": 1, "revisions": 40, "reviews": 3, "audits": 10, "kits": 5, "decks": 3, "fixes": 10,
               "integrity_scans": 15, "humanize_fixes": 15},
     "ai_budget_inr": 2500,
@@ -84,9 +84,9 @@ def plan_of(user: dict | None) -> dict:
 
 
 def public_pack() -> dict:
-    return {k: PAPER_PACK[k] for k in ("id", "name", "price_inr", "perks", "days")}
+    return {k: PAPER_PACK[k] for k in ("id", "name", "price_inr", "price_usd", "perks", "days")}
 
 
 def public_plans() -> list[dict]:
-    return [{"id": k, "name": v["name"], "price_inr": v["price_inr"], "perks": v["perks"], "limits": v["limits"],
+    return [{"id": k, "name": v["name"], "price_inr": v["price_inr"], "price_usd": v["price_usd"], "perks": v["perks"], "limits": v["limits"],
              "engine": "Azora Pro engine" if v["engine"] == "premium" else "Azora standard engine"} for k, v in PLANS.items()]

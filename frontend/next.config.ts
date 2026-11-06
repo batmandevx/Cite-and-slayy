@@ -8,18 +8,18 @@ const apiOrigin = (() => {
 const dev = process.env.NODE_ENV !== "production";
 const csp = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${dev ? " 'unsafe-eval'" : ""} https://checkout.razorpay.com`,
+  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${dev ? " 'unsafe-eval'" : ""} https://checkout.razorpay.com https://*.paypal.com https://*.paypalobjects.com`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
   "media-src 'self' data: blob:",
-  `connect-src 'self' ${apiOrigin} https://*.razorpay.com${dev ? " ws: http://localhost:*" : ""}`,
-  `frame-src 'self' blob: ${apiOrigin} https://*.razorpay.com`,
+  `connect-src 'self' ${apiOrigin} https://*.razorpay.com https://*.paypal.com https://*.paypalobjects.com${dev ? " ws: http://localhost:*" : ""}`,
+  `frame-src 'self' blob: ${apiOrigin} https://*.razorpay.com https://*.paypal.com`,
   "worker-src 'self' blob:",
   "manifest-src 'self'",
   "object-src 'none'",
   "base-uri 'self'",
-  "form-action 'self' https://www.overleaf.com https://*.razorpay.com",
+  "form-action 'self' https://www.overleaf.com https://*.razorpay.com https://*.paypal.com",
   "frame-ancestors 'none'",
   ...(dev ? [] : ["upgrade-insecure-requests"]),
 ].join("; ");

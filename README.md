@@ -62,6 +62,69 @@ with evidence you can click:
 
 ---
 
+## 🤖 Agent Pay: AI agents pay for verified citations, with PayPal
+
+> Built for the **PayPal AI Hackathon** (Nov 2026).
+
+AI agents now write essays, legal briefs and papers, and they invent references. CiteGuard can catch that, but an
+agent can't sign up for a plan, and nobody wants to give an agent an unlimited card. **Agent Pay** lets any AI agent
+(Claude, Cursor, a custom bot) call CiteGuard as a paid tool and pay per reference from a **PayPal-funded wallet**,
+inside spending rules its owner writes in plain English.
+
+| | How it works |
+|---|---|
+| 🗣️ **Rules in plain English** | *"At most $20 a month, $2 per call, ask me before anything over $1, only my writer-bot."* An LLM compiles this into a mandate (caps, approval threshold, allowed agents, auto-reload). Every number is clamped to server ceilings, and the decision on each call is plain arithmetic: **the AI writes the rules, it never approves a payment.** |
+| 💳 **PayPal wallet** | The owner tops up with PayPal Checkout (Orders v2). They can save their PayPal account (vault, *save during purchase*) so the wallet reloads itself when it runs low, only if the rules allow it and never beyond the monthly cap. |
+| 🛑 **Ask-first approvals** | A call over the threshold returns `402 needs_approval` with a request id. The owner approves in the dashboard; the agent retries with the same request id. Approvals are single-use and bound to the exact references. |
+| 🧾 **Pay for answers, not attempts** | The wallet is debited before the check (so parallel calls can't double-spend). References we couldn't settle because a database was down are credited straight back. |
+| ↩️ **Refund to PayPal** | Unused balance goes back to the owner's PayPal account (Payments v2 refunds), split across the original captures. |
+| 📊 **Audit log** | Every top-up, charge, credit, block, approval and refund is a ledger row, shown in an **AG Grid** table with PayPal references, plus an AI summary: *"Explain my agents' spending"*. |
+| 🔌 **MCP tool** | [`mcp/citeslayy_mcp.py`](mcp/citeslayy_mcp.py) (standard-library Python) exposes `verify_references`, `quote_verification` and `check_approval` to any MCP client. |
+
+**PayPal APIs used:** OAuth 2.0 client credentials · Orders v2 (create, get, capture) · vaulted PayPal wallet
+(save during purchase, merchant-initiated charges with `vault_id`) · Payments v2 refunds · webhook signature
+verification (`PAYMENT.CAPTURE.COMPLETED`) · PayPal JS SDK Smart Buttons. PayPal is also a **USD checkout for plans
+and the Paper Pack** next to Razorpay (INR). Buyers can also pay through **[PayPal.me](https://paypal.me/slayaliza)** and submit the
+transaction ID; the owner approves it in *Payments & members*.
+
+**AI used:** an LLM (Amazon Bedrock: Claude / Kimi, or OpenAI, Gemini, local Ollama; see `LLM_PROVIDER`) compiles
+spending rules into a typed mandate (JSON schema output) and writes the spending summary. CiteGuard itself checks every
+reference against Crossref, arXiv, Semantic Scholar and OpenAlex, plus retraction notices. With no LLM configured, an
+offline rules parser compiles the common phrasings so the demo still runs.
+
+### Run Agent Pay locally (PayPal sandbox)
+
+1. Create a sandbox app at [developer.paypal.com](https://developer.paypal.com) → *Apps & Credentials*. Turn on
+   **Save payment methods** if you want auto-reload. Copy the client id and secret.
+2. In `.env`: `PAYPAL_CLIENT_ID=…`, `PAYPAL_CLIENT_SECRET=…`, `PAYPAL_ENV=sandbox` (plus the usual Quick start settings below).
+3. Start the API and the web app (see Quick start), open `http://localhost:3000/app?tab=agentpay`.
+4. Write your rules → **Save rules**. Top up $10 with PayPal using a **sandbox personal account** (*Sandbox → Accounts*).
+5. **Create key** → **Run agent call**. Try a made-up reference to watch it get flagged, or more than 20 references to trigger the approval flow.
+6. Connect a real agent. Claude Code:
+   ```bash
+   claude mcp add citeguard -e CITESLAYY_AGENT_KEY=csk_... -e CITESLAYY_API_URL=http://localhost:8000 -- python3 mcp/citeslayy_mcp.py
+   ```
+   Then ask Claude: *"Verify the references in my draft with CiteGuard."*
+
+The raw API, for any agent framework:
+
+```bash
+curl -X POST http://localhost:8000/api/agent/v1/verify \
+  -H "Authorization: Bearer csk_..." -H "content-type: application/json" \
+  -d '{"references": ["Vaswani, A., et al. Attention is all you need. NeurIPS 2017."]}'
+```
+
+Answers: `200` with per-reference results and the charge · `402 needs_approval` (with `request_id`) ·
+`402 insufficient_funds` · `403 denied` (with the rule that blocked it).
+
+Code: [`backend/payments/paypal.py`](backend/payments/paypal.py) (PayPal client) ·
+[`backend/agentpay/`](backend/agentpay) (mandate, wallet, paid service, routes) ·
+[`backend/accounts/paypal_billing.py`](backend/accounts/paypal_billing.py) (plans) ·
+[`frontend/components/agentpay/`](frontend/components/agentpay) (dashboard, PayPal buttons, AG Grid ledger) ·
+[`tests/test_agentpay.py`](tests/test_agentpay.py) (fake PayPal sandbox: top-ups, rules, approvals, auto-reload, refunds).
+
+---
+
 ## 📸 A tour
 
 <table>
