@@ -614,7 +614,7 @@ export function PaperStudioTab({
         </div>
       )}
 
-      {history.length > 0 && !job.running && (
+      {history.length > 0 && (
         <Card className="p-5">
           <div className="mb-2 flex items-center gap-2 font-display font-extrabold"><FileText className="size-4" />Your papers</div>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">

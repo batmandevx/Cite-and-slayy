@@ -522,3 +522,14 @@ def test_claimed_demo_document_is_released(prod):
     assert get_store().owner_of("document", "demo123") is None
     auth.check_access("document", "demo123", {"uid": "anyone"})          # readable by all
     assert get_store().owner_of("document+", "demo123:claimer") == "claimer"
+
+
+def test_password_holder_verifying_their_own_email_keeps_the_password(prod):
+    from backend.accounts import auth
+    c = TestClient(prod)
+    assert c.post("/api/auth/register", json={"email": "keepme@x.org", "password": "Keep2026pw"}).status_code == 200
+    auth._clear_limit("register-ip:testclient")
+    link = c.post("/api/auth/email/start", json={"email": "keepme@x.org"}).json()["dev_link"]
+    assert c.get(link.replace("http://testserver", ""), follow_redirects=False).status_code == 303   # same browser
+    assert c.get("/api/auth/me").json()["email"] == "keepme@x.org"
+    assert TestClient(prod).post("/api/auth/login", json={"email": "keepme@x.org", "password": "Keep2026pw"}).status_code == 200

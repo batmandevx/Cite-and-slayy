@@ -176,9 +176,11 @@ async def auth_email_start(body: EmailLogin):
 
 
 @app.get("/api/auth/email/verify")
-async def auth_email_verify(token: str):
+async def auth_email_verify(token: str, request: Request):
     email = auth.consume_magic_link(token)
-    user = auth.upsert_user(email, provider="email")
+    holder = auth.current_user(request) if get_settings().auth_required else None
+    user = auth.upsert_user(email, provider="email",
+                            proven_by_password_holder=bool(holder and (holder.get("email") or "").lower() == email))
     resp = RedirectResponse(f"{get_settings().public_url.rstrip('/')}/app", status_code=303)
     auth.set_session(resp, user["uid"])
     return resp

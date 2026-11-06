@@ -267,7 +267,10 @@ def get_user(uid: str) -> dict | None:
     return get_store().get("user", uid)
 
 
-def upsert_user(email: str, name: str | None = None, picture: str | None = None, provider: str = "email") -> dict:
+def upsert_user(email: str, name: str | None = None, picture: str | None = None, provider: str = "email",
+                proven_by_password_holder: bool = False) -> dict:
+    """Sign-in that proves the email (Google / magic link). `proven_by_password_holder`: the link was opened in a browser
+    already signed in to this account with its password, so the password holder owns the inbox: keep the password."""
     store = get_store()
     email = email.strip().lower()
     idx = store.get("user_email", email)
@@ -280,7 +283,7 @@ def upsert_user(email: str, name: str | None = None, picture: str | None = None,
         store.put("user_email", email, {"uid": user["uid"]})
     else:
         user.update({k: v for k, v in {"name": name, "picture": picture}.items() if v})
-        if not user.get("email_verified") and user.get("password_hash"):
+        if not user.get("email_verified") and user.get("password_hash") and not proven_by_password_holder:
             # Someone registered this address with a password but never proved they own it. The real owner just did:
             # drop that password and its sessions, or whoever set it could sign in to the now-verified account.
             user["password_hash"] = None
