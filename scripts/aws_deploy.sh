@@ -160,7 +160,8 @@ write_env_server() {
   # from FOUNDER_ACCOUNTS (password hashes only), so the shared site password never grants admin rights.
   for k in GEMINI_API_KEY CONTACT_EMAIL S2_API_KEY OPENALEX_API_KEY OWNER_EMAILS OWNER_ACCESS_KEY FOUNDER_ACCOUNTS FOUNDER_NAMES AUTH_REQUIRED \
            PUBLIC_URL SUPPORT_EMAIL GOOGLE_CLIENT_ID SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASSWORD \
-           RAZORPAY_KEY_ID RAZORPAY_KEY_SECRET RAZORPAY_WEBHOOK_SECRET; do
+           RAZORPAY_KEY_ID RAZORPAY_KEY_SECRET RAZORPAY_WEBHOOK_SECRET \
+           PAYPAL_CLIENT_ID PAYPAL_CLIENT_SECRET PAYPAL_ENV PAYPAL_WEBHOOK_ID PAYPAL_ME_URL; do
     v=$(grep -hE "^$k=" .env .env.production 2>/dev/null | tail -1 | cut -d= -f2- || true)
     [ -n "$v" ] && echo "$k=$v" >> "$out"
   done
