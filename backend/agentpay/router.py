@@ -237,7 +237,6 @@ async def paypal_webhook(request: Request):
     store = get_store()
     if store.get("pp_event", event.get("id", "")):
         return {"ok": True}                 # replayed delivery
-    store.put("pp_event", event.get("id", ""), {"type": event.get("event_type"), "at": now().isoformat()})
     if event.get("event_type") == "PAYMENT.CAPTURE.COMPLETED":
         cap = event.get("resource") or {}
         order_id = ((cap.get("supplementary_data") or {}).get("related_ids") or {}).get("order_id")
@@ -245,4 +244,6 @@ async def paypal_webhook(request: Request):
             await W.webhook_capture(cap, order_id)
         elif (cap.get("custom_id") or "").startswith("plan:"):
             paypal_billing.webhook_capture(cap, order_id)
+    # remembered only once handled: if crediting crashed, PayPal's retry must not be skipped (crediting is idempotent)
+    store.put("pp_event", event.get("id", ""), {"type": event.get("event_type"), "at": now().isoformat()})
     return {"ok": True}

@@ -141,6 +141,7 @@ async def follow(run: AutoClawRun, key: str, ctx=None) -> str:
             if pdf.status_code == 200 and pdf.content[:4] == b"%PDF":
                 info = docs.save_bytes(f"autoresearchclaw-{run.run_id}.pdf", pdf.content, title=run.topic)
                 run.document_id, run.pdf_path = info.document_id, f"worker:{wid}"
+                _own_document(run.run_id, info.document_id)
     except BridgeError as e:
         run.status = "error"
         run.log_tail = (run.log_tail + [f"[bridge] {e}"])[-40:]
@@ -268,8 +269,16 @@ async def _run_live(req: AutoClawRequest, ctx, uid: str | None = None) -> str:
     if pdfs:
         info = docs.save_path(pdfs[0])
         run.pdf_path, run.document_id = str(pdfs[0]), info.document_id
+        _own_document(run.run_id, info.document_id)
     else:
         run.log_tail.append("[bridge] No PDF in deliverables; compile the LaTeX (e.g. Overleaf) and upload it to Audit.")
     run.status = "done"
     _save(run)
     return run.run_id
+
+
+def _own_document(run_id: str, document_id: str) -> None:
+    """The drafted PDF is private to whoever started the run (an unowned document is readable by every user)."""
+    store = get_store()
+    if uid := store.owner_of("autoclaw_run", run_id):
+        store.set_owner("document", document_id, uid)

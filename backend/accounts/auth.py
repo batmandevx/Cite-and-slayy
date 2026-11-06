@@ -475,7 +475,7 @@ def is_premium(user: dict) -> bool:
 def unlock_owner(user: dict, access_key: str) -> bool:
     """Promote the signed-in user to Dev Owner when they present the configured OWNER_ACCESS_KEY."""
     expected = (get_settings().owner_access_key or "").strip()
-    if not expected or not access_key.strip():
+    if len(expected) < 24 or not access_key.strip():   # a short key is guessable: treat it as not configured
         return False
     if not hmac.compare_digest(access_key.strip(), expected):
         return False

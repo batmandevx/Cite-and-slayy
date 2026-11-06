@@ -59,6 +59,11 @@ def _adopt_orphan_papers() -> None:
     for pid, plan_id in rows:
         if plan_id and (uid := store.owner_of("paper_plan", plan_id)):
             store.set_owner("paper_studio", pid, uid)
+    # PDFs drafted by live AutoClaw runs used to be saved without an owner, i.e. readable by every user
+    for run in store.list("autoclaw_run", 100000):
+        if run.get("document_id") and not run.get("demo") and (uid := store.owner_of("autoclaw_run", run.get("run_id", ""))):
+            if store.owner_of("document", run["document_id"]) is None:
+                store.set_owner("document", run["document_id"], uid)
 
 
 def _release_bundled_documents() -> None:
@@ -160,9 +165,10 @@ class EmailLogin(BaseModel):
 
 
 @app.post("/api/auth/email/start")
-async def auth_email_start(body: EmailLogin):
+async def auth_email_start(body: EmailLogin, request: Request):
     if not auth.email_login_enabled():
         raise HTTPException(400, "Email sign-in is not available")
+    auth._limit(f"magic-ip:{_ip(request)}", 20, 3600)   # per address alone would let one client mail thousands of strangers
     link = auth.start_magic_link(body.email)
     s = get_settings()
     if s.smtp_host and s.mail_from:
@@ -306,6 +312,7 @@ class OwnerUnlockRequest(BaseModel):
 async def auth_owner_unlock(body: OwnerUnlockRequest, request: Request):
     import time as _time
     user = me(request)
+    auth._limit(f"owner-unlock-ip:{_ip(request)}", 10, 3600)   # new accounts are free: limit guesses per client too
     rl_key = f"owner-unlock:{user['uid']}"
     tries = [t for t in (get_store().get("rate", rl_key) or {}).get("ts", []) if t > _time.time() - 900]
     if len(tries) >= 5:

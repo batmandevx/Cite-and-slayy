@@ -180,7 +180,7 @@ def test_paper_pack_order_grants_credits_once(prod, monkeypatch):
 
 def test_paid_only_originality_gate_and_dev_owner_bypass(prod, monkeypatch):
     monkeypatch.setenv("OWNER_EMAILS", "ayush@owner.dev")
-    monkeypatch.setenv("OWNER_ACCESS_KEY", "owner-secret-key")
+    monkeypatch.setenv("OWNER_ACCESS_KEY", "owner-secret-key-long-enough-0042")
     get_settings.cache_clear()
 
     # 1) Regular free user is blocked (402 paid_only) from AI & Plagiarism Report and Reducer
@@ -200,7 +200,7 @@ def test_paid_only_originality_gate_and_dev_owner_bypass(prod, monkeypatch):
 
     # 3) Any user who presents the valid OWNER_ACCESS_KEY becomes Dev Owner immediately
     assert free_c.post("/api/auth/owner-unlock", json={"key": "wrong-key"}).status_code == 403
-    assert free_c.post("/api/auth/owner-unlock", json={"key": "owner-secret-key"}).status_code == 200
+    assert free_c.post("/api/auth/owner-unlock", json={"key": "owner-secret-key-long-enough-0042"}).status_code == 200
     me_unlocked = free_c.get("/api/auth/me").json()
     assert me_unlocked["is_owner"] is True and me_unlocked["is_paid"] is True
 
@@ -421,8 +421,6 @@ def test_owner_can_remove_a_members_subscription(prod, monkeypatch):
 def test_email_signin_drops_a_squatters_unverified_password(prod):
     squatter = TestClient(prod)
     assert squatter.post("/api/auth/register", json={"email": "victim@x.org", "password": "Squat2026x"}).status_code == 200
-    from backend.accounts import auth
-    auth._clear_limit("register-ip:testclient")                   # the shared test DB counts every signup in the suite
     login(prod, "victim@x.org")                                   # the real owner proves the address
     assert squatter.get("/api/auth/me").status_code == 401        # the squatter's session is gone
     assert TestClient(prod).post("/api/auth/login", json={"email": "victim@x.org", "password": "Squat2026x"}).status_code == 401
@@ -528,8 +526,13 @@ def test_password_holder_verifying_their_own_email_keeps_the_password(prod):
     from backend.accounts import auth
     c = TestClient(prod)
     assert c.post("/api/auth/register", json={"email": "keepme@x.org", "password": "Keep2026pw"}).status_code == 200
-    auth._clear_limit("register-ip:testclient")
     link = c.post("/api/auth/email/start", json={"email": "keepme@x.org"}).json()["dev_link"]
     assert c.get(link.replace("http://testserver", ""), follow_redirects=False).status_code == 303   # same browser
     assert c.get("/api/auth/me").json()["email"] == "keepme@x.org"
     assert TestClient(prod).post("/api/auth/login", json={"email": "keepme@x.org", "password": "Keep2026pw"}).status_code == 200
+
+
+def test_magic_links_are_limited_per_client(prod):
+    c = TestClient(prod)
+    codes = [c.post("/api/auth/email/start", json={"email": f"spam{i}@x.org"}).status_code for i in range(21)]
+    assert codes[:20] == [200] * 20 and codes[20] == 429
