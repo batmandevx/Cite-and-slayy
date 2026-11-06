@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Literal
@@ -93,6 +94,7 @@ class Experiments:
     figures: dict[str, tuple[bytes, str]] = field(default_factory=dict)
     markdown: str = ""
     report: dict = field(default_factory=dict)
+    code: str = ""                       # the executed simulation script (published with the paper)
 
 
 def _load(name: str):
@@ -285,78 +287,289 @@ def _run_vetted(plan: _Plan, deadline: float) -> Experiments:
     return out
 
 
-CODE_RULES = """Write ONE self-contained Python experiment script.
-Allowed imports only: numpy, scipy, sklearn, pandas, matplotlib.pyplot, math, statistics, random, itertools, functools, collections.
-No file, network or OS access. No open(), eval, exec, getattr, dunder attributes, np.save/np.load, read_csv, fetch_* or savefig.
-Use a fixed random seed. Must finish in under 40 seconds on one CPU core (keep loops and data small: <= 5,000 samples).
-Report results ONLY through these provided functions (do not import them):
-  report(name: str, value: float)                      -> a scalar metric
-  report_table(title: str, header: list, rows: list)   -> a small results table (<= 12 rows)
-  save_figure(name: str, caption: str)                 -> saves the current matplotlib figure (max 2 figures)
-Build a small toy simulation that illustrates the proposed mechanism against a simple baseline on synthetic data, and
-report 3-8 metrics, one table and 1-2 clearly labelled figures (axis labels, legend, title). Return only the code."""
+_SANDBOX = """Allowed imports only: numpy, scipy (stats, optimize, special, linalg, integrate, signal, spatial, sparse, interpolate),
+sklearn, pandas, statsmodels (api / formula.api), matplotlib.pyplot, math, statistics, random, itertools, functools,
+collections, warnings, time, re, copy. No file, network or OS access: no open(), eval, exec, getattr, dunder attributes,
+np.save/np.load, read_csv, fetch_* or savefig. Write plain top-level code (no `if __name__` guard needed).
+Report results ONLY through these provided functions (do not import or define them):
+  report(name: str, value: float)                      -> one scalar number (descriptive snake_case name)
+  report_table(title: str, header: list, rows: list)   -> a results table (<= 12 rows, <= 7 columns, short cells)
+  save_figure(name: str, caption: str)                 -> saves the current matplotlib figure (call instead of savefig)
+Matplotlib already uses a clean publication style sized for one journal column: do not change figure sizes or fonts.
+Every figure needs axis labels with units, a legend when there are several series, and error bars or bands for
+uncertainty. Use numpy vectorisation; total runtime must stay under {budget} seconds on one CPU core."""
 
+CODE_RULES = """Write ONE self-contained Python experiment script.
+""" + _SANDBOX + """
+Build a small, seeded simulation that illustrates the proposed mechanism against a simple baseline on synthetic data,
+and report 3-8 metrics, one table and 1-2 clearly labelled figures. Return only the code."""
 
 STUDY_RULES = """Write ONE self-contained Python script for a CONTROLLED SIMULATION STUDY of the proposed method.
-Allowed imports only: numpy, scipy, sklearn, pandas, matplotlib.pyplot, math, statistics, random, itertools, functools, collections.
-No file, network or OS access. No open(), eval, exec, getattr, dunder attributes, np.save/np.load, read_csv, fetch_* or savefig.
-Must finish in under 45 seconds on one CPU core (synthetic data <= 3,000 samples per run; vectorise with numpy).
-Report results ONLY through: report(name, value), report_table(title, header, rows) (<= 12 rows), save_figure(name, caption) (max 2).
+""" + _SANDBOX + """
 The study MUST:
-1. Generate synthetic data from a generator that matches the formal setting and assumptions (state them in comments).
+1. Generate synthetic data from a generator that matches the formal setting and assumptions (state them in comments);
+   keep each run small (<= 3,000 samples) so the whole study fits the time budget.
 2. Implement a faithful, simplified version of the proposed method AND at least two baselines named after families in the
-   cited literature (e.g. a standard method and a strong simple heuristic).
-3. Run every method over 5 random seeds and report mean and standard deviation of 2-3 metrics that match the hypotheses.
+   cited literature (a standard method and a strong simple heuristic).
+3. Run every method over 10 random seeds (0-9) and report mean and standard deviation of 2-3 metrics that match the
+   hypotheses.
 4. Run one ablation: the proposed method with its key component removed.
-5. Run one sweep of a stress parameter into the failure regime described below, for the proposed method and the best baseline.
-6. Report a results table (method x metric, cells 'mean ± std'), a sweep figure with error bars, and scalar metrics for the
-   headline comparisons (e.g. 'proposed_minus_best_baseline_<metric>'). Use paired differences over the same seeds.
+5. Run one sweep of a stress parameter into the failure regime described below (>= 5 levels), for the proposed method
+   and the best baseline, with error bars across seeds.
+6. Compare the proposed method with the best baseline using PAIRED differences over the same seeds: report the mean
+   difference, its 95% confidence interval (t-interval over seeds) and a paired test p-value (scipy.stats.ttest_rel or
+   wilcoxon), e.g. report('diff_<metric>_vs_<baseline>_mean', ...), '..._ci_low', '..._ci_high', '..._p'.
+7. Report: a main results table (rows = methods incl. the ablation, columns = metrics, cells 'mean ± sd'); a table of the
+   paired comparisons; figure 1 = the stress sweep (x = stress level, y = metric, one line per method with error bars);
+   figure 2 = the main comparison (bar or box plot across seeds).
 Report honestly whatever the numbers are, including when the proposed method does not win. Return only the code."""
 
+DESIGN_RULES = """Write ONE self-contained Python script for a SIMULATION-BASED DESIGN ANALYSIS (a Monte Carlo study of the
+planned statistical analysis, as in the methods literature on power and design). No real participants exist: the
+simulation tells the reader how well the proposed design and analysis can answer the research question.
+""" + _SANDBOX + """
+The script MUST:
+1. Write a data-generating process that mirrors the study design (units, repeated measures or clusters, covariates,
+   measurement error, missingness/attrition). Take plausible effect sizes and variances from the cited evidence given
+   below where it states them; otherwise use conventional small / medium values. State every assumed value in a
+   comment AND report it with report('assumed_<name>', value).
+2. Fit exactly the planned analysis model to each simulated dataset (statsmodels OLS/GLM/MixedLM or a fast equivalent;
+   use a simpler but faithful estimator if MixedLM would be too slow).
+3. Estimate, over >= 200 replications per condition (fewer only if needed for the time budget; report the number):
+   statistical power for each hypothesis at the planned sample size; the false-positive rate when the true effect is 0;
+   bias and 95% CI coverage of the main estimate; and the minimum detectable effect size at 80% power.
+4. Sweep the sample size (>= 5 levels around the plan) and, for one hypothesis, the effect size; also one robustness
+   condition (e.g. 20% attrition or a violated assumption).
+5. Report: a table 'Power by sample size and hypothesis'; a table 'Operating characteristics' (bias, coverage,
+   false-positive rate, MDES); figure 1 = power curves versus N with the 0.80 line and Monte Carlo error bars;
+   figure 2 = power versus effect size (or the robustness comparison).
+Use Monte Carlo standard errors where relevant. Report honestly, including when the planned N is underpowered.
+Return only the code."""
 
-async def study(topic: str, method: str, summary: str, design: str, prefer: list[str] | None = None) -> tuple[sandbox.SandboxResult | None, str]:
-    """A seeded, multi-baseline simulation with an ablation and a failure-regime sweep. Up to three attempts."""
-    prompt = (f"Topic: {topic}\nProposed method: {method}\nMethod summary: {summary}\nFORMAL DESIGN (assumptions, claim, failure "
-              f"regime, contributions):\n{design}\n\n{STUDY_RULES}")
-    err = ""
-    for _ in range(3):
+CRITIC = ("You are a demanding methods reviewer auditing a simulation before it goes into a paper. Check that it does what "
+          "the brief asks: a data generator matching the stated assumptions, faithful method and baselines (or the planned "
+          "analysis), enough seeds/replications, paired uncertainty (CIs, p-values) for the headline comparison, no bugs "
+          "that make results meaningless (wrong axis, a baseline that is crippled, leakage, metrics computed on the wrong "
+          "data), and figures that show the main result with labelled axes and error bars. If it is sound, ok=true. "
+          "Otherwise list the problems and return the complete corrected script.")
+
+
+class _Critique(BaseModel):
+    ok: bool = Field(description="True if the simulation is sound enough to report as is")
+    problems: list[str]
+    revised_code: str = Field(description="Corrected full script if ok is false, else empty")
+
+
+def _enough(res: sandbox.SandboxResult, need_figure: bool) -> str:
+    """'' if the run reported enough to support a results section, else what is missing."""
+    missing = []
+    if len(res.metrics) < 3:
+        missing.append("at least 3 report() metrics")
+    if not res.tables:
+        missing.append("a report_table() results table")
+    if need_figure and not res.figures:
+        missing.append("at least one save_figure() figure")
+    return ("it must report " + ", ".join(missing)) if missing else ""
+
+
+def _identical_rows(res: sandbox.SandboxResult) -> str:
+    """Two methods with byte-identical result cells almost always means one method's output was reused for another."""
+    for t in res.tables:
+        seen: dict[tuple, str] = {}
+        for r in t["rows"]:
+            cells = tuple(str(c).strip() for c in r[1:])
+            if len(cells) >= 1 and any(re.search(r"\d", c) for c in cells) and cells in seen:
+                return (f"in table '{t['title']}', '{seen[cells]}' and '{r[0]}' have identical results {list(cells)}: one method's "
+                        "output is almost certainly reused for the other, or the component that distinguishes them never acts. "
+                        "Check that each method computes its own predictions from its own inputs.")
+            seen[cells] = str(r[0])
+    return ""
+
+
+def study_checks(res: sandbox.SandboxResult) -> str:
+    if (dup := _identical_rows(res)):
+        return dup
+    main = max(res.tables, key=lambda t: len(t["rows"]), default=None)
+    if main is None or len(main["rows"]) < 4:
+        return ("the main results table must have one row per method: the proposed method, at least two baselines and the "
+                "ablation (proposed method without its key component)")
+    names = " ".join(res.metrics).lower()
+    if not ("ci" in names or "conf" in names) or not re.search(r"(^|_)p($|_|val)", names.replace("pvalue", "p_value")):
+        return ("report the paired comparison with the best baseline as metrics: mean difference, 95% CI low/high and a p-value "
+                "(e.g. diff_mae_vs_gcn_mean, diff_mae_vs_gcn_ci_low, diff_mae_vs_gcn_ci_high, diff_mae_vs_gcn_p)")
+    return ""
+
+
+def design_checks(res: sandbox.SandboxResult) -> str:
+    names = " ".join(res.metrics).lower()
+    if "power" not in names and not any("power" in t["title"].lower() for t in res.tables):
+        return "report the power of each hypothesis at the planned sample size (report('power_h1_planned_n', ...)) and a power table"
+    if not any(k.lower().startswith("assumed") for k in res.metrics):
+        return "report every assumed input (effect sizes, variances, ICC, attrition) with report('assumed_<name>', value)"
+    return ""
+
+
+def _results_summary(res: sandbox.SandboxResult) -> str:
+    tabs = "\n".join(f"TABLE {t['title']}: {t['header']} / " + " / ".join(map(str, t["rows"][:8])) for t in res.tables)
+    return (f"PRINTED OUTPUT:\n{res.stdout[-2000:]}\nMETRICS: {dict(list(res.metrics.items())[:40])}\n{tabs}\n"
+            f"FIGURES: {[c for _, c, _ in res.figures]}")
+
+
+class _SimDesign(BaseModel):
+    generator: str = Field(description="How synthetic data are generated: variables, distributions, structure, ground truth")
+    stress: str = Field(description="How the stress / failure / design factor enters the data, and its levels")
+    methods: list[str] = Field(description="Each method (or analysis) and exactly what it computes from which inputs")
+    mechanism: str = Field(description="Why the key component should change the outcome here, and in which direction")
+    metrics: list[str] = Field(description="Metrics, each computed on which data")
+    sanity: list[str] = Field(description="Checks that would reveal a bug (e.g. at zero stress methods should agree)")
+
+
+async def develop(system: str, task: str, *, prefer: list[str] | None = None, attempts: int = 5, critic_rounds: int = 1,
+                  need_figure: bool = True, cpu: int = 75, wall: int = 120, say=None, label: str = "simulation",
+                  checks=None, plan_first: bool = False) -> tuple[sandbox.SandboxResult | None, str, list[str]]:
+    """Design -> write -> validate -> run -> check -> fix -> critique, like a researcher iterating in a notebook.
+    Validation failures and failed sanity `checks` come back like runtime errors. Returns (best result, its code, log)."""
+    log: list[str] = []
+    if plan_first:
         try:
-            code = (await llm.complete_json("You are a meticulous research engineer who writes correct, deterministic, vectorised simulation studies.",
-                                            prompt + (f"\n\nThe previous attempt failed: {err}. Fix it and keep it fast." if err else ""),
-                                            _Code, effort="medium", max_tokens=9000, prefer=prefer)).code
+            d = await llm.complete_json(system + " First design the simulation precisely; code comes later.",
+                                        task + "\n\nDo NOT write code yet. Design the simulation so that the proposed component "
+                                        "has a real mechanism through which it can matter, and the baselines are fair.",
+                                        _SimDesign, effort="high", max_tokens=6000, prefer=prefer)
+            task += ("\n\nSIMULATION DESIGN TO IMPLEMENT EXACTLY:\n" + d.model_dump_json(indent=1)
+                     + "\nPrint the sanity checks' values with print() so reviewers can verify them.")
+            log.append("design: " + d.mechanism[:200])
         except llm.LLMError as e:
-            return None, f"model error: {e}"
-        code = code.strip().removeprefix("```python").removeprefix("```").removesuffix("```").strip()
+            log.append(f"design skipped: {e}"[:200])
+
+    async def ask(prompt: str, tokens: int = 10000) -> str | None:
         try:
-            res = await asyncio.to_thread(sandbox.run, code)
-            if res.tables and len(res.metrics) >= 3:
-                return res, ""
-            err = "it must report a results table and at least 3 metrics"
+            return sandbox.autofix((await llm.complete_json(system, prompt, _Code, effort="medium", max_tokens=tokens, prefer=prefer)).code)
+        except llm.LLMError as e:
+            log.append(f"model error: {e}"[:200])
+            return None
+
+    code = await ask(task)
+    best: tuple[sandbox.SandboxResult, str] | None = None
+    critiques = 0
+    for attempt in range(attempts):
+        if code is None:
+            break
+        try:
+            sandbox.validate(code)
+            if say:
+                await say("experimenter", "run", f"Running the {label} (attempt {attempt + 1})…")
+            res = await asyncio.to_thread(sandbox.run, code, None, cpu, wall)
+            if (gap := _enough(res, need_figure) or (checks(res) if checks else "")):
+                raise sandbox.SandboxError(gap)
         except sandbox.SandboxError as e:
-            err = str(e)[:300]
-    return None, err
+            log.append(f"attempt {attempt + 1}: {str(e)[:240]}")
+            code = await ask(f"{task}\n\nCURRENT CODE:\n{code}\n\nIT FAILED WITH:\n{e}\n\nFix the cause and return the complete "
+                             "script. If it timed out, cut replications, sample sizes or sweep levels, and vectorise.")
+            continue
+        best = (res, code)
+        log.append(f"attempt {attempt + 1}: ran · {len(res.metrics)} metrics · {len(res.tables)} tables · {len(res.figures)} figures")
+        if critiques >= critic_rounds:
+            break
+        try:
+            cr = await llm.complete_json(CRITIC, f"{task}\n\nCODE:\n{code}\n\nRESULTS:\n{_results_summary(res)}", _Critique,
+                                         effort="medium", max_tokens=10000, prefer=prefer)
+        except llm.LLMError:
+            break
+        critiques += 1
+        log.append(f"critic {critiques}: {'sound' if cr.ok else '; '.join(cr.problems)[:240]}")
+        if cr.ok or not cr.revised_code.strip():
+            break
+        code = sandbox.autofix(cr.revised_code)        # the corrected script runs next; the last good run is kept if it fails
+    return (best[0], best[1], log) if best else (None, "", log)
+
+
+async def study(topic: str, method: str, summary: str, design: str, prefer: list[str] | None = None, say=None
+                ) -> tuple[sandbox.SandboxResult | None, str, list[str]]:
+    """A seeded, multi-baseline simulation with an ablation, a failure-regime sweep and paired statistics."""
+    task = (f"Topic: {topic}\nProposed method: {method}\nMethod summary: {summary}\nFORMAL DESIGN (assumptions, claim, failure "
+            f"regime, contributions):\n{design}\n\n{STUDY_RULES.replace('{budget}', '60')}")
+    return await develop("You are a meticulous research engineer who writes correct, deterministic, vectorised simulation studies.",
+                         task, prefer=prefer, say=say, label="controlled simulation study", checks=study_checks,
+                         plan_first=True, critic_rounds=2, attempts=6)
+
+
+async def design_study(topic: str, question: str, hypotheses: list[str], design: str, evidence: str,
+                       prefer: list[str] | None = None, say=None) -> tuple[sandbox.SandboxResult | None, str, list[str]]:
+    """Monte Carlo design analysis for an empirical study with no data yet: power, error rates, bias and coverage."""
+    task = (f"Topic: {topic}\nResearch question: {question}\nHypotheses: {hypotheses}\nSTUDY DESIGN AND ANALYSIS PLAN:\n{design}\n\n"
+            f"CITED EVIDENCE (use effect sizes stated here, else conventional values):\n{evidence[:5000]}\n\n"
+            f"{DESIGN_RULES.replace('{budget}', '70')}")
+    return await develop("You are a methodologist who writes fast, correct Monte Carlo design analyses.", task, prefer=prefer,
+                         say=say, cpu=85, wall=130, label="simulation-based design analysis", checks=design_checks,
+                         plan_first=True, critic_rounds=2, attempts=6)
 
 
 async def _custom(topic: str, method: str, summary: str, plan: _Plan) -> tuple[sandbox.SandboxResult | None, str]:
-    prompt = (f"Topic: {topic}\nProposed method: {method}\nMethod summary: {summary}\n"
-              f"Simulation to build: {plan.custom_title or 'toy simulation of the core mechanism'} — {plan.custom_description}\n\n{CODE_RULES}")
-    err = ""
-    for attempt in range(2):
-        try:
-            code = (await llm.complete_json("You are a careful research engineer who writes small, correct, deterministic simulations.",
-                                            prompt + (f"\n\nThe previous attempt failed: {err}. Fix it." if err else ""),
-                                            _Code, effort="medium", max_tokens=6000)).code
-        except llm.LLMError as e:
-            return None, f"model error: {e}"
-        code = code.strip().removeprefix("```python").removeprefix("```").removesuffix("```").strip()
-        try:
-            res = await asyncio.to_thread(sandbox.run, code)
-            if res.metrics or res.tables:
-                return res, ""
-            err = "it reported no metrics"
-        except sandbox.SandboxError as e:
-            err = str(e)[:300]
-    return None, err
+    task = (f"Topic: {topic}\nProposed method: {method}\nMethod summary: {summary}\n"
+            f"Simulation to build: {plan.custom_title or 'toy simulation of the core mechanism'} — {plan.custom_description}\n\n"
+            f"{CODE_RULES.replace('{budget}', '40')}")
+    res, _, log = await develop("You are a careful research engineer who writes small, correct, deterministic simulations.", task,
+                                attempts=3, critic_rounds=0, need_figure=False, cpu=50, wall=80)
+    return res, (log[-1] if log else "")
+
+
+def _fmt_metric(v: float) -> str:
+    if v == 0 or 1e-3 <= abs(v) < 1e5:
+        return f"{v:.4g}"
+    return f"{v:.3g}" if abs(v) >= 1e5 else ("< 0.001" if 0 < v < 1e-3 else f"{v:.2e}")
+
+
+def _cell(c: object, is_p: bool) -> str:
+    """Readable table cells: '±' not '+/-', p-values as '< 0.001', at most 4 significant figures."""
+    t = str(c).replace("+/-", "±").replace("+-", "±").strip()
+    try:
+        v = float(t)
+    except ValueError:
+        return re.sub(r"(\d+\.\d{4})\d+", r"\1", t)        # long decimals inside text cells
+    if is_p:
+        return "< 0.001" if v < 0.001 else ("> 0.99" if v > 0.99 else f"{v:.3f}")
+    return t if re.fullmatch(r"-?\d+", t) else _fmt_metric(v)
+
+
+def _package(exp: Experiments, res: sandbox.SandboxResult, label: str, kind: str) -> None:
+    """Executed results -> FACTS (one line per number, so writers can only quote what ran), tables and figures."""
+    exp.facts.append(f"- {label}.")
+    exp.facts += [f"- {k.replace('_', ' ')} = {_fmt_metric(v)}" for k, v in list(res.metrics.items())[:30]]
+    parts = []
+    for t in res.tables[:3]:
+        head = [h.replace("|", "/") for h in t["header"]]
+        is_p = [bool(re.search(r"(^|\W)p(-?val(ue)?)?($|\W)", h, re.I)) for h in head]
+        rows = [[_cell(c, is_p[j] if j < len(is_p) else False).replace("|", "/") for j, c in enumerate(r[:len(head)])] for r in t["rows"]]
+        parts.append(f"Table: {t['title']} ({kind}, executed in sandbox)\n| " + " | ".join(head) + " |\n|" + "---|" * len(head) + "\n"
+                     + "\n".join("| " + " | ".join(r) + " |" for r in rows))
+        exp.facts.append(f"- Table “{t['title']}” ({' | '.join(head)}): " + " ; ".join(", ".join(r) for r in rows[:12]))
+    for k, (name, cap, png) in enumerate(res.figures[:3]):
+        exp.figures[f"exp_sim{k}"] = (png, f"{cap} ({kind} executed by the pipeline)")
+    exp.markdown = (exp.markdown + "\n\n" + "\n\n".join(parts)).strip()
+
+
+async def run_design_for_paper(topic: str, question: str, hypotheses: list[str], design: str, evidence: str, say,
+                               prefer: list[str] | None = None) -> Experiments:
+    """Empirical study without data: a Monte Carlo design analysis of the planned analysis. Never raises."""
+    exp = Experiments()
+    await say("experimenter", "run", "Simulating the planned analysis: power, false-positive rate, bias and CI coverage…", 0.33)
+    try:
+        res, code, log = await design_study(topic, question, hypotheses, design, evidence, prefer, say)
+    except Exception as e:  # noqa: BLE001 - experiments are optional; never break paper generation
+        res, code, log = None, "", [f"{type(e).__name__}: {e}"[:200]]
+    exp.report["design_log"] = log[-6:]
+    if res:
+        exp.report["design_study"] = True
+        exp.code = code
+        _package(exp, res, "Simulation-based design analysis (Monte Carlo replications of the planned analysis on data generated "
+                 "from the study design; assumed inputs reported as 'assumed ...'; script executed in an isolated sandbox)",
+                 "design simulation")
+    else:
+        exp.report["simulation_skipped"] = (log[-1] if log else "")[:200]
+    await say("experimenter", "done", f"{len(exp.facts)} simulated results · {len(exp.figures)} figures" if exp.facts
+              else "The design simulation could not run", 0.35)
+    return exp
 
 
 async def run_for_paper(topic: str, method: str, summary: str, say, design: str = "", prefer: list[str] | None = None) -> Experiments:
@@ -382,28 +595,23 @@ async def run_for_paper(topic: str, method: str, summary: str, say, design: str 
         # A generic classification benchmark unrelated to the topic weakens the paper (every reviewer flags it), so skip it.
         exp = Experiments(report={"benchmark_skipped": f"no benchmark dataset matches the topic ({plan.relevance} relevance)"})
     if design:
-        await say("experimenter", "run", "Running a controlled simulation study: method vs baselines, 5 seeds, ablation, stress sweep…", 0.33)
-        res, err = await study(topic, method, summary, design, prefer)
+        await say("experimenter", "run", "Running a controlled simulation study: method vs baselines, 10 seeds, ablation, stress sweep…", 0.33)
+        res, code, log = await study(topic, method, summary, design, prefer, say)
+        err = log[-1] if log else ""
+        exp.report["study_log"] = log[-6:]
         if res:
             exp.report["study"] = True
+            exp.code = code
     else:
         res, err = None, ""
     if not res:
         await say("experimenter", "run", "Writing and running a sandboxed toy simulation of the proposed mechanism…", 0.33)
         res, err = await _custom(topic, method, summary, plan)
     if res:
-        label = ("Controlled simulation study (seeded synthetic data, proposed method vs baselines, ablation and stress sweep; script executed in an isolated sandbox)"
-                 if exp.report.get("study") else f"Toy simulation (model-written script executed in an isolated sandbox): {plan.custom_title or 'mechanism simulation'}")
-        exp.facts.append(f"- {label}. "
-                         + "; ".join(f"{k} = {v:.4g}" for k, v in list(res.metrics.items())[:8]) + ".")
-        parts = []
-        for t in res.tables[:2]:
-            head = [h.replace("|", "/") for h in t["header"]]
-            parts.append(f"Table: {t['title']} ({'simulation study' if exp.report.get('study') else 'toy simulation'}, executed in sandbox)\n| " + " | ".join(head) + " |\n|" + "---|" * len(head) + "\n"
-                         + "\n".join("| " + " | ".join(c.replace("|", "/") for c in r[:len(head)]) + " |" for r in t["rows"]))
-        for k, (name, cap, png) in enumerate(res.figures[:2]):
-            exp.figures[f"exp_sim{k}"] = (png, f"{cap} ({'simulation study' if exp.report.get('study') else 'toy simulation'} executed by the pipeline)")
-        exp.markdown = (exp.markdown + "\n\n" + "\n\n".join(parts)).strip()
+        label = ("Controlled simulation study (seeded synthetic data, proposed method vs baselines over 10 seeds, ablation and stress "
+                 "sweep; script executed in an isolated sandbox)" if exp.report.get("study") else
+                 f"Toy simulation (model-written script executed in an isolated sandbox): {plan.custom_title or 'mechanism simulation'}")
+        _package(exp, res, label, "simulation study" if exp.report.get("study") else "toy simulation")
         exp.report["simulation"] = {"title": plan.custom_title, "metrics": len(res.metrics), "figures": len(res.figures)}
     else:
         exp.report["simulation_skipped"] = err[:200]
@@ -413,15 +621,27 @@ async def run_for_paper(topic: str, method: str, summary: str, say, design: str 
 
 
 def section(exp: Experiments, fig_block) -> str:
-    """The 'Pilot Experiments' section, assembled in code from the measured results."""
+    """The results section for the executed simulation (or the pilot runs), assembled in code from measured results."""
     if not exp.facts:
         return ""
-    figs = "\n\n".join(fig_block(k) for k in ("exp_bar", "exp_cm", "exp_sweep", "exp_noise", "exp_sim0", "exp_sim1") if k in exp.figures)
-    sim = ("a controlled simulation study (the proposed method against baselines over five seeds, with an ablation and a "
-           "stress sweep into the predicted failure regime)" if exp.report.get("study") else "a toy simulation of the proposed mechanism")
-    what = (f"{sim} on synthetic data" if "benchmark_skipped" in exp.report else
-            f"a small battery of pilot experiments on public benchmark data and {sim}")
-    return ("# Pilot Experiments\n\nTo ground the discussion in measured evidence, the pipeline executed " + what + ". These runs are illustrative: they "
-            "characterise the problem setting and the baselines, and they are not a full-scale evaluation of the proposed method, "
-            "which remains specified in the protocol below. All numbers in this section were computed by the executed code.\n\n"
+    figs = "\n\n".join(fig_block(k) for k in ("exp_sim0", "exp_sim1", "exp_bar", "exp_cm", "exp_sweep", "exp_noise") if k in exp.figures)
+    if exp.report.get("design_study"):
+        return ("# Simulation-Based Design Analysis\n\nBefore any data are collected, the planned analysis was evaluated by Monte Carlo "
+                "simulation: datasets were generated from a model of the proposed design, with effect sizes and variances taken "
+                "from the cited evidence where available, and the planned model was fitted to each one. This quantifies the "
+                "statistical power, false-positive rate, bias and confidence-interval coverage the study can expect. Every number "
+                "below was computed by the executed simulation script; the assumed inputs are listed with the results.\n\n"
+                "## Results of the design simulation\n\n" + "\n".join(exp.facts) + "\n\n" + exp.markdown + "\n\n" + figs + "\n")
+    if exp.report.get("study"):
+        return ("# Simulation Study\n\nWe evaluate the proposed method in a controlled simulation that follows the formal setting "
+                "and its assumptions: synthetic data are generated with known ground truth, the method is compared with baselines "
+                "from the literature over ten random seeds, one key component is ablated, and a stress parameter is swept into the "
+                "predicted failure regime. Differences are paired over seeds and reported with 95% confidence intervals. Every "
+                "number in this section was computed by the executed simulation script.\n\n## Results\n\n"
+                + "\n".join(exp.facts) + "\n\n" + exp.markdown + "\n\n" + figs + "\n")
+    what = ("a toy simulation of the proposed mechanism on synthetic data" if "benchmark_skipped" in exp.report else
+            "a small battery of pilot experiments on public benchmark data and a toy simulation of the proposed mechanism")
+    return ("# Pilot Experiments\n\nTo ground the discussion in measured evidence, the pipeline executed " + what + ". These runs "
+            "characterise the problem setting and the baselines; they are not a full-scale evaluation of the proposed method. "
+            "All numbers in this section were computed by the executed code.\n\n"
             "## Measured results\n\n" + "\n".join(exp.facts) + "\n\n" + exp.markdown + "\n\n" + figs + "\n")

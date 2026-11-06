@@ -95,6 +95,10 @@ def checklist(paper: dict, template: str) -> list[dict]:
     add("AI-use disclosure", "AI" in ack, "Acknowledgment discloses AI assistance." if "AI" in ack else
         "Add an AI-assistance statement if the venue requires one (most do).")
     rep = paper.get("report") or {}
+    readiness = rep.get("publication_readiness") or {}
+    add("Publication-readiness gate", readiness.get("ready") is True,
+        "No automated publication blockers remain." if readiness.get("ready") is True else
+        "; ".join(readiness.get("blockers") or ["Run the remaining manual checks before submission."]))
     add("Originality check", not rep.get("verbatim_paragraphs_after"), f"{rep.get('verbatim_paragraphs_after', 0)} paragraph(s) with copied text from cited abstracts.")
     add("Unmeasured claims", not rep.get("unmeasured_claims_remaining"), f"{rep.get('unmeasured_claims_remaining', 0)} sentence(s) flagged.")
     words = paper.get("words") or len(md.split())

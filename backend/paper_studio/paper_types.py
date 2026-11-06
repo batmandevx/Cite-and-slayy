@@ -95,13 +95,16 @@ METHOD = TypePlan(
             "leakage; datasets (named only if a cited abstract names them, otherwise their required domain and scale); baselines "
             "from the cited references; primary and diagnostic metrics with equations; paired non-parametric testing with "
             "Holm-Bonferroni correction; a Mermaid 'flowchart TD' preceded by 'Figure: Leak-free evaluation and ablation "
-            "workflow'; 'Table: Component ablation matrix'; 'Table: Planned benchmark comparison' whose unrun cells read "
-            "'to be measured'.")),
+            "workflow'; 'Table: Component ablation matrix' (which component each ablation removes and what it tests). If a "
+            "SIMULATION STUDY is in FACTS, describe its setup here (generator, baselines, seeds, ablation, stress sweep, "
+            "metrics) consistently with those facts; its results are reported in the Simulation Study section. Describe the "
+            "real-data benchmark that remains to be run in prose only: never write a results table with empty, "
+            "'to be measured' or 'TBD' cells.")),
         Spec("results", "Experiments on Real Data", stage=3, needs_data=True, task="Report ONLY the numbers in DATA ANALYSIS (FACTS), in this order: the analysed sample (N, units, period, coverage and missingness), descriptive statistics, then each hypothesis or comparison with its estimate, uncertainty (95% CI, SE or sd across folds) and p-value where reported, then the robustness check. Place [[DATA:tables]] and [[DATA:figures]] each on its own line where they are discussed. State null or mixed results plainly. Use associational language for observational data. Interpretation belongs in the Discussion."),
         Spec("discussion", "Discussion, Failure Modes and Limitations", stage=4, task=(
             "Must contain: ## Failure Modes and Operational Mitigations (concrete scenarios tied to Proposition 2); ## Threats to "
-            "Validity (internal, external, construct, bibliographic coverage, and that the full benchmark is planned rather than "
-            "run); ## Broader Impact and Deployment Considerations; then a top-level '# Conclusion' of 1-2 paragraphs that "
+            "Validity (internal, external, construct, bibliographic coverage, and that the evidence is a controlled simulation "
+            "while the real-data benchmark is planned rather than run); ## Broader Impact and Deployment Considerations; then a top-level '# Conclusion' of 1-2 paragraphs that "
             "answers the research question without repeating the abstract.")),
     ],
 )

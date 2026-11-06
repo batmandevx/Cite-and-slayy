@@ -1022,12 +1022,41 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
             captions[name] = cap
             store.put("paper_fig", f"{pid}-{name}", {"png": base64.b64encode(png).decode()})
         if exp.facts:
-            facts_txt += "\nPILOT EXPERIMENTS (executed by the pipeline; illustrative, not a full evaluation of the proposed method):\n" + "\n".join(exp.facts)
+            facts_txt += (("\nSIMULATION STUDY (executed by the pipeline; these ARE this paper's results: report them as results, "
+                           "with their uncertainty, and never call them pilot, illustrative or planned):\n")
+                          if exp.report.get("study") else
+                          "\nPILOT EXPERIMENTS (executed by the pipeline; illustrative, not a full evaluation of the proposed method):\n") + "\n".join(exp.facts)
+    elif ptype == "empirical" and not (data and data.facts):
+        # No data to analyse: evaluate the design itself by simulation, so the paper reports real computed evidence
+        design_txt = (f"{outline.method_summary}\nMETHODS BRIEF: {briefs['methods'].brief if 'methods' in briefs else ''}")
+        exp = await experiments.run_design_for_paper(req.topic, outline.research_question, outline.hypotheses, design_txt,
+                                                     dossier, say, prefer=_best())
+        for name, (png, cap) in exp.figures.items():
+            captions[name] = cap
+            store.put("paper_fig", f"{pid}-{name}", {"png": base64.b64encode(png).decode()})
+        if exp.facts:
+            facts_txt += ("\nDESIGN SIMULATION (an executed Monte Carlo study of THIS study's planned analysis on simulated data. These "
+                          "numbers describe the design's power, error rates, bias and coverage. They are NOT findings about the "
+                          "population: never present them as observed effects. Use them to justify the sample size, the minimum "
+                          "detectable effect and the analysis plan, and report the planned N's power exactly as given):\n"
+                          + "\n".join(exp.facts))
+    if exp.code and not analysis_code:
+        analysis_code = exp.code                 # published with the paper, so every simulated number can be re-run
     specs = tplan.active(bool(data and data.facts))
 
     # ---- Writers: in dependency stages, sharing a paper memory ----
     core = _core(outline, ptype, method_label, facts_txt, novelty_note, style, extra)
-    system = (f"You are a senior journal author writing one section of a {TYPE_LABEL[ptype].lower()}.\n" + RULES + "\n" + TYPE_RULES[ptype])
+    type_rule = TYPE_RULES[ptype]
+    if exp.report.get("study"):
+        type_rule = ("- The proposed method was evaluated in the controlled SIMULATION STUDY in FACTS, and nowhere else. Report "
+                     "those results as this paper's results, with their uncertainty, exactly as given, including where the method "
+                     "does not win. Never claim real-world or benchmark performance: the real-data evaluation is future work, "
+                     "described in the conditional tense.")
+    elif exp.report.get("design_study"):
+        type_rule += ("\n- A DESIGN SIMULATION of this study's planned analysis is in FACTS: use its power, minimum detectable effect, "
+                      "false-positive rate and coverage to justify the sample size and analysis plan, quoting the numbers exactly. "
+                      "They describe the design, not the population: never present them as observed effects.")
+    system = (f"You are a senior journal author writing one section of a {TYPE_LABEL[ptype].lower()}.\n" + RULES + "\n" + type_rule)
     texts: dict[str, str] = {}
     memory: list[str] = []
     foundation = {s.key for s in specs if s.stage == 1 and s.design}
@@ -1176,7 +1205,7 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
         if (k := para_idx.get(h.paragraph)) is not None:
             flags.setdefault(k, []).append(f"too close to the abstract of “{h.matched.title}” (similarity {h.similarity:.2f}); "
                                            f"closest sentence: “{h.matched_text}”")
-    claims = await quality.check_all_claims(body, [p.model_dump() for p in refs], cap=140, fulltext_cap=20)
+    claims = await quality.check_all_claims(body, [p.model_dump() for p in refs], fulltext_cap=40)
     judged = {(_squash(r["sentence"]), r["n"]): r for r in claims["pairs"]}
     sq_paras = [(k, _squash(t)) for k, (_, _, t) in enumerate(paras)]
 
@@ -1214,7 +1243,7 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
         _, _, t = paras[k]
         try:
             out = await llm.complete_json(
-                "You revise one paragraph of a research paper to fix the listed problems. " + RULES + "\n" + TYPE_RULES[ptype],
+                "You revise one paragraph of a research paper to fix the listed problems. " + RULES + "\n" + type_rule,
                 f"REFERENCES:\n{_ref_listing(refs, abstract_chars=300)}\n\nPARAGRAPH:\n{t.strip()}\n\nPROBLEMS:\n- "
                 + "\n- ".join(flags[k]) + "\n\nRewrite the paragraph in original wording; remove or replace any citation that its "
                 "abstract does not support; remove every number that is not in FACTS or a cited abstract. Keep similar length."
@@ -1235,7 +1264,7 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
 
     # ---- Second verification pass on the revised text: catch what the rewrite (or Opus's richer prose) still gets wrong ----
     await say("verifier", "run", "Re-checking every citation in the revised text…", 0.895)
-    claims = await quality.check_all_claims(body, [p.model_dump() for p in refs], cap=160, fulltext_cap=12)
+    claims = await quality.check_all_claims(body, [p.model_dump() for p in refs], fulltext_cap=40)
     judged = {(_squash(r["sentence"]), r["n"]): r for r in claims["pairs"]}
     paras = _paragraphs(body)
     sq_paras = [(k, _squash(t)) for k, (_, _, t) in enumerate(paras)]
@@ -1352,9 +1381,13 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
                     if _section_of(body, st) not in design) + len(_unmeasured(abstract, allowed, method_label))
     copied_after = sum(1 for _, _, t in _paragraphs(body) if _verbatim(t, abs_shingles))
     phrase_hits = find_phrases([body], None)
+    # The editor and consistency pass can change cited prose after the reviser's
+    # last check. Re-run the complete claim audit on the final body so the report
+    # describes the manuscript that will actually be exported.
+    claims = await quality.check_all_claims(body, [p.model_dump() for p in refs], fulltext_cap=40)
 
     # ---- Assemble ----
-    body = enforce_headings(body, {s.heading for s in specs} | {"Conclusion", "Pilot Experiments", "Data Availability"})
+    body = enforce_headings(body, {s.heading for s in specs} | {"Conclusion", "Pilot Experiments", "Simulation Study", "Simulation-Based Design Analysis", "Data Availability"})
     body = _INTERNAL_TAG.sub("", body)      # provenance labels from FACTS that writers sometimes copy into prose
     body, _ = _merge_duplicate_refs(body, refs)
     body, order = _renumber(body)
@@ -1386,9 +1419,10 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
         "[[DATA:figures]]": ("\n\n".join(fig_block(n) for n in (data.figures if data else {})), results_anchor),
     }
     exp_md = experiments.section(exp, fig_block)
-    if exp_md and tplan.protocol_heading:
-        anchor = f"\n# {tplan.protocol_heading}"
-        body = body.replace(anchor, f"\n{exp_md}\n{anchor}", 1) if anchor in body else body + f"\n\n{exp_md}"
+    if exp_md:
+        # before the protocol (method papers), else before the Discussion (empirical papers), else at the end
+        anchor = next((a for a in (f"\n# {tplan.protocol_heading}" if tplan.protocol_heading else "", "\n# Discussion") if a and a in body), "")
+        body = body.replace(anchor, f"\n{exp_md}\n{anchor}", 1) if anchor else body + f"\n\n{exp_md}"
 
     def insert_after_section(md: str, anchor: str, block: str) -> str:
         """Put a block at the end of the section that starts at `anchor` (or at the end of the body)."""
@@ -1417,6 +1451,21 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
              "and verified all formal derivations, citations, and bibliometric figures. Bibliometric statistics were computed "
              "directly from OpenAlex and Crossref metadata.\n\n" if req.ai_disclosure else "")
           + "# References\n\n" + "\n".join(f"{i}. {_ieee_ref(p)}" for i, p in enumerate(cited_refs, 1)) + "\n")
+    # Audit the exact assembled manuscript, including the generated front matter,
+    # disclosure and references—not only the intermediate body.
+    claims = await quality.check_all_claims(md, [p.model_dump() for p in cited_refs], fulltext_cap=40)
+    readiness = quality.publication_readiness(
+        claims=claims,
+        structural_blockers=quality.structural_issues(
+            md, {s.heading for s in specs} | {"Abstract", "Conclusion"} |
+            ({"Acknowledgment"} if req.ai_disclosure else set())),
+        unmeasured_remaining=remaining,
+        copied_paragraphs=copied_after,
+        invalid_equations=max(0, len(bad_math) - math_fixed),
+        diagrams_removed=diagrams_removed,
+        review_overall=rounds[-1]["overall"] if rounds and rounds[-1].get("overall") is not None else None,
+        references=len(cited_refs),
+    )
 
     # ---- Provenance: for every citation, the sentences that use it, the check verdict and the closest abstract sentence ----
     provenance: dict[str, list[dict]] = {}
@@ -1452,6 +1501,7 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
         "invalid_citations_removed": bad_cites, "claims_checked": claims["checked"], "claims_unsupported": claims["unsupported"],
         "claims_supported": claims["supported"], "claims_unclear": claims["unclear"], "synthesis_flags": len(claims["synthesis_flags"]),
         "claims_fulltext_checked": claims.get("fulltext_checked", 0),
+        "publication_readiness": readiness,
         "paragraphs_flagged": len(flags), "diagrams_repaired": diagrams_repaired, "diagrams_removed": diagrams_removed,
         "equations_repaired": math_fixed, "equations_still_invalid": max(0, len(bad_math) - math_fixed),
         "unmeasured_claims_found": unmeasured + len(abs_issues), "unmeasured_claims_remaining": remaining,
@@ -1480,7 +1530,8 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
     if plan_owner := store.owner_of(PLAN_KIND, plan_id):   # own it now, not only when the job ends (a restart in between orphans it)
         store.set_owner("paper_studio", pid, plan_owner)
     store.put(PLAN_KIND, plan_id, {**pl, "status": "written", "paper_id": pid})
-    await say("done", "done", "Paper ready", 1.0)
+    await say("done", "done", "Paper generated" + ("" if readiness["ready"] else
+                                                    f" · {len(readiness['blockers'])} publication blocker(s) remain"), 1.0)
     return pid
 
 
@@ -1595,6 +1646,36 @@ def repair_fences(md: str) -> str:
         out.append(line)
     if open_:
         out.append("```")
+    return _drop_placeholder_tables("\n".join(out))
+
+
+_PLACEHOLDER = re.compile(r"^(to be (measured|determined|reported)|tbd|tbc|n/?a|pending|\?+|[-–—]+|\.\.\.|…)$", re.I)
+
+
+def _drop_placeholder_tables(md: str) -> str:
+    """A results table whose cells are mostly 'to be measured' / 'TBD' / dashes reads as 'no results' to every reviewer:
+    remove it together with its caption line."""
+    lines = md.split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        if lines[i].lstrip().startswith("|"):
+            j = i
+            while j < len(lines) and lines[j].lstrip().startswith("|"):
+                j += 1
+            rows = [[c.strip() for c in ln.strip().strip("|").split("|")] for ln in lines[i:j]]
+            body = [r for r in rows[1:] if not all(re.fullmatch(r":?-{2,}:?", c) for c in r)]
+            cells = [c for r in body for c in r[1:]]           # first column is the row label
+            if cells and sum(bool(_PLACEHOLDER.match(c)) for c in cells) >= 0.4 * len(cells):
+                if out and re.match(r"^table:", out[-1].strip(), re.I):
+                    out.pop()
+                i = j
+                continue
+            out += lines[i:j]
+            i = j
+            continue
+        out.append(lines[i])
+        i += 1
     return "\n".join(out)
 
 

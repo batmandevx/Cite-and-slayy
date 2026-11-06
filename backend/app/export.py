@@ -414,6 +414,14 @@ def _ref_text(s: str) -> str:
     return re.sub(r"^\s*(\[\d+\]|\d+[.)])\s*", "", s)
 
 
+def _aspect(png: bytes) -> float:
+    """Width / height of a PNG from its header (1.0 if it isn't one)."""
+    if png[:8] != b"\x89PNG\r\n\x1a\n" or len(png) < 24:
+        return 1.0
+    w, h = int.from_bytes(png[16:20], "big"), int.from_bytes(png[20:24], "big")
+    return w / h if h else 1.0
+
+
 def to_latex(md: str, title: str, template: Template = "ieee", author: str = "Author Name", affil: str = "Affiliation",
              assets: Assets | None = None) -> str:
     blocks = parse_md(md)
@@ -488,11 +496,14 @@ def to_latex(md: str, title: str, template: Template = "ieee", author: str = "Au
         elif b.kind == "image":
             fig += 1
             path = b.text
+            env_f, width = "figure", fig_w
             if b.text in assets.images:
                 path = f"figures/fig{fig}.png"
                 assets.files[path] = assets.images[b.text]
-            out.append(f"\\begin{{figure}}[!t]\n\\centering\n\\includegraphics[width={fig_w}]{{{path}}}\n"
-                       + (f"\\caption{{{T(b.caption)}}}\n" if b.caption else "") + f"\\label{{fig:{fig}}}\n\\end{{figure}}\n")
+                if template == "ieee" and _aspect(assets.images[b.text]) > 2.2:   # multi-panel: span both columns
+                    env_f, width = "figure*", "0.92\\textwidth"
+            out.append(f"\\begin{{{env_f}}}[!t]\n\\centering\n\\includegraphics[width={width}]{{{path}}}\n"
+                       + (f"\\caption{{{T(b.caption)}}}\n" if b.caption else "") + f"\\label{{fig:{fig}}}\n\\end{{{env_f}}}\n")
         elif b.kind == "mermaid" and n_diag < len(assets.diagrams) and assets.diagrams[n_diag]:
             fig += 1
             path = f"figures/fig{fig}.png"

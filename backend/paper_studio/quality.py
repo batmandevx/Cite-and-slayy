@@ -59,9 +59,13 @@ def cited_sentences(md: str) -> list[tuple[str, str, list[int]]]:
     return out
 
 
-async def check_all_claims(md: str, refs: list[dict], cap: int = 160, batch: int = 8, on_progress=None,
+async def check_all_claims(md: str, refs: list[dict], cap: int | None = None, batch: int = 8, on_progress=None,
                            fulltext_cap: int = 0) -> dict:
-    """Judge every (sentence, cited paper) pair, up to `cap` pairs. refs: numbered list (1-based) of dicts with title/abstract."""
+    """Judge every (sentence, cited paper) pair unless an explicit cap is requested.
+
+    The default is deliberately uncapped: silently skipping citation pairs makes a
+    manuscript appear verified when its later sections were never checked.
+    """
     pairs: list[tuple[int, str, int]] = []       # (sentence index, sentence, ref number)
     sents = cited_sentences(md)
     for si, (_, s, nums) in enumerate(sents):
@@ -70,7 +74,8 @@ async def check_all_claims(md: str, refs: list[dict], cap: int = 160, batch: int
                 pairs.append((si, s, n))
     # spread the budget: first citation of each sentence first, then the rest
     pairs.sort(key=lambda p: (sents[p[0]][2].index(p[2]) > 0, p[0]))
-    pairs = pairs[:cap]
+    if cap is not None:
+        pairs = pairs[:max(0, cap)]
     items = [(k, s, refs[n - 1].get("title", ""), refs[n - 1].get("abstract", "")) for k, (_, s, n) in enumerate(pairs)]
     sem = asyncio.Semaphore(4)
     judged: dict[int, object] = {}
@@ -135,6 +140,88 @@ async def check_all_claims(md: str, refs: list[dict], cap: int = 160, batch: int
         "synthesis_flags": synthesis,
         "support_rate": round(sum(r["label"] == "supported" for r in assessed) / len(assessed), 3) if assessed else None,
     }
+
+
+def publication_readiness(
+    *,
+    claims: dict,
+    structural_blockers: list[str] | None = None,
+    unmeasured_remaining: int = 0,
+    copied_paragraphs: int = 0,
+    invalid_equations: int = 0,
+    diagrams_removed: int = 0,
+    review_overall: float | None = None,
+    references: int = 0,
+) -> dict:
+    """Return a conservative, explainable submission gate for the generated manuscript.
+
+    This is not a venue acceptance prediction. It is a last-mile integrity gate:
+    unresolved evidence or reproducibility problems must be visible even when the
+    language-model reviewer is unavailable or overly generous.
+    """
+    blockers: list[str] = []
+    warnings: list[str] = []
+    blockers.extend(structural_blockers or [])
+    unsupported = int(claims.get("unsupported", 0) or 0)
+    unclear = int(claims.get("unclear", 0) or 0)
+    checked = int(claims.get("checked", 0) or 0)
+    support_rate = claims.get("support_rate")
+
+    if unsupported:
+        blockers.append(f"{unsupported} citation claim(s) remain unsupported")
+    if unmeasured_remaining:
+        blockers.append(f"{unmeasured_remaining} unmeasured claim(s) remain")
+    if copied_paragraphs:
+        blockers.append(f"{copied_paragraphs} paragraph(s) remain too close to source abstracts")
+    if invalid_equations:
+        blockers.append(f"{invalid_equations} equation(s) remain invalid")
+    if diagrams_removed:
+        warnings.append(f"{diagrams_removed} invalid diagram(s) were removed")
+    if references < 15:
+        warnings.append(f"only {references} references are included")
+    if checked == 0 and references:
+        blockers.append("no cited claims were assessed")
+    elif checked and support_rate is not None and support_rate < 0.8:
+        blockers.append(f"citation support rate is {support_rate:.0%}, below the 80% gate")
+    elif unclear and checked and unclear / checked > 0.2:
+        blockers.append(f"{unclear} citation claim(s) remain unclear ({unclear / checked:.0%})")
+    elif unclear:
+        warnings.append(f"{unclear} citation claim(s) remain unclear")
+    if review_overall is None:
+        blockers.append("review panel was unavailable")
+    elif review_overall < 7:
+        blockers.append(f"review panel score is {review_overall:.1f}/10, below the 7/10 gate")
+
+    score = 10.0
+    score -= min(3.0, unsupported * 0.5)
+    score -= min(2.0, unmeasured_remaining * 0.5)
+    score -= min(1.5, copied_paragraphs * 0.5)
+    score -= min(1.5, invalid_equations * 0.5)
+    if support_rate is not None:
+        score -= max(0.0, min(2.0, (0.8 - support_rate) * 5))
+    if review_overall is not None:
+        score -= max(0.0, min(2.0, (7.0 - review_overall) * 0.5))
+    return {
+        "score": round(max(0.0, min(10.0, score)), 1),
+        "ready": not blockers,
+        "blockers": blockers,
+        "warnings": warnings,
+    }
+
+
+def structural_issues(md: str, required_headings: set[str]) -> list[str]:
+    """Find missing manuscript scaffolding before an LLM-written paper is exported."""
+    headings = {m.group(1).strip().lower() for m in re.finditer(r"(?m)^# (.+?)\s*$", md)}
+    issues = [f"missing required section: {h}" for h in sorted(required_headings)
+              if h.strip().lower() not in headings]
+    abstract = re.search(r"(?ms)^# Abstract\s*\n(.*?)(?=^# |\Z)", md)
+    if not abstract or len(re.sub(r"\*\*Keywords:\*\*.*", "", abstract.group(1), flags=re.S).split()) < 80:
+        issues.append("abstract is missing or too short")
+    if not re.search(r"(?im)^\*\*Keywords:\*\*\s*\S+", md):
+        issues.append("keywords are missing")
+    if not re.search(r"(?im)^# Conclusion\s*$", md):
+        issues.append("conclusion is missing")
+    return issues
 
 
 def _shingles(text: str, n: int = 8) -> set[str]:

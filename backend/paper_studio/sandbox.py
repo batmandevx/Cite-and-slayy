@@ -17,6 +17,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import re
 import resource
 import subprocess
 import sys
@@ -29,6 +30,10 @@ ALLOWED_IMPORTS = {
     "numpy", "scipy", "sklearn", "pandas", "matplotlib", "matplotlib.pyplot", "statsmodels", "patsy",
     "matplotlib.lines", "matplotlib.patches", "matplotlib.ticker", "matplotlib.colors", "matplotlib.gridspec",
     "math", "statistics", "random", "itertools", "functools", "collections", "dataclasses", "typing", "heapq", "bisect",
+    # harmless pure-Python helpers models reach for (no files, processes or network)
+    "warnings", "time", "re", "copy", "operator", "string", "enum", "numbers", "fractions", "decimal", "textwrap",
+    "cycler", "scipy.stats", "scipy.optimize", "scipy.special", "scipy.linalg", "scipy.integrate", "scipy.signal",
+    "scipy.spatial", "scipy.sparse", "scipy.interpolate", "scipy.cluster", "scipy.ndimage",
 }
 BANNED_NAMES = {
     "eval", "exec", "compile", "open", "__import__", "globals", "locals", "vars", "getattr", "setattr", "delattr",
@@ -52,6 +57,23 @@ MAX_FIGS = 4
 
 class SandboxError(Exception):
     pass
+
+
+# x.savefig(...) / plt.show() calls (one level of nested parentheses), anywhere on a line
+_SAVEFIG = re.compile(r"\b[A-Za-z_][\w.]*\.(?:savefig|show)\((?:[^()]|\([^()]*\))*\)")
+
+
+def autofix(code: str) -> str:
+    """Repair the slips models make most often, so a run isn't wasted on them: fenced code, plt.savefig/plt.show
+    (figures go through save_figure), and an `if __name__ == "__main__":` guard (the harness runs the module body)."""
+    code = code.strip()
+    code = re.sub(r"^```(?:python|py)?\s*\n|\n```\s*$", "", code)
+    code = _SAVEFIG.sub("None", code)          # figures are saved by save_figure(); the call becomes a no-op
+    m = re.search(r"^if __name__\s*==\s*['\"]__main__['\"]\s*:\s*\n((?:[ \t]+.*\n?|\s*\n)+)", code, re.M)
+    if m:
+        import textwrap
+        code = code[:m.start()] + textwrap.dedent(m.group(1)) + code[m.end():]
+    return code
 
 
 def validate(code: str) -> None:

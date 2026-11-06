@@ -62,7 +62,7 @@ class DataExperiment:
 
 
 def _clean(code: str) -> str:
-    return code.strip().removeprefix("```python").removeprefix("```").removesuffix("```").strip()
+    return sandbox.autofix(code)
 
 
 def _summary(res: sandbox.SandboxResult) -> str:
