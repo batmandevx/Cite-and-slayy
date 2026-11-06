@@ -242,3 +242,34 @@ def test_paypal_me_claim_needs_owner_approval(env, monkeypatch):
     boss = login(app, "boss@citeslayy.com")
     assert boss.post(f"/api/admin/upi-claims/{r.json()['claim_id']}/approve", json={"note": "seen in PayPal"}).status_code == 200
     assert buyer.get("/api/auth/me").json()["plan"] == "pro"
+
+
+def test_new_users_start_free_and_payments_cannot_be_faked(env):
+    """A brand-new account is Free; nothing in Agent Pay or PayPal checkout upgrades it without a real, matching payment."""
+    app, fake = env
+    c = TestClient(app)
+    r = c.post("/api/auth/register", json={"email": "newbie@uni.edu", "name": "New", "password": "Correct-Horse-42!"})
+    assert r.status_code == 200, r.text
+    me = c.get("/api/auth/me").json()
+    assert me["plan"] == "free" and not me.get("is_owner")
+    # using Agent Pay (wallet, keys, agent calls) never changes the plan
+    topup(c, fake, 5)
+    a = agent(app, c.post("/api/agentpay/keys", json={"name": "bot"}).json()["key"])
+    a.post("/api/agent/v1/verify", json={"references": ["A. Real paper. 2017."]})
+    assert c.get("/api/auth/me").json()["plan"] == "free"
+    # an unpaid PayPal order can't be captured into a plan
+    oid = c.post("/api/billing/paypal/order", json={"item": "max"}).json()["order_id"]
+    assert c.post(f"/api/billing/paypal/order/{oid}/capture").status_code == 402
+    # someone else's paid order can't be claimed
+    other = login(app, "payer@uni.edu")
+    oid2 = other.post("/api/billing/paypal/order", json={"item": "max"}).json()["order_id"]
+    fake.approve(oid2)
+    assert c.post(f"/api/billing/paypal/order/{oid2}/capture").status_code == 404
+    # a wallet top-up order can't be passed off as a plan purchase
+    w_oid = c.post("/api/agentpay/topup", json={"amount_usd": 5}).json()["order_id"]
+    fake.approve(w_oid)
+    assert c.post(f"/api/billing/paypal/order/{w_oid}/capture").status_code == 404
+    # a PayPal.me claim alone does nothing, and a non-owner can't approve it
+    cid = c.post("/api/billing/paypal-me-claim", json={"item": "max", "txn_id": "9AB12345CD6789012"}).json()["claim_id"]
+    assert c.post(f"/api/admin/upi-claims/{cid}/approve", json={"note": ""}).status_code == 403
+    assert c.get("/api/auth/me").json()["plan"] == "free"
