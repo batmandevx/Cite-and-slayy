@@ -60,7 +60,9 @@ def _clip(md: str, limit: int) -> str:
 
 
 async def _one(role: str, prefer: list[str], dims: list[str], focus: str, md: str, kind: str) -> Review | None:
-    system = (f"You are an experienced, demanding peer reviewer for a {kind}. {focus}\n{CALIBRATION}\n"
+    from datetime import date
+    system = (f"You are an experienced, demanding peer reviewer for a {kind}. Today's date is {date.today():%d %B %Y}: works "
+              f"dated {date.today().year} or earlier are not from the future. {focus}\n{CALIBRATION}\n"
               "Quote the paper exactly when you point at a problem. Do not comment on formatting of the Markdown itself.")
     prompt = (f"Rubric dimensions to score: {', '.join(dims)}.\n\nPAPER:\n{_clip(md, llm.context_chars() - 6000)}\n\n"
               "Return scores for every rubric dimension, an overall score, a two-sentence summary and up to 6 issues.")

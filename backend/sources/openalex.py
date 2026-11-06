@@ -38,7 +38,7 @@ def to_paper(w: dict) -> Paper:
         url=w.get("id"), venue=src.get("display_name"), cited_by=w.get("cited_by_count"),
         abstract=reconstruct_abstract(w.get("abstract_inverted_index")),
         authors=[(a.get("author") or {}).get("display_name", "") for a in w.get("authorships") or []],
-        date=w.get("publication_date"), source="openalex",
+        date=w.get("publication_date"), source="openalex", core=src.get("is_core"), venue_type=src.get("type"),
     )
 
 

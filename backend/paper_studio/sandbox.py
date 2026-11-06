@@ -26,7 +26,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 ALLOWED_IMPORTS = {
-    "numpy", "scipy", "sklearn", "pandas", "matplotlib", "matplotlib.pyplot",
+    "numpy", "scipy", "sklearn", "pandas", "matplotlib", "matplotlib.pyplot", "statsmodels", "patsy",
+    "matplotlib.lines", "matplotlib.patches", "matplotlib.ticker", "matplotlib.colors", "matplotlib.gridspec",
     "math", "statistics", "random", "itertools", "functools", "collections", "dataclasses", "typing", "heapq", "bisect",
 }
 BANNED_NAMES = {
@@ -42,7 +43,7 @@ BANNED_ATTRS = {
     "fetch_olivetti_faces", "fetch_rcv1", "fetch_species_distributions", "f_globals", "f_locals", "f_back", "gi_frame",
     "cr_frame", "tb_frame", "co_code", "ctypeslib",
 }
-MAX_CODE = 12_000
+MAX_CODE = 24_000
 CPU_SECONDS = 60
 WALL_SECONDS = 90
 MEMORY_BYTES = 2_500 * 1024 * 1024
@@ -113,10 +114,24 @@ def _deny(event, args):
 
 _ready = [False]
 import numpy, scipy, sklearn, matplotlib
+try:   # pre-import the data stack so its own file reads happen before the audit hook
+    import pandas as _pd, statsmodels.api, statsmodels.formula.api
+except Exception:
+    _pd = None
 matplotlib.use("Agg")
 import matplotlib.pyplot as _plt
 sys.addaudithook(_deny)
 _ready[0] = True
+
+DATA_DIR = os.path.join(WORK, "data")
+
+def load_data(name):
+    """The datasets the pipeline placed in this run (read-only copies): returns a pandas DataFrame."""
+    fn = "".join(ch for ch in str(name) if ch.isalnum() or ch in "_-")[:60]
+    path = os.path.join(DATA_DIR, fn + ".csv")
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"no dataset named {name!r}; available: {sorted(f[:-4] for f in os.listdir(DATA_DIR)) if os.path.isdir(DATA_DIR) else []}")
+    return _pd.read_csv(path, low_memory=False)
 
 def report(name, value):
     v = float(value)
@@ -137,7 +152,7 @@ def save_figure(name, caption):
     RESULTS["figures"].append({"name": fn, "caption": str(caption)[:240]})
 
 code = open(sys.argv[1]).read()
-env = {"__name__": "__main__", "report": report, "report_table": report_table, "save_figure": save_figure}
+env = {"__name__": "__main__", "report": report, "report_table": report_table, "save_figure": save_figure, "load_data": load_data}
 exec(compile(code, "experiment.py", "exec"), env)
 with open(os.path.join(WORK, "results.json"), "w") as fh:
     json.dump(RESULTS, fh)
@@ -150,12 +165,13 @@ class SandboxResult:
     tables: list[dict] = field(default_factory=list)
     figures: list[tuple[str, str, bytes]] = field(default_factory=list)   # (name, caption, png)
     stderr: str = ""
+    stdout: str = ""
 
 
-def _limits(drop_to_nobody: bool):
+def _limits(drop_to_nobody: bool, cpu: int = CPU_SECONDS):
     def apply():
         os.setsid()
-        resource.setrlimit(resource.RLIMIT_CPU, (CPU_SECONDS, CPU_SECONDS))
+        resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu))
         try:
             resource.setrlimit(resource.RLIMIT_AS, (MEMORY_BYTES, MEMORY_BYTES))
         except (ValueError, OSError):      # macOS dev machines don't support RLIMIT_AS; Linux servers do
@@ -169,13 +185,19 @@ def _limits(drop_to_nobody: bool):
     return apply
 
 
-def run(code: str) -> SandboxResult:
-    """Validate and execute experiment code; returns what it reported. Raises SandboxError with a short reason."""
+def run(code: str, data: dict[str, bytes] | None = None, cpu: int | None = None, wall: int | None = None) -> SandboxResult:
+    """Validate and execute experiment code; returns what it reported. Raises SandboxError with a short reason.
+    `data`: {name: csv bytes} made available to the code through load_data(name)."""
     validate(code)
     work = Path(tempfile.mkdtemp(prefix="slayy-exp-"))
     try:
         (work / "experiment.py").write_text(code)
         (work / "harness.py").write_text(_HARNESS)
+        if data:
+            (work / "data").mkdir()
+            for name, raw in data.items():
+                fn = "".join(ch for ch in name if ch.isalnum() or ch in "_-")[:60]
+                (work / "data" / f"{fn}.csv").write_bytes(raw)
         root = os.geteuid() == 0
         if root:
             os.chown(work, 65534, 65534)
@@ -186,15 +208,16 @@ def run(code: str) -> SandboxResult:
                "OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1", "PYTHONDONTWRITEBYTECODE": "1"}
         try:
             proc = subprocess.run([sys.executable, "-I", "-B", str(work / "harness.py"), str(work / "experiment.py"), *read_ok],
-                                  cwd=work, env=env, capture_output=True, text=True, timeout=WALL_SECONDS,
-                                  preexec_fn=_limits(root))
+                                  cwd=work, env=env, capture_output=True, text=True, timeout=wall or WALL_SECONDS,
+                                  preexec_fn=_limits(root, cpu or CPU_SECONDS))
         except subprocess.TimeoutExpired as e:
-            raise SandboxError(f"timed out after {WALL_SECONDS}s") from e
+            raise SandboxError(f"timed out after {wall or WALL_SECONDS}s") from e
         if proc.returncode != 0:
             tail = (proc.stderr or "").strip().splitlines()[-3:]
             raise SandboxError("experiment failed: " + (" | ".join(tail)[:400] or f"exit code {proc.returncode}"))
         data = json.loads((work / "results.json").read_text())
-        out = SandboxResult(metrics=data.get("metrics", {}), tables=data.get("tables", []), stderr=proc.stderr[-2000:])
+        out = SandboxResult(metrics=data.get("metrics", {}), tables=data.get("tables", []), stderr=proc.stderr[-2000:],
+                            stdout=(proc.stdout or "")[-6000:])
         for f in data.get("figures", [])[:MAX_FIGS]:
             p = work / f"{f['name']}.png"
             if p.exists() and p.stat().st_size < 6_000_000 and p.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n":

@@ -1133,12 +1133,14 @@ async def paper_studio_plan(plan_id: str, request: Request):
         "dossier": pl.get("dossier", ""), "conflicts": pl.get("conflicts") or [], "experts": pl.get("experts") or [],
         "novelty": pl.get("novelty"), "style": (pl.get("style") or {}).get("stats"), "candidates": pl.get("candidates"),
         "snowballed": pl.get("snowballed"), "queries": pl.get("queries"),
+        "public_data": ({k: v for k, v in pl["public_data"].items() if k != "profile"} if pl.get("public_data") else None),
         "references": [{"n": i, "title": r["title"], "year": r.get("year"), "venue": r.get("venue"), "cited_by": r.get("cited_by"),
                         "url": f"https://doi.org/{r['doi']}" if r.get("doi") else r.get("url")} for i, r in enumerate(pl["refs"], 1)],
     }
 
 
 class PlanEdits(BaseModel):
+    use_public_data: bool = True
     title: str = ""
     research_question: str = ""
     contributions: list[str] = []
@@ -1423,6 +1425,22 @@ async def originality_reduce(body: OriginalityReduceRequest, request: Request):
         raise HTTPException(400, str(e)) from e
     auth.own("originality_scan", res["after_scan_id"], user)
     return res
+
+
+@app.get("/api/paper-studio/{pid}/analysis.py")
+async def paper_studio_analysis_code(pid: str, request: Request):
+    """The executed analysis script behind the paper's real-data results (reproducibility)."""
+    user = me(request)
+    auth.check_access("paper_studio", pid, user)
+    auth.require_paid(user, "exports")
+    p = get_store().get("paper_studio", pid) or {}
+    code = p.get("_analysis_code")
+    if not code:
+        raise HTTPException(404, "This paper has no analysis script.")
+    head = (f'"""Analysis script for: {p.get("title", "")}\n\nExecuted by Cite & Slayy Paper Studio in an isolated sandbox. load_data(name) '
+            'returned the dataset listed in the paper\'s Data Availability section as a pandas DataFrame; report(), report_table() '
+            'and save_figure() recorded the results.\n"""\n\n')
+    return PlainTextResponse(head + code, headers={"content-disposition": 'attachment; filename="analysis.py"'})
 
 
 @app.get("/api/paper-studio/{pid}/fig/{name}.png")

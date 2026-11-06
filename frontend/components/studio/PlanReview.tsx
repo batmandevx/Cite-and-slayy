@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { BookMarked, ChevronDown, ClipboardCheck, ExternalLink, Lightbulb, PenLine, Plus, Scale, Search, Trash2, Users, Wand2, X } from "lucide-react";
+import { BookMarked, ChevronDown, ClipboardCheck, Database, ExternalLink, Lightbulb, PenLine, Plus, Scale, Search, Trash2, Users, Wand2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, toast } from "@/lib/api";
 import { RichMarkdown } from "../notes/RichMarkdown";
@@ -18,6 +18,7 @@ export interface StudioPlan {
   novelty?: { verdict: string; explanation: string; repositioning?: string; closest: { title: string; year?: number; similarity: number }[] } | null;
   style?: { venue?: string; abstract_words_median?: number; references_median?: number } | null;
   candidates?: number; snowballed?: number; queries?: string[];
+  public_data?: { name: string; rows: number; columns: string[]; sources: { title: string; url?: string; licence?: string }[]; questions: string[]; rationale: string } | null;
   references: { n: number; title: string; year?: number; venue?: string; cited_by?: number; url?: string }[];
 }
 
@@ -50,6 +51,7 @@ export function PlanReview({ planId, onWrite, onDiscard }: { planId: string; onW
   const [briefs, setBriefs] = useState<Record<string, string>>({});
   const [excluded, setExcluded] = useState<number[]>([]);
   const [instructions, setInstructions] = useState("");
+  const [useData, setUseData] = useState(true);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -68,7 +70,7 @@ export function PlanReview({ planId, onWrite, onDiscard }: { planId: string; onW
       const { job_id } = await api.post<{ job_id: string }>(`/api/paper-studio/plans/${planId}/write`, {
         title: title !== plan.title ? title : "", research_question: rq !== plan.research_question ? rq : "",
         contributions: contribs.join("\n") !== plan.contributions.join("\n") ? contribs.filter((c) => c.trim()) : [],
-        briefs: changed, exclude_refs: excluded, instructions,
+        briefs: changed, exclude_refs: excluded, instructions, use_public_data: useData,
       });
       onWrite(job_id);
     } catch (e) {
@@ -145,6 +147,26 @@ export function PlanReview({ planId, onWrite, onDiscard }: { planId: string; onW
         </div>
 
         <div className="space-y-3">
+          {plan.public_data ? (
+            <div className={clsx("rounded-2xl border-[2.5px] border-edge p-4", useData ? "bg-blue text-white" : "bg-surface-2")}>
+              <div className="flex items-center gap-2 font-display font-extrabold"><Database className="size-4" />Real open data found</div>
+              <ul className="mt-1.5 space-y-1 text-sm">
+                {plan.public_data.sources.map((x) => (
+                  <li key={x.title}>• {x.url ? <a href={x.url} target="_blank" rel="noreferrer" className="underline">{x.title}</a> : x.title}{x.licence ? ` (${x.licence})` : ""}</li>
+                ))}
+              </ul>
+              <p className="mt-1.5 text-xs opacity-90">{plan.public_data.rows.toLocaleString()} rows · the experiment agent will write and run the analysis code and report the real results, tables and charts.</p>
+              <ul className="mt-1.5 list-disc pl-5 text-xs opacity-90">{plan.public_data.questions.map((q) => <li key={q}>{q}</li>)}</ul>
+              <label className="mt-2 flex items-center gap-2 text-xs font-bold">
+                <input type="checkbox" checked={useData} onChange={(e) => setUseData(e.target.checked)} className="size-4 accent-[var(--lime)]" />Analyse this data in my paper
+              </label>
+            </div>
+          ) : (
+            <div className="rounded-2xl border-[2.5px] border-dashed border-edge p-4 text-sm text-ink-2">
+              <div className="flex items-center gap-2 font-display font-extrabold text-ink"><Database className="size-4" />No open dataset fits closely</div>
+              <p className="mt-1 text-xs">The paper will design a study rather than report results. Upload your own CSV next time to get real results.</p>
+            </div>
+          )}
           <div className={clsx("rounded-2xl border-[2.5px] border-edge p-4 text-[#121212]", vColor)}>
             <div className="flex items-center gap-2 font-display font-extrabold"><Search className="size-4" />Novelty check: {vLabel}</div>
             {plan.novelty?.explanation && <p className="mt-1 text-sm">{plan.novelty.explanation}</p>}

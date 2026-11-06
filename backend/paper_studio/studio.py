@@ -55,7 +55,7 @@ from backend.documents.parser import Paragraph
 from backend.embeddings.model import embed_async
 from backend.llm import client as llm
 from backend.paper_studio import dossier as dossier_mod
-from backend.paper_studio import experiments, figures, literature, quality, review, userdata
+from backend.paper_studio import datasets, experiment_agent, experiments, figures, literature, quality, review, userdata
 from backend.paper_studio.paper_types import CLASSIFY_HINT, METHOD, PLANS, TYPE_LABEL, TypePlan
 from backend.sources import arxiv, openalex
 from backend.sources import semantic_scholar as s2
@@ -162,7 +162,7 @@ class _Fixes(BaseModel):
 
 
 # The technical-paper section plan (other paper types live in paper_types.py).
-SECTIONS: list[tuple[str, str, str]] = [(x.key, x.heading, x.task) for x in METHOD.sections]
+SECTIONS: list[tuple[str, str, str]] = [(x.key, x.heading, x.task) for x in METHOD.active(False)]
 
 RULES = """Writing rules (strict):
 - Authoritative journal style: clear, dense, technically precise academic English in original wording. Every paragraph adds
@@ -170,7 +170,11 @@ RULES = """Writing rules (strict):
   would fit any paper.
 - Never copy or closely paraphrase sentences from reference abstracts. Synthesize ideas in fresh scholarly prose.
 - Cite only with bracketed numbers from REFERENCES, e.g. [3] or [2], [7]. Cite a paper ONLY for what its abstract supports,
-  and prefer comparing papers to listing them.
+  and prefer comparing papers to listing them. Name an author only exactly as shown in REFERENCES (e.g. "Smith et al. [4]").
+- Claim novelty precisely and modestly: never "the first", "novel" or "unprecedented" unless the dossier's novelty check
+  supports it; describe work this paper proposes but has not run in the future or conditional tense.
+- Never announce a table, figure or list ("as follows:", "the table below") unless you include it right there.
+- Numbers, thresholds, sample sizes and hypothesis wording must be identical everywhere they appear.
 - Never invent empirical numbers, benchmark scores, dataset sizes, p-values, or experimental outcomes. The ONLY empirical/bibliometric numbers you may report are in FACTS (or explicitly attributed to a cited abstract that states them).
 - Use the terminology and notation in PAPER MEMORY exactly; introduce new terms explicitly.
 - Output Markdown only. Start with the exact level-1 heading you are given. Use ## for subsections.
@@ -180,7 +184,7 @@ RULES = """Writing rules (strict):
 
 TYPE_RULES = {
     "method": "- The proposed method has NOT been empirically executed. Never write that it achieves, outperforms, reduces error by X%, demonstrates empirically, or attains state-of-the-art results; phrase expectations as hypotheses, design goals, or formal properties under the stated assumptions.",
-    "empirical": "- Unless USER DATA ANALYSIS appears in FACTS, the study has NOT been run: describe it as a proposed study and never report its results. If USER DATA ANALYSIS is present, report only those numbers.",
+    "empirical": "- Unless DATA ANALYSIS appears in FACTS, the study has NOT been run: describe it as a proposed study and never report its results. If DATA ANALYSIS is present, report only those numbers and describe the analysis as a secondary analysis of that dataset.",
     "review": "- This is a review: every claim about findings must cite the studies that report them. Do not present your own new results; the only numbers are those in FACTS or stated in cited abstracts.",
     "position": "- This is a position paper: separate evidence (cited) from argument (yours) explicitly. Do not present new empirical results.",
 }
@@ -210,13 +214,20 @@ def _tags(p: Paper) -> str:
     return f" [{'; '.join(t)}]" if t else ""
 
 
+def _who(p: Paper) -> str:
+    if not p.authors:
+        return ""
+    last = p.authors[0].split()[-1] if p.authors[0].split() else p.authors[0]
+    return f"{last}{' et al.' if len(p.authors) > 2 else (' and ' + p.authors[1].split()[-1] if len(p.authors) == 2 and p.authors[1].split() else '')}, "
+
+
 def _ref_listing(refs: list[Paper], ids: list[int] | None = None, abstract_chars: int = 440) -> str:
     rows = []
     for i, p in enumerate(refs, 1):
         if ids and i not in ids:
-            rows.append(f"[{i}] {p.title} ({p.year}){_tags(p)}" + (f" TL;DR: {p.tldr}" if p.tldr else ""))
+            rows.append(f"[{i}] {_who(p)}{p.title} ({p.year}){_tags(p)}" + (f" TL;DR: {p.tldr}" if p.tldr else ""))
         else:
-            rows.append(f"[{i}] {p.title} ({p.year}, {p.venue or 'n/a'}){_tags(p)}\n    Abstract: {(p.abstract or '')[:abstract_chars]}")
+            rows.append(f"[{i}] {_who(p)}{p.title} ({p.year}, {p.venue or 'n/a'}){_tags(p)}\n    Abstract: {(p.abstract or '')[:abstract_chars]}")
     return "\n".join(rows)
 
 
@@ -674,7 +685,13 @@ async def plan_paper(req: StudioRequest, ctx) -> str:
         sims = np.concatenate([sims, (await embed_async([f"{p.title}. {p.abstract}" for p in recs]) @ tv.T).ravel()])
         sources_used["Semantic Scholar recommendations"] += len(recs)
     await say("librarian", "done", f"{len(snow)} work(s) via citation chaining · {len(recs)} via recommendations · {enriched} enriched", 0.1)
+    sims = sims - np.array([literature.venue_penalty(p) for p in pool])
+    pool_d, dup_n = literature.dedupe([pool[i] for i in np.argsort(-sims)])
+    keep = {id(p) for p in pool_d}
+    mask = np.array([id(p) in keep for p in pool])
+    pool, sims = [p for p in pool if id(p) in keep], sims[mask]
     ranked = literature.balanced_select(pool, sims, req.max_refs + 8, this_year, seeds, {p.id for p in snow} | {p.id for p in recs})
+    ranked, _ = literature.dedupe(ranked)
     await say("scout", "run", f"{len(pool)} candidate papers; screening {len(ranked)} against Crossref retractions…", 0.1)
     sem = asyncio.Semaphore(6)
 
@@ -701,6 +718,7 @@ async def plan_paper(req: StudioRequest, ctx) -> str:
     for ph in phrases:
         try:
             counts, _ = await openalex.trend(ph, from_year=this_year - 10)
+            counts = {y: n for y, n in counts.items() if y < this_year}   # a partial year only confuses readers
             if counts:
                 trends[ph] = counts
         except SourceError:
@@ -711,7 +729,7 @@ async def plan_paper(req: StudioRequest, ctx) -> str:
     figs: dict[str, tuple[bytes, str]] = {}
     if trends:
         figs["trend"] = (figures.trend_chart(trends), "Annual publication trajectory for core topic phrases "
-                         f"(OpenAlex, {this_year - 10}–{this_year}; {this_year} reflects partial-year indexing).")
+                         f"(OpenAlex, {this_year - 10}–{this_year - 1}, complete years only).")
     figs["years"] = (figures.reference_years_chart([p.year for p in refs if p.year]),
                      "Temporal distribution and median publication year of works in the reference corpus.")
     figs["impact"] = (figures.citation_impact_chart([(f"[{i}]", p.cited_by or 0) for i, p in enumerate(refs, 1)]),
@@ -738,7 +756,7 @@ async def plan_paper(req: StudioRequest, ctx) -> str:
         first, last = min(full), max(full)
         facts.append(f"- Phrase “{ph}”: {full[first]} indexed works in {first}, {full[last]} in {last}"
                      + (f" ({full[last] / full[first]:.1f}x)" if full[first] else "")
-                     + f"; {c.get(this_year, 0)} indexed so far in {this_year} (partial year). Yearly counts: "
+                     + "; complete years only. Yearly counts: "
                      + ", ".join(f"{y}: {n}" for y, n in sorted(c.items())))
     if years:
         recent_n = sum(1 for y in years if y >= this_year - 3)
@@ -770,14 +788,35 @@ async def plan_paper(req: StudioRequest, ctx) -> str:
     if style_task:
         await say("dossier", "done", f"Style guide from {style['stats']['venue']}" if style else f"Couldn't find “{req.venue}”; using general style")
 
+    # ---- Data scout: real open data the paper can analyse (skipped when the author brought their own) ----
+    public = None
+    if not req.dataset_id:
+        await say("datascout", "run", "Searching 8,900 open datasets (OpenML, Our World in Data, World Bank)…", 0.405)
+        try:
+            sc = await datasets.scout(topic, angle, dossier[-4000:])
+            if sc and sc["candidates"]:
+                ds = await datasets.fetch(sc["candidates"])
+                if ds and ds.rows >= 30:
+                    store.put("studio_public_data", plan_id, datasets.to_record(ds))
+                    public = {"name": ds.name, "rows": ds.rows, "columns": ds.columns[:40], "profile": ds.profile[:2500],
+                              "sources": ds.sources, "questions": sc["choice"]["questions"], "rationale": sc["choice"]["rationale"]}
+        except Exception as e:   # noqa: BLE001 - open data is a bonus; the paper never fails for lack of it
+            print(f"data scout failed: {type(e).__name__}: {e}"[:300])
+            public = None
+        await say("datascout", "done", (f"Found open data: {', '.join(x['title'][:50] for x in public['sources'])} ({public['rows']:,} rows)"
+                                        if public else "No open dataset fits this topic closely; the paper will design a study instead"), 0.41)
+
     # ---- Architect ----
     await say("architect", "run", f"Designing the {TYPE_LABEL[ptype].lower()}…", 0.42)
-    specs = tplan.active(bool(req.dataset_id))
+    specs = tplan.active(bool(req.dataset_id or public))
     outline = await llm.complete_json(
         f"You are a principal investigator designing a rigorous {TYPE_LABEL[ptype].lower()} grounded strictly in the dossier, "
         "the references and the measured facts.",
         f"Topic: {topic}\nAuthor's angle: {angle or '(none)'}{seed_hint}\nPAPER TYPE: {TYPE_LABEL[ptype]}. Design {tplan.architect}.\n"
         + (f"USER DATASET (analysed after this plan; hypotheses must be testable with it): {req.dataset_note or 'provided'}\n" if req.dataset_id else "")
+        + (f"OPEN DATA (it WILL be analysed with real code after this plan, so design the research question and hypotheses to be "
+           f"testable with it; the paper reports those real results):\nSOURCES: {[x['title'] for x in public['sources']]}\n"
+           f"{public['profile'][:1800]}\nQUESTIONS IT CAN ANSWER: {public['questions']}\n" if public else "")
         + f"\nDOSSIER:\n{dossier}\n\nFACTS (measured):\n{facts_txt}\n\nREFERENCES:\n{_ref_listing(refs, abstract_chars=220)}\n\n"
         + (f"TARGET VENUE STYLE:\n{style['card']}\n\n" if style and style.get("card") else "")
         + "Fill: title (specific and informative; method papers may start with '<ACRONYM>: '); research_question (one sharp "
@@ -829,7 +868,7 @@ async def plan_paper(req: StudioRequest, ctx) -> str:
         "facts": facts_txt, "trends": {k: sorted(v.items()) for k, v in trends.items()},
         "figs": {k: cap for k, (_, cap) in figs.items()}, "outline": outline.model_dump(), "dossier": dossier,
         "conflicts": cs, "experts": [p.role for p, _ in notes], "style": style, "novelty": nov, "novelty_note": novelty_note,
-        "seeded": [p.title for p in seeds], "created_at": now().isoformat(), "status": "planned",
+        "seeded": [p.title for p in seeds], "created_at": now().isoformat(), "status": "planned", "public_data": public,
     })
     await say("plan", "done", "Plan ready", 0.5, plan_id=plan_id)
     return plan_id
@@ -903,15 +942,14 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
     facts_txt, dossier, novelty_note, style = pl["facts"], pl["dossier"], pl.get("novelty_note", ""), pl.get("style")
     captions: dict[str, str] = dict(pl["figs"])
     trends = {k: dict(v) for k, v in pl["trends"].items()}
-    this_year = date.today().year
     method_label = (outline.method_name if outline.method_acronym and outline.method_acronym in outline.method_name
                     else f"{outline.method_name} ({outline.method_acronym})" if outline.method_acronym else outline.method_name)
     briefs = {b.key: b for b in outline.briefs}
 
-    # ---- Data: the user's dataset, or pilot experiments for method papers ----
+    # ---- Data: the author's dataset, else the open dataset found by the data scout; method papers also get a simulation ----
     exp = experiments.Experiments()
-    data: userdata.DataResult | None = None
-    data_error = ""
+    data = None
+    data_error, data_sources, analysis_code = "", [], ""
     if req.dataset_id and (rec := store.get("studio_data", req.dataset_id)):
         await say("statistician", "run", "Analysing your dataset…", 0.51)
         try:
@@ -919,14 +957,27 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
                                           "\n".join(outline.hypotheses) or outline.research_question, say)
         except userdata.DataError as e:
             data_error = str(e)
-        if data and data.facts:
-            facts_txt += ("\nUSER DATA ANALYSIS (executed by the pipeline on the author's dataset; report exactly these numbers):\n"
-                          + "\n".join(data.facts))
-            for name, (png, cap) in data.figures.items():
-                captions[name] = cap
-                store.put("paper_fig", f"{pid}-{name}", {"png": base64.b64encode(png).decode()})
+        data_sources = [{"title": f"Author-provided dataset ({rec.get('name', 'data.csv')})", "url": "", "licence": "", "citation": ""}]
         await say("statistician", "done", f"{len(data.facts) - 1 if data else 0} analyses run" if data else f"Dataset skipped: {data_error}", 0.53)
-    elif tplan.experiments:
+        origin = "the author's dataset"
+    elif edits.get("use_public_data", True) is not False and pl.get("public_data") and (prec := store.get("studio_public_data", plan_id)):
+        ds = datasets.from_record(prec)
+        await say("experimenter", "run", f"Analysing real open data ({ds.rows:,} rows) with code…", 0.51)
+        design_q = (f"RESEARCH QUESTION: {outline.research_question}\nHYPOTHESES: {outline.hypotheses or outline.contributions}\n"
+                    f"DESIGN: {outline.method_summary}\nQUESTIONS THE DATA CAN ANSWER: {pl['public_data'].get('questions')}")
+        data = await experiment_agent.run(ds, design_q, say, prefer=_best())
+        data_error = (data.report or {}).get("error", "")
+        data_sources, analysis_code = ds.sources, data.code
+        await say("experimenter", "done", (f"Real-data analysis: {data.report.get('metrics', 0)} results · {data.report.get('tables', 0)} tables · "
+                                           f"{data.report.get('figures', 0)} figures · {data.report.get('critic_rounds', 0)} methods review(s)")
+                  if data.facts else f"Open-data analysis skipped: {data_error[:120]}", 0.53)
+        origin = "an open dataset"
+    if data and data.facts:
+        facts_txt += (f"\nDATA ANALYSIS (executed by the pipeline on {origin}; report exactly these numbers):\n" + "\n".join(data.facts))
+        for name, (png, cap) in data.figures.items():
+            captions[name] = cap
+            store.put("paper_fig", f"{pid}-{name}", {"png": base64.b64encode(png).decode()})
+    if tplan.experiments:
         design = ("ASSUMPTIONS:\n" + "\n".join(outline.formal_assumptions) + f"\nANALYTICAL CLAIM: {outline.formal_claim}\n"
                   f"FAILURE REGIME: {outline.failure_boundary}\nCONTRIBUTIONS: {outline.contributions}")
         exp = await experiments.run_for_paper(req.topic, method_label, outline.method_summary, say, design=design, prefer=_best())
@@ -956,7 +1007,8 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
                   + f"REFERENCES:\n{_ref_listing(refs, ids or None, abstract_chars=700)}\n"
                   + (f"DO NOT CITE these excluded references: {sorted(excluded)}\n" if excluded else "")
                   + f"\nSECTION: # {sp.heading}\nARCHITECT BRIEF: {b.brief if b else ''}\nCHECKLIST (every item is required): {sp.task}\n"
-                  "Length: as long as the checklist needs, typically 900-1,500 words. Every paragraph must add something new.")
+                  "Length: as short as the checklist allows, typically 600-1,100 words (the whole paper should read at 7,000-8,500 words). "
+                  "Every paragraph must add something new; cut throat-clearing, restatements and generic sentences.")
         tier = "fast" if sp.key == tplan.analysis_key else "main"     # reporting measured counts needs no frontier model
         text = re.sub(r"^```(?:markdown)?\n|\n```$", "", (await llm.complete(system, prompt, effort="medium", max_tokens=8000, tier=tier,
                                                                          prefer=_best() if tier == "main" else None)).strip())
@@ -1103,6 +1155,9 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
     allowed = _allowed_numbers(facts_txt, *(p.abstract or "" for p in refs))
     body, fabricated_tables = strip_unmeasured_tables(body, allowed)
     paras = _paragraphs(body)
+    for k in dangling_announcements(body):
+        flags.setdefault(k, []).append("this paragraph announces a table or list that is not there; rewrite it so it stands on "
+                                       "its own (give the content as prose, or drop the announcement)")
     design = {s.heading for s in specs if s.design}
     unmeasured = 0
     for k, (st, _, t) in enumerate(paras):
@@ -1232,7 +1287,29 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
         except llm.LLMError:
             pass
     highlights = [h for h in front.highlights if not _unmeasured(h, allowed, method_label)]
-    await say("editor", "done", "Abstract, keywords, highlights & summary ready", 0.95)
+    # ---- Final consistency check across abstract and body: numbers, thresholds, hypotheses and claims must agree ----
+    final_fixes = 0
+    try:
+        fx = await llm.complete_json(
+            "You are a meticulous copy editor checking a finished manuscript for internal inconsistencies only.",
+            f"ABSTRACT:\n{abstract}\n\nPAPER:\n{body[: llm.context_chars() - 12000]}\n\nList up to 12 edits that make the paper "
+            "consistent: numbers, thresholds, sample sizes, hypothesis wording, design details, names of methods or measures, "
+            "and claims that differ between the abstract and the body or between sections. Prefer changing the place that "
+            "disagrees with the Methods / formulation. Copy `find` exactly (one sentence or less) from the ABSTRACT or the PAPER.",
+            _Fixes, effort="medium", max_tokens=5000)
+        for e in fx.edits:
+            f_ = e.find.strip()
+            if len(f_) < 8 or re.search(r"\[\[|```|\$\$|^\|", f_, re.M):
+                continue
+            if abstract.count(f_) == 1:
+                abstract = abstract.replace(f_, e.replace.strip())
+                final_fixes += 1
+            elif body.count(f_) == 1:
+                body = body.replace(f_, e.replace.strip())
+                final_fixes += 1
+    except llm.LLMError:
+        pass
+    await say("editor", "done", f"Abstract, keywords, highlights & summary ready · {final_fixes} final consistency fix(es)", 0.95)
 
     remaining = sum(len(_unmeasured(t, allowed, method_label)) for st, _, t in _paragraphs(body)
                     if _section_of(body, st) not in design) + len(_unmeasured(abstract, allowed, method_label))
@@ -1240,7 +1317,7 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
     phrase_hits = find_phrases([body], None)
 
     # ---- Assemble ----
-    body = enforce_headings(body, {s.heading for s in specs} | {"Conclusion", "Pilot Experiments"})
+    body = enforce_headings(body, {s.heading for s in specs} | {"Conclusion", "Pilot Experiments", "Data Availability"})
     body, order = _renumber(body)
     old_to_new = {old: new for new, old in enumerate(order, 1)}
     cited_refs = [refs[o - 1] for o in order]
@@ -1251,8 +1328,7 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
     trend_rows = ""
     if trends:
         yrs = sorted({y for c in trends.values() for y in c})
-        trend_rows = ("Table: Annual OpenAlex publication counts matching each phrase ("
-                      f"{this_year} partial year)\n| Year | " + " | ".join(trends) + " |\n|---|" + "---|" * len(trends) + "\n"
+        trend_rows = ("Table: Annual OpenAlex publication counts matching each phrase (complete years)\n| Year | " + " | ".join(trends) + " |\n|---|" + "---|" * len(trends) + "\n"
                       + "\n".join(f"| {y} | " + " | ".join(str(c.get(y, 0)) for c in trends.values()) + " |" for y in yrs))
     top = sorted(((old_to_new[i], p) for i, p in enumerate(refs, 1) if i in old_to_new), key=lambda t: -(t[1].cited_by or 0))[:10]
     ref_table = ("Table: Representative foundational and recent works in the cited corpus (metadata via OpenAlex)\n"
@@ -1290,7 +1366,14 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
     figs_png = figures.citation_impact_chart([(f"[{old_to_new[i]}]", p.cited_by or 0) for i, p in enumerate(refs, 1) if i in old_to_new])
     store.put("paper_fig", f"{pid}-impact", {"png": base64.b64encode(figs_png).decode()})
 
-    md = (f"# Abstract\n\n{abstract.strip()}\n\n**Keywords:** {', '.join(front.keywords[:6])}\n\n{body.strip()}\n\n"
+    availability = ""
+    if data and data.facts and data_sources:
+        availability = ("# Data Availability\n\n" + "\n".join(
+            f"- {x['title']}" + (f", {x['citation']}" if x.get("citation") else "") + (f". Available at {x['url']}" if x.get("url") else "")
+            + (f" (licence: {x['licence']})" if x.get("licence") else "") + "." for x in data_sources)
+            + ("\n\nThe complete analysis script that produced every reported number, table and figure accompanies this "
+               "manuscript (analysis.py)." if analysis_code else "") + "\n\n")
+    md = (f"# Abstract\n\n{abstract.strip()}\n\n**Keywords:** {', '.join(front.keywords[:6])}\n\n{body.strip()}\n\n" + availability
           + ("# Acknowledgment\n\nThe authors used AI-assisted research and drafting tools to prepare portions of this manuscript "
              "and verified all formal derivations, citations, and bibliometric figures. Bibliometric statistics were computed "
              "directly from OpenAlex and Crossref metadata.\n\n" if req.ai_disclosure else "")
@@ -1321,7 +1404,7 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
         "paper_type": ptype, "references": len(cited_refs), "candidates": pl["candidates"], "retraction_checked": pl["checked"],
         "retracted_excluded": pl["dropped"], "snowballed": pl.get("snowballed", 0), "experts": pl.get("experts", []),
         "conflicts_found": len(pl.get("conflicts") or []), "novelty": pl.get("novelty"),
-        "venue_style": (style or {}).get("stats", {}).get("venue"), "consistency_edits": consistency,
+        "venue_style": (style or {}).get("stats", {}).get("venue"), "consistency_edits": consistency, "final_consistency_fixes": final_fixes,
         "consistency_error": consistency_error or None,
         "review_panel": {"overall": pan["overall"], "scores": pan["scores"], "issues": len(pan["issues"]),
                          "sections_revised": revised_sections, "rounds": rounds,
@@ -1336,7 +1419,9 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
         "paragraphs_revised": revised, "verbatim_paragraphs_after": copied_after, "unmeasured_tables_removed": fabricated_tables,
         "tortured_phrases": [h.phrase for h in phrase_hits], "uncited_refs_dropped": len(refs) - len(cited_refs),
         "figures_checked": len(fig_names), "captions_corrected": recaptioned, "figure_issues": fig_issues,
-        "experiments": exp.report, "data_analysis": (data.report if data else ({"error": data_error} if data_error else None)),
+        "experiments": exp.report,
+        "data_analysis": ({**(data.report or {}), "sources": [x["title"] for x in data_sources]} if data and data.facts
+                          else ({"error": data_error} if data_error else None)),
     }
     result = {
         "paper_id": pid, "plan_id": plan_id, "paper_type": ptype, "topic": req.topic, "angle": req.angle, "title": outline.title,
@@ -1349,7 +1434,8 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
         "template": req.template, "author": req.author, "affiliation": req.affiliation, "created_at": now().isoformat(),
         "seeded": pl.get("seeded", []),
         "_refs": [p.model_dump() for p in cited_refs], "_facts": facts_txt + ("\n" + exp.markdown if exp.markdown else ""),
-        "_method": method_label, "versions": [],
+        "_method": method_label, "versions": [], "_analysis_code": analysis_code,
+        "has_analysis_code": bool(analysis_code),
     }
     store.put("paper_studio", pid, result)
     store.put(PLAN_KIND, plan_id, {**pl, "status": "written", "paper_id": pid})
@@ -1486,6 +1572,21 @@ def normalize_section(text: str, heading: str, allow: tuple[str, ...] = ("Conclu
                     line = f"## {title}"
         out.append(line)
     return repair_fences("\n".join(out))
+
+
+_ANNOUNCE = re.compile(r"\b(?:the (?:following|table|list) (?:below|table|list)|as follows|summari[sz]ed (?:below|in the table below))\b", re.I)
+_BLOCK_START = ("|", "Table:", "Figure:", "-", "*", "+", "$$", "```", "![", ">", "**Algorithm")
+
+
+def dangling_announcements(md: str) -> list[int]:
+    """Indexes (into _paragraphs) of paragraphs that announce a table or list that does not follow."""
+    out = []
+    for k, (st, en, t) in enumerate(_paragraphs(md)):
+        nxt = md[en:en + 400].lstrip()
+        follows = nxt.startswith(_BLOCK_START) or bool(re.match(r"\d+[.)]\s", nxt))
+        if (t.rstrip().endswith(":") or _ANNOUNCE.search(t[-220:])) and not follows:
+            out.append(k)
+    return out
 
 
 def enforce_headings(md: str, allowed: set[str]) -> str:

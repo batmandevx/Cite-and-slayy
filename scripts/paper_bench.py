@@ -33,6 +33,8 @@ TOPICS = [
     ("Graph neural networks for traffic forecasting", ""),
     ("Effect of smartphone use before bedtime on adolescent sleep quality", ""),
     ("Large language model tutors in school education: benefits, risks and evidence", ""),
+    ("Internet access and educational attainment in developing countries", ""),             # open data exists (World Bank / OWID)
+    ("Machine learning for credit default prediction: gradient boosting versus neural networks", ""),   # open data exists (OpenML)
 ]
 OUT = Path(__file__).resolve().parents[1] / "bench"
 

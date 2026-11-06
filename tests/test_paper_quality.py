@@ -20,7 +20,7 @@ def test_every_paper_type_has_a_coherent_plan():
         assert plan.sections[0].key == "intro" and plan.sections[0].stage == max(s.stage for s in plan.sections), key
     emp = paper_types.EMPIRICAL
     assert "results" not in [s.key for s in emp.active(False)] and "results" in [s.key for s in emp.active(True)]
-    assert [k for k, *_ in studio.SECTIONS] == [s.key for s in paper_types.METHOD.sections]
+    assert [k for k, *_ in studio.SECTIONS] == [s.key for s in paper_types.METHOD.active(False)]
 
 
 def test_math_intervals_never_become_citations():
@@ -148,3 +148,36 @@ def test_dataset_upload_and_plan_review_flow(client, monkeypatch):
     assert a.post("/api/paper-studio/plans/pltest00001/write", json={"title": "New title"}).status_code == 200
     assert a.post("/api/paper-studio/plans/pltest00001/write", json={}).status_code == 409   # can't spend one credit twice
     assert auth.check_access  # imported for clarity
+
+
+def test_sandbox_gives_code_its_dataset_and_nothing_else():
+    from backend.paper_studio import sandbox
+    csv = b"x,y\n" + b"\n".join(f"{i},{3 * i + 2}".encode() for i in range(40))
+    res = sandbox.run("import numpy as np\ndf = load_data('d')\nprint(len(df))\nreport('slope', float(np.polyfit(df.x, df.y, 1)[0]))",
+                      data={"d": csv})
+    assert abs(res.metrics["slope"] - 3) < 1e-9 and res.stdout.strip() == "40"
+    with pytest.raises(sandbox.SandboxError):
+        sandbox.run("import pandas as pd\npd.read_csv('/etc/passwd')")
+    with pytest.raises(sandbox.SandboxError):
+        sandbox.run("df = load_data('../../etc/passwd')\nreport('n', len(df))", data={"d": csv})
+
+
+def test_experiment_agent_fixes_errors_and_respects_the_critic(monkeypatch):
+    from backend.paper_studio import experiment_agent as X
+    from backend.paper_studio.datasets import Dataset
+    csv = b"a,b\n" + b"\n".join(f"{i},{2 * i}".encode() for i in range(50))
+    ds = Dataset(name="demo", csv=csv, rows=50, columns=["a", "b"], profile="a, b numeric", sources=[{"title": "Demo", "url": "u"}])
+    calls = {"n": 0}
+    broken = "df = load_data('demo')\nreport('x', undefined_name)"
+    good = ("import numpy as np\ndf = load_data('demo')\nreport('corr_a_b', float(np.corrcoef(df.a, df.b)[0, 1]))\n"
+            "report_table('Summary', ['n'], [[len(df)]])")
+
+    async def fake(system, prompt, model, **kw):
+        calls["n"] += 1
+        if model is X._Code:
+            return X._Code(code=good if "ERROR" in prompt else broken)
+        return X._Critique(ok=True, problems=[], revised_code="")
+    monkeypatch.setattr(X.llm, "complete_json", fake)
+    out = asyncio.run(X.run(ds, "Is a related to b?"))
+    assert any("corr a b = 1" in f for f in out.facts) and out.tables and out.report["critic_rounds"] == 1
+    assert out.log[0].startswith("attempt 1:") and "ran" in out.log[1]

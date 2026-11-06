@@ -75,6 +75,8 @@ class Paper(PaperRef):
     corpus_id: str | None = None
     pub_types: list[str] = Field(default_factory=list)
     oa_url: str | None = None
+    core: bool | None = None          # OpenAlex: published in a core (well-indexed) source
+    venue_type: str | None = None     # journal | conference | repository | ...
 
 
 # ---------- documents ----------

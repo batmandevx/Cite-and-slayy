@@ -75,6 +75,38 @@ async def recommended(top: list[Paper], known: set[str], limit: int = 40) -> lis
     return [p for p in recs if _ok(p) and p.title.strip().lower() not in titles]
 
 
+# ---------- duplicates and venue quality ----------
+
+def _norm_title(t: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", (t or "").lower())[:14])
+
+
+def dedupe(papers: list[Paper]) -> tuple[list[Paper], int]:
+    """Drop the same work listed twice (preprint + published version, title variants). Keeps the published, cited one."""
+    from rapidfuzz import fuzz
+    kept: list[Paper] = []
+    dropped = 0
+    rank = lambda p: (bool(p.doi) and p.venue_type != "repository", p.cited_by or 0)   # noqa: E731
+    for p in papers:
+        nt = _norm_title(p.title)
+        dup = next((i for i, q in enumerate(kept) if (p.doi and q.doi and p.doi.lower() == q.doi.lower())
+                    or fuzz.ratio(nt, _norm_title(q.title)) >= 92), None)
+        if dup is None:
+            kept.append(p)
+        else:
+            dropped += 1
+            if rank(p) > rank(kept[dup]):
+                kept[dup] = p
+    return kept, dropped
+
+
+def venue_penalty(p: Paper) -> float:
+    """Small relevance penalty for journal articles outside OpenAlex's core sources that few people cite."""
+    if p.core is False and p.venue_type == "journal" and (p.cited_by or 0) < 25:
+        return 0.06
+    return 0.0
+
+
 # ---------- snowballing ----------
 
 async def snowball(top: list[Paper], known: set[str], min_shared: int = 2, limit: int = 15) -> list[Paper]:

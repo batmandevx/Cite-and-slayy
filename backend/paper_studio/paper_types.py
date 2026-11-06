@@ -97,6 +97,7 @@ METHOD = TypePlan(
             "Holm-Bonferroni correction; a Mermaid 'flowchart TD' preceded by 'Figure: Leak-free evaluation and ablation "
             "workflow'; 'Table: Component ablation matrix'; 'Table: Planned benchmark comparison' whose unrun cells read "
             "'to be measured'.")),
+        Spec("results", "Experiments on Real Data", stage=3, needs_data=True, task="Report ONLY the numbers in DATA ANALYSIS (FACTS), in this order: the analysed sample (N, units, period, coverage and missingness), descriptive statistics, then each hypothesis or comparison with its estimate, uncertainty (95% CI, SE or sd across folds) and p-value where reported, then the robustness check. Place [[DATA:tables]] and [[DATA:figures]] each on its own line where they are discussed. State null or mixed results plainly. Use associational language for observational data. Interpretation belongs in the Discussion."),
         Spec("discussion", "Discussion, Failure Modes and Limitations", stage=4, task=(
             "Must contain: ## Failure Modes and Operational Mitigations (concrete scenarios tied to Proposition 2); ## Threats to "
             "Validity (internal, external, construct, bibliographic coverage, and that the full benchmark is planned rather than "
@@ -121,18 +122,17 @@ EMPIRICAL = TypePlan(
         Spec("analysis", "Evidence Base and Bibliometric Overview", stage=2, task=BIBLIO + ANALYSIS_TOKENS),
         Spec("methods", "Methods", stage=1, design=True, task=(
             "Must contain ## subsections: Study Design; Participants or Data (inclusion/exclusion, sampling, and a sample-size "
-            "rationale written as a formula or procedure, not an invented number); Measures (each construct, its validated "
+            "rationale written as a formula or procedure, not an invented number, unless DATA ANALYSIS gives the real N); Measures (each construct, its validated "
             "instrument if a cited abstract names one, and how it is scored); Procedure; Statistical Analysis (models, "
-            "covariates, handling of missing data, multiple-comparison correction, robustness checks); Ethics. If USER DATA "
+            "covariates, estimator and software-agnostic estimation details such as priors, convergence criteria or bootstrap "
+            "settings where relevant, handling of missing data, multiple-comparison correction, robustness checks); Ethics. If USER DATA "
             "ANALYSIS is in FACTS, describe that actual dataset and the analyses that were run instead of a plan. Include a "
-            "table preceded by 'Table: Variables, measures and hypotheses' mapping each variable to its measure and hypothesis.")),
-        Spec("results", "Results", stage=2, needs_data=True, task=(
-            "Report ONLY the numbers in USER DATA ANALYSIS (FACTS): descriptive statistics, then each hypothesis test with its "
-            "statistic, p-value and effect size, in the order of H1-H3. Place [[DATA:tables]] and [[DATA:figures]] each on its own "
-            "line where they are discussed. State plainly when a result is not significant. No interpretation beyond what the "
-            "numbers show (that belongs in the Discussion).")),
+            "table preceded by 'Table: Variables, measures and hypotheses' mapping each variable to its measure and hypothesis. "
+            "If DATA ANALYSIS is in FACTS, this is a secondary analysis of that dataset: describe its source, coverage, "
+            "variables and the models that were actually run.")),
+        Spec("results", "Results", stage=2, needs_data=True, task="Report ONLY the numbers in DATA ANALYSIS (FACTS), in this order: the analysed sample (N, units, period, coverage and missingness), descriptive statistics, then each hypothesis or comparison with its estimate, uncertainty (95% CI, SE or sd across folds) and p-value where reported, then the robustness check. Place [[DATA:tables]] and [[DATA:figures]] each on its own line where they are discussed. State null or mixed results plainly. Use associational language for observational data. Interpretation belongs in the Discussion."),
         Spec("discussion", "Discussion", stage=3, task=(
-            "Must contain: ## Interpretation (what the evidence implies for each hypothesis; if no data was analysed, what "
+            "Must contain: ## Interpretation (what the results imply for each hypothesis; if no data was analysed, what "
             "outcomes would support or refute each hypothesis); ## Comparison with Prior Work (cited, including conflicting "
             "studies); ## Implications; ## Limitations (design, measurement, generalisability, and that the study is proposed "
             "if no data was analysed); ## Future Work; then a top-level '# Conclusion' of 1-2 paragraphs.")),
@@ -163,6 +163,7 @@ REVIEW = TypePlan(
             "Build this section from the CONFLICTS in the dossier: for each disagreement, state both positions with citations "
             "and the most likely explanations (populations, measures, designs, time periods). Then list the open questions the "
             "literature cannot yet answer. If the dossier lists no conflicts, discuss tensions and uncertainties instead.")),
+        Spec("results", "Quantitative Evidence from Open Data", stage=2, needs_data=True, task="Report ONLY the numbers in DATA ANALYSIS (FACTS), in this order: the analysed sample (N, units, period, coverage and missingness), descriptive statistics, then each hypothesis or comparison with its estimate, uncertainty (95% CI, SE or sd across folds) and p-value where reported, then the robustness check. Place [[DATA:tables]] and [[DATA:figures]] each on its own line where they are discussed. State null or mixed results plainly. Use associational language for observational data. Interpretation belongs in the Discussion."),
         Spec("agenda", "Research Agenda and Recommendations", stage=3, task=(
             "Must contain: a prioritised research agenda (3-5 items, each tied to a gap or conflict above and a study design "
             "that would resolve it); recommendations for practitioners or policy where the evidence supports them; limitations "
@@ -185,6 +186,7 @@ POSITION = TypePlan(
         Spec("argument", "Analysis and Argument", stage=2, task=(
             "Must contain one ## subsection per CLAIM in the outline: the claim, the evidence for it (cited, with the strength "
             "of that evidence), and the reasoning that links evidence to thesis. Distinguish evidence from inference.")),
+        Spec("results", "Evidence from Open Data", stage=2, needs_data=True, task="Report ONLY the numbers in DATA ANALYSIS (FACTS), in this order: the analysed sample (N, units, period, coverage and missingness), descriptive statistics, then each hypothesis or comparison with its estimate, uncertainty (95% CI, SE or sd across folds) and p-value where reported, then the robustness check. Place [[DATA:tables]] and [[DATA:figures]] each on its own line where they are discussed. State null or mixed results plainly. Use associational language for observational data. Interpretation belongs in the Discussion."),
         Spec("counter", "Counterarguments and Limitations", stage=2, task=(
             "Must contain the strongest counterarguments, each stated fairly with citations (use the CONFLICTS in the dossier), "
             "followed by a reasoned response or a concession; then the limits of the argument.")),

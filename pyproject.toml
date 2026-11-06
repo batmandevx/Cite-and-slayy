@@ -23,6 +23,8 @@ dependencies = [
   "matplotlib>=3.9",
   "google-auth>=2.30",
   "requests>=2.31",
+  "pandas>=2.2",
+  "statsmodels>=0.14",
 ]
 
 [dependency-groups]

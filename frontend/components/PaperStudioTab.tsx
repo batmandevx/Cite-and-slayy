@@ -29,7 +29,7 @@ interface StudioPaper {
   paper_id: string; title: string; topic: string; markdown: string; highlights: string[]; summary: string; keywords: string[];
   research_question: string; contributions: string[]; words: number; template: string; author: string; affiliation: string;
   references: { n: number; title: string; year?: number; doi?: string; url?: string; venue?: string; cited_by?: number }[];
-  paper_type?: string; provenance?: Record<string, ProvenanceEntry[]>; measured_facts?: string[];
+  paper_type?: string; provenance?: Record<string, ProvenanceEntry[]>; measured_facts?: string[]; has_analysis_code?: boolean;
   history?: { at: string; instruction: string }[]; revisable?: boolean; seeded?: string[]; last_change?: string; kit?: Kit | null; locked?: boolean; locked_sections?: number; references_total?: number;
   report: {
     references: number; candidates: number; retraction_checked: number; retracted_excluded: { title: string; doi?: string }[];
@@ -39,7 +39,7 @@ interface StudioPaper {
     novelty?: { verdict: string; explanation: string } | null; consistency_edits?: number; gaps_filled?: number; synthesis_flags?: number;
     claims_unclear?: number; claims_fulltext_checked?: number; figures_checked?: number; captions_corrected?: number;
     review_panel?: { overall: number | null; final?: number | null; scores: Record<string, number>; issues: number; sections_revised: number; rounds?: { round: number; overall: number | null }[] };
-    data_analysis?: { analyses?: number; error?: string } | null;
+    data_analysis?: { analyses?: number; metrics?: number; tables?: number; figures?: number; critic_rounds?: number; sources?: string[]; error?: string } | null;
   };
 }
 
@@ -51,8 +51,9 @@ const AGENTS: { id: string; name: string; role: string; emoji: string; color: st
   { id: "dossier", name: "Dossier", role: "what the evidence says & where it conflicts", emoji: "🗂️", color: "bg-yellow" },
   { id: "architect", name: "Architect", role: "outline, best title & research question", emoji: "📐", color: "bg-yellow" },
   { id: "novelty", name: "Novelty check", role: "has someone already done this?", emoji: "🔎", color: "bg-orange" },
+  { id: "datascout", name: "Data scout", role: "searches 8,900 open datasets", emoji: "🗄️", color: "bg-blue" },
   { id: "statistician", name: "Statistician", role: "analyses your dataset", emoji: "🧮", color: "bg-lime" },
-  { id: "experimenter", name: "Experimenter", role: "pilot runs & sandboxed simulation", emoji: "🧪", color: "bg-lime" },
+  { id: "experimenter", name: "Experiment agent", role: "writes & runs analysis code on real data", emoji: "🧪", color: "bg-lime" },
   { id: "editor", name: "Editor", role: "consistency pass & best-of-3 abstract", emoji: "🖋️", color: "bg-orange" },
   { id: "reviewers", name: "Reviewer panel", role: "3 reviewers score the draft", emoji: "⚖️", color: "bg-violet" },
   { id: "verifier", name: "Verifier", role: "checks every citation claim", emoji: "🛡️", color: "bg-mint" },
@@ -188,6 +189,7 @@ function Report({ p }: { p: StudioPaper }) {
     ...(r.consistency_edits !== undefined ? [["Consistency edits (repetition, terms)", String(r.consistency_edits), true] as [string, string, boolean]] : []),
     ...(r.figures_checked ? [["Figures checked against captions", `${r.figures_checked} checked · ${r.captions_corrected ?? 0} caption(s) corrected`, true] as [string, string, boolean]] : []),
     ...(r.data_analysis?.analyses ? [["Analyses run on your dataset", String(r.data_analysis.analyses), true] as [string, string, boolean]] : []),
+    ...(r.data_analysis?.metrics ? [["Real-data experiments (code executed)", `${r.data_analysis.metrics} results · ${r.data_analysis.tables ?? 0} tables · ${r.data_analysis.figures ?? 0} charts · ${r.data_analysis.critic_rounds ?? 0} methods review(s)`, true] as [string, string, boolean]] : []),
     ["Checked for retraction notices", `${r.retraction_checked} clear${r.retracted_excluded.length ? ` · ${r.retracted_excluded.length} retracted excluded` : ""}`, true],
     ["Citation claims checked against abstracts", `${r.claims_supported} supported · ${r.claims_unsupported} fixed of ${r.claims_checked}${r.claims_fulltext_checked ? ` · ${r.claims_fulltext_checked} checked in full text` : ""}${r.claims_unclear ? ` · ${r.claims_unclear} unclear` : ""}`, true],
     ["Copied text (8-word matches) after revision", r.verbatim_paragraphs_after ? `${r.verbatim_paragraphs_after} paragraph(s)` : "none found", !r.verbatim_paragraphs_after],
@@ -518,6 +520,14 @@ export function PaperStudioTab({
                   <DeckThemePicker value={deckTheme} onChange={setDeckTheme} />
                 </div>
                 <Button variant="lime" onClick={() => run("notes", toNotes, "exports")}><NotebookPen className="size-4" />Edit in Notes{!paid && <ProChip />}</Button>
+                {shown.has_analysis_code && (
+                  <Button loading={busy === "code"} onClick={() => run("code", async () => {
+                    const r = await apiFetch(`/api/paper-studio/${shown.paper_id}/analysis.py`);
+                    if (!r.ok) { toast({ title: "Couldn't download the analysis code", tone: "crit" }); return; }
+                    const url = URL.createObjectURL(await r.blob());
+                    const a = document.createElement("a"); a.href = url; a.download = "analysis.py"; a.click(); URL.revokeObjectURL(url);
+                  }, "exports")}><Table2 className="size-4" />Analysis code (.py){!paid && <ProChip />}</Button>
+                )}
                 {onOriginality && <Button variant="blue" onClick={() => onOriginality(shown.paper_id)}><Sparkles className="size-4" />AI &amp; Plag Report</Button>}
                 <Button variant="blue" onClick={onAudit}><ShieldCheck className="size-4" />Audit a PDF</Button>
                 <Button variant="ghost" className="ml-auto" onClick={() => setPaperId(null)}><RotateCcw className="size-4" />New paper</Button>
