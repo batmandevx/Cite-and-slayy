@@ -416,3 +416,76 @@ def test_owner_can_remove_a_members_subscription(prod, monkeypatch):
     assert me["plan"] == "free"
     log = get_store().list("admin_log", 10)
     assert log and log[0]["by"] == "boss@x.org" and log[0]["note"] == "chargeback"
+
+
+def test_email_signin_drops_a_squatters_unverified_password(prod):
+    squatter = TestClient(prod)
+    assert squatter.post("/api/auth/register", json={"email": "victim@x.org", "password": "Squat2026x"}).status_code == 200
+    login(prod, "victim@x.org")                                   # the real owner proves the address
+    assert squatter.get("/api/auth/me").status_code == 401        # the squatter's session is gone
+    assert TestClient(prod).post("/api/auth/login", json={"email": "victim@x.org", "password": "Squat2026x"}).status_code == 401
+
+
+def test_two_users_uploading_the_same_file_both_get_it(prod):
+    a, b = login(prod, "up-a@x.org"), login(prod, "up-b@x.org")
+    data = b"Same bytes for both.\n\nReferences\n[1] A. Author. A title. 2020.\n"
+    ida = a.post("/api/documents", files={"file": ("p.txt", data, "text/plain")}).json()["document_id"]
+    idb = b.post("/api/documents", files={"file": ("p.txt", data, "text/plain")}).json()["document_id"]
+    assert ida == idb
+    assert a.get(f"/api/documents/{ida}").status_code == 200 and b.get(f"/api/documents/{idb}").status_code == 200
+    assert login(prod, "up-c@x.org").get(f"/api/documents/{ida}").status_code == 404   # never uploaded it
+
+
+def test_uploading_a_public_sample_does_not_make_it_private(prod):
+    from backend.cache.store import get_store
+    from backend.documents import service as docs
+    data = b"Public sample text.\n\nReferences\n[1] B. Writer. Another title. 2019.\n"
+    info = docs.save_bytes("sample.txt", data)                     # bundled sample: registered, no owner
+    login(prod, "claimer@x.org").post("/api/documents", files={"file": ("s.txt", data, "text/plain")})
+    assert get_store().owner_of("document", info.document_id) is None
+    assert login(prod, "reader@x.org").get(f"/api/documents/{info.document_id}").status_code == 200
+
+
+def test_paper_list_is_not_starved_by_other_users_papers(prod):
+    from backend.accounts import auth
+    from backend.cache.store import get_store
+    a = login(prod, "many-a@x.org")
+    ua = auth.get_user(get_store().get("user_email", "many-a@x.org")["uid"])
+    get_store().put("paper_studio", "mine1", {"paper_id": "mine1", "title": "Mine", "created_at": "2026-01-01"})
+    auth.own("paper_studio", "mine1", ua)
+    for i in range(320):
+        get_store().put("paper_studio", f"x{i}", {"paper_id": f"x{i}", "title": "other"})
+        get_store().set_owner("paper_studio", f"x{i}", "someone-else")
+    assert any(p["paper_id"] == "mine1" for p in a.get("/api/paper-studio").json())
+
+
+def test_stale_activation_of_a_replaced_subscription_is_ignored(prod, monkeypatch):
+    from backend.accounts import auth, billing
+    from backend.cache.store import get_store
+    monkeypatch.setattr(billing, "_cancel_now", lambda sid: None)
+    login(prod, "switch@x.org")
+    uid = get_store().get("user_email", "switch@x.org")["uid"]
+    for sid, tier in (("sub_old", "pro"), ("sub_new", "max")):
+        get_store().put("subscription", sid, {"id": sid, "uid": uid, "tier": tier, "status": "created"})
+    billing._apply("sub_old", "active")
+    billing._apply("sub_new", "active")                    # plan switch: old one is replaced
+    billing._apply("sub_old", "active")                    # late webhook for the old plan
+    u = auth.get_user(uid)
+    assert u["plan"] == "max" and u["subscription_id"] == "sub_new"
+
+
+def test_webhook_retry_is_processed_if_the_first_delivery_crashed(prod, monkeypatch):
+    from backend.accounts import billing
+    calls = []
+    def boom(ev):
+        calls.append(ev)
+        if len(calls) == 1:
+            raise RuntimeError("db hiccup")
+    monkeypatch.setattr(billing, "_process_event", boom)
+    body = json.dumps({"event": "subscription.activated", "payload": {}}).encode()
+    sig = hmac.new(b"whsec", body, hashlib.sha256).hexdigest()
+    with pytest.raises(RuntimeError):
+        billing.handle_webhook(body, sig, "evt_retry")
+    billing.handle_webhook(body, sig, "evt_retry")
+    billing.handle_webhook(body, sig, "evt_retry")         # now a true replay: skipped
+    assert len(calls) == 2

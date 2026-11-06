@@ -116,6 +116,15 @@ class Store:
                 (kind, limit)).fetchall()
         return [json.loads(r[0]) for r in rows]
 
+    def list_owned(self, kind: str, uid: str, limit: int = 50) -> list[dict]:
+        """Newest objects of `kind` owned by `uid` (filters before the limit, unlike list() + a visibility filter)."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT o.body FROM objects o JOIN owners w ON w.kind=o.kind AND w.id=o.id "
+                "WHERE o.kind=? AND w.uid=? ORDER BY o.updated_at DESC LIMIT ?",
+                (kind, uid, limit)).fetchall()
+        return [json.loads(r[0]) for r in rows]
+
 
 _store: Store | None = None
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import threading
 from datetime import datetime, timezone
 
 import httpx
@@ -73,6 +74,8 @@ def _apply(sub_id: str, status: str, current_end: int | None = None) -> None:
     rec = store.get("subscription", sub_id)
     if not rec:
         return
+    if rec.get("replaced") and status in ACTIVE:
+        return    # a late "activated/charged" for a plan the user already switched away from: it must not win back
     rec.update(status=status, updated_at=now().isoformat())
     if current_end:
         rec["current_end"] = datetime.fromtimestamp(current_end, timezone.utc).isoformat()
@@ -83,7 +86,8 @@ def _apply(sub_id: str, status: str, current_end: int | None = None) -> None:
     if status in ACTIVE:
         old = user.get("subscription_id")
         if old and old != sub_id:   # plan switch: stop billing the previous subscription right away
-            _cancel_now(old)
+            _mark_replaced(old)
+            threading.Thread(target=_cancel_now, args=(old,), daemon=True).start()   # don't block the request on Razorpay
         user.update(plan=rec["tier"], subscription_id=sub_id, renews_at=rec.get("current_end"), cancel_at_period_end=False)
     elif status in LAPSED and user.get("subscription_id") == sub_id:
         user.update(plan="free", subscription_id=None, renews_at=None, cancel_at_period_end=False)
@@ -139,6 +143,12 @@ async def verify_order(user: dict, order_id: str, payment_id: str, signature: st
     _paid(order_id, payment_id)
 
 
+def _mark_replaced(sub_id: str) -> None:
+    rec = get_store().get("subscription", sub_id)
+    if rec:
+        get_store().put("subscription", sub_id, {**rec, "status": "cancelled", "replaced": True})
+
+
 def _cancel_now(sub_id: str) -> None:
     s = get_settings()
     try:
@@ -146,9 +156,6 @@ def _cancel_now(sub_id: str) -> None:
                    auth=(s.razorpay_key_id or "", s.razorpay_key_secret or ""), timeout=30)
     except httpx.HTTPError:
         pass   # the old subscription's own webhook will still downgrade correctly if this fails
-    rec = get_store().get("subscription", sub_id)
-    if rec:
-        get_store().put("subscription", sub_id, {**rec, "status": "cancelled", "replaced": True})
 
 
 async def verify_checkout(user: dict, payment_id: str, subscription_id: str, signature: str) -> None:
@@ -175,11 +182,15 @@ def handle_webhook(raw: bytes, signature: str | None, event_id: str | None = Non
         raise HTTPException(400, "Bad signature")
     import json
     store = get_store()
-    if event_id:
-        if store.get("rzp_event", event_id):
-            return                                    # replayed delivery
+    if event_id and store.get("rzp_event", event_id):
+        return                                        # replayed delivery
+    _process_event(json.loads(raw))
+    if event_id:   # remembered only once handled: if processing crashed, Razorpay's retry must not be skipped
         store.put("rzp_event", event_id, {"at": now().isoformat()})
-    ev = json.loads(raw)
+
+
+def _process_event(ev: dict) -> None:
+    store = get_store()
     if ev.get("event") == "order.paid":
         order = ((ev.get("payload") or {}).get("order") or {}).get("entity") or {}
         pay = ((ev.get("payload") or {}).get("payment") or {}).get("entity") or {}

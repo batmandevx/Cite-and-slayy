@@ -3,7 +3,7 @@
 import { Loader2, PartyPopper } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
-import { api, toast } from "@/lib/api";
+import { api, ApiError, toast } from "@/lib/api";
 import type { Job } from "@/lib/types";
 
 /** While a Paper Studio job runs and the user is elsewhere (e.g. playing a game), show its progress and announce completion. */
@@ -29,7 +29,9 @@ export function StudioWatcher({ active, onOpen }: { active: boolean; onOpen: () 
           localStorage.removeItem("slayy:studioJob");
           setJob(null);
         }
-      } catch {
+      } catch (e) {
+        // The backend forgets jobs on restart (deploys): stop polling an id that will never come back.
+        if (e instanceof ApiError && e.status === 404) localStorage.removeItem("slayy:studioJob");
         setJob(null);
       }
     };

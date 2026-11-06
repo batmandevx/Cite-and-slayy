@@ -1439,6 +1439,8 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
         "has_analysis_code": bool(analysis_code),
     }
     store.put("paper_studio", pid, result)
+    if plan_owner := store.owner_of(PLAN_KIND, plan_id):   # own it now, not only when the job ends (a restart in between orphans it)
+        store.set_owner("paper_studio", pid, plan_owner)
     store.put(PLAN_KIND, plan_id, {**pl, "status": "written", "paper_id": pid})
     await say("done", "done", "Paper ready", 1.0)
     return pid

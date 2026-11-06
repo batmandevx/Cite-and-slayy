@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import traceback
 import uuid
 from typing import Awaitable, Callable
@@ -35,14 +36,24 @@ class JobManager:
         self._conds: dict[str, asyncio.Condition] = {}
         self._tasks: set[asyncio.Task] = set()
         self.owners: dict[str, str] = {}
+        self._on_error: dict[str, Callable[[], None]] = {}
+        self._finished: dict[str, float] = {}     # job_id -> when it ended, so old jobs can be forgotten
+
+    KEEP_SECONDS = 6 * 3600   # finished jobs (and their event logs) stay pollable this long, then are dropped from memory
+
+    def _prune(self) -> None:
+        cutoff = time.time() - self.KEEP_SECONDS
+        for jid in [j for j, t in self._finished.items() if t < cutoff]:
+            for d in (self.jobs, self.events, self._conds, self.owners, self._on_error, self._finished):
+                d.pop(jid, None)
 
     def submit(self, kind: str, fn: Callable[[JobContext], Awaitable[str]], owner: str | None = None,
                on_error: Callable[[], None] | None = None) -> Job:
+        self._prune()
         job = Job(job_id=uuid.uuid4().hex[:12], kind=kind, created_at=now())
         self.jobs[job.job_id] = job
         if owner:
             self.owners[job.job_id] = owner
-        self._on_error = getattr(self, "_on_error", {})
         if on_error:
             self._on_error[job.job_id] = on_error
         self.events[job.job_id] = []
@@ -71,14 +82,17 @@ class JobManager:
                             if res.get(key):
                                 get_store().set_owner(k, res[key], owner)
             job.status, job.progress, job.stage = "done", 1.0, "done"
+            self._on_error.pop(job.job_id, None)
             await self._emit(job, "finished")
         except Exception as e:  # report every failure to the client
             traceback.print_exc()
             job.status, job.error = "error", scrub(f"{type(e).__name__}: {e}")
-            cb = getattr(self, "_on_error", {}).pop(job.job_id, None)
+            cb = self._on_error.pop(job.job_id, None)
             if cb:
                 cb()   # e.g. give the quota back
             await self._emit(job, job.error)
+        finally:
+            self._finished[job.job_id] = time.time()
 
     async def _emit(self, job: Job, message: str) -> None:
         ev = JobEvent(job_id=job.job_id, stage=job.stage or job.status, message=message,

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import re
 import uuid
 from typing import Literal
@@ -48,10 +49,23 @@ from backend.agentpay.router import router as _agentpay_router  # noqa: E402  (P
 app.include_router(_agentpay_router)
 
 
+def _adopt_orphan_papers() -> None:
+    """Papers saved while their job was cut short (e.g. a deploy) never got an owner: give them their plan's owner."""
+    store = get_store()
+    with store._lock:
+        rows = store._conn.execute(
+            "SELECT o.id, json_extract(o.body, '$.plan_id') FROM objects o WHERE o.kind='paper_studio' AND NOT EXISTS "
+            "(SELECT 1 FROM owners w WHERE w.kind='paper_studio' AND w.id=o.id)").fetchall()
+    for pid, plan_id in rows:
+        if plan_id and (uid := store.owner_of("paper_plan", plan_id)):
+            store.set_owner("paper_studio", pid, uid)
+
+
 @app.on_event("startup")
 async def _seed_founders() -> None:
     if get_settings().auth_required:
         auth.ensure_founders()
+        _adopt_orphan_papers()
     if get_settings().claw_url:
         claw.resume_live_runs()        # live AutoResearchClaw runs survive backend restarts and deploys
     # Load and run the embedding model once at startup, so no user request pays (or stalls on) the cold start.
@@ -71,9 +85,11 @@ async def security_headers(request: Request, call_next):
     resp = await call_next(request)
     if resp.headers.get("content-type", "").startswith("application/pdf"):
         # PDFs are previewed in an <iframe> on our own pages: allow same-site framing, nothing else.
+        # Only frame-ancestors here: Chrome's built-in viewer is a plugin <embed>, so `default-src 'none'` (which implies
+        # `object-src 'none'`) blocks it and the iframe renders blank white.
         ours = " ".join(o.strip() for o in get_settings().cors_origins.split(",") if o.strip().startswith("http"))
         resp.headers["X-Frame-Options"] = "SAMEORIGIN"
-        resp.headers["Content-Security-Policy"] = f"default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self' {ours}"
+        resp.headers["Content-Security-Policy"] = f"frame-ancestors 'self' {ours}"
     else:
         resp.headers.setdefault("Cache-Control", "no-store")   # API answers are per-user: never cache them in shared caches
     return resp
@@ -594,9 +610,13 @@ async def upload(request: Request, file: UploadFile = File(...)):
     data = await file.read(40 * 1024 * 1024 + 1)         # never buffer more than the cap
     if len(data) > 40 * 1024 * 1024:
         raise HTTPException(413, "File larger than 40 MB")
+    store = get_store()
+    same_id = hashlib.sha256(data).hexdigest()[:16]          # documents are content-addressed (see docs.save_bytes)
+    bundled = bool(store.get("document", same_id)) and not store.owner_of("document", same_id)
     try:
         info = docs.save_bytes(file.filename or "upload.pdf", data)
-        auth.own("document", info.document_id, user)
+        if not bundled:          # re-uploading a public demo/sample PDF must not make it private to this user
+            auth.own("document", info.document_id, user)
         return info
     except docs.DocumentError as e:
         raise HTTPException(400, str(e))
@@ -626,11 +646,13 @@ async def get_demo_paper_pdf(slug: str, download: bool = False):
 
 
 @app.post("/api/demo-papers/{slug}/import", response_model=DocumentInfo)
-async def import_demo_paper(slug: str):
+async def import_demo_paper(slug: str, request: Request):
     import asyncio as _asyncio
     info = await _asyncio.to_thread(demo_papers.register_one, slug)
     if not info:
         raise HTTPException(404, "Demo paper not found")
+    if (user := auth.current_user(request)) and get_store().owner_of("document", info.document_id):
+        auth.own("document", info.document_id, user)   # someone uploaded this PDF themselves: everyone may still audit the demo
     return info
 
 
@@ -691,7 +713,7 @@ async def gap_run(req: GapRadarRequest, request: Request):
 
 @app.get("/api/gap-radar/runs", response_model=list[GapRadarResult])
 async def gap_runs(request: Request):
-    return [GapRadarResult.model_validate(d) for d in auth.visible("gap_run", get_store().list("gap_run", 200), "run_id", me(request))[:20]]
+    return [GapRadarResult.model_validate(d) for d in auth.mine("gap_run", me(request), 20)]
 
 
 @app.get("/api/gap-radar/runs/{run_id}", response_model=GapRadarResult)
@@ -735,7 +757,7 @@ async def autoclaw_result(run_id: str, request: Request):
 
 @app.get("/api/autoclaw/latest", response_model=AutoClawRun | None)
 async def autoclaw_latest(request: Request):
-    runs = auth.visible("autoclaw_run", get_store().list("autoclaw_run", 200), "run_id", me(request))
+    runs = auth.mine("autoclaw_run", me(request), 200)
     live = next((r for r in runs if not r.get("demo") and r.get("status") == "running"), None)   # a run in progress wins
     return AutoClawRun.model_validate(live or runs[0]) if runs else None
 
@@ -1171,7 +1193,7 @@ async def paper_studio_write(plan_id: str, edits: PlanEdits, request: Request):
 
 @app.get("/api/paper-studio")
 async def paper_studio_list(request: Request):
-    mine = auth.visible("paper_studio", get_store().list("paper_studio", 300), "paper_id", me(request))
+    mine = auth.mine("paper_studio", me(request), 30)
     return [{k: p.get(k) for k in ("paper_id", "title", "topic", "words", "created_at")} for p in mine[:30]]
 
 
@@ -1586,7 +1608,7 @@ async def agent_chat_get(chat_id: str, request: Request):
 @app.get("/api/agent/chats")
 async def agent_chats(request: Request):
     return [{"chat_id": c["chat_id"], "title": c.get("title", "Chat"), "n": len(c.get("messages", []))}
-            for c in auth.visible("agent_chat", get_store().list("agent_chat", 300), "chat_id", me(request))[:30]]
+            for c in auth.mine("agent_chat", me(request), 30)]
 
 
 # ---------- one-click pipeline ----------

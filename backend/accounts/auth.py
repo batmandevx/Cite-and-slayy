@@ -280,6 +280,11 @@ def upsert_user(email: str, name: str | None = None, picture: str | None = None,
         store.put("user_email", email, {"uid": user["uid"]})
     else:
         user.update({k: v for k, v in {"name": name, "picture": picture}.items() if v})
+        if not user.get("email_verified") and user.get("password_hash"):
+            # Someone registered this address with a password but never proved they own it. The real owner just did:
+            # drop that password and its sessions, or whoever set it could sign in to the now-verified account.
+            user["password_hash"] = None
+            user["sess_ver"] = int(user.get("sess_ver") or 0) + 1
         user["email_verified"] = True            # Google / email link prove ownership of the address
         if email in owner_emails():
             user["is_owner"] = True
@@ -480,22 +485,41 @@ def unlock_owner(user: dict, access_key: str) -> bool:
 
 # ---------- ownership ----------
 
+# Content-addressed kinds: the id is a hash of the bytes, so two users uploading the same file get the same id.
+# Anyone who uploaded the bytes may read them, so later uploaders get a co-owner grant instead of a 404.
+SHARED_BY_CONTENT = {"document"}
+
+
 def own(kind: str, id: str, user: dict) -> None:
-    if get_settings().auth_required and id:
-        get_store().set_owner(kind, id, user["uid"])
+    if not (get_settings().auth_required and id):
+        return
+    store = get_store()
+    store.set_owner(kind, id, user["uid"])
+    if kind in SHARED_BY_CONTENT and store.owner_of(kind, id) != user["uid"]:
+        store.set_owner(f"{kind}+", f"{id}:{user['uid']}", user["uid"])
 
 
 def check_access(kind: str, id: str, user: dict) -> None:
     """Owned by someone else -> 404 (don't reveal it exists). Unowned legacy/demo objects stay readable."""
     if not get_settings().auth_required:
         return
-    owner = get_store().owner_of(kind, id)
+    store = get_store()
+    owner = store.owner_of(kind, id)
     if owner and owner != user["uid"]:
+        if kind in SHARED_BY_CONTENT and store.owner_of(f"{kind}+", f"{id}:{user['uid']}") == user["uid"]:
+            return
         raise HTTPException(404, "not found")
 
 
 def workspace_key(kind: str, user: dict) -> str:
     return f"{user['uid']}:{kind}" if get_settings().auth_required else kind
+
+
+def mine(kind: str, user: dict, limit: int = 50) -> list[dict]:
+    """This user's newest objects of `kind` (everything when sign-in is off)."""
+    if not get_settings().auth_required:
+        return get_store().list(kind, limit)
+    return get_store().list_owned(kind, user["uid"], limit)
 
 
 def visible(kind: str, items: list[dict], id_key: str, user: dict) -> list[dict]:
