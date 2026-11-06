@@ -37,8 +37,8 @@ interface StudioPaper {
     paragraphs_flagged: number; paragraphs_revised: number; unmeasured_claims_found?: number; unmeasured_claims_remaining?: number; verbatim_paragraphs_after: number; tortured_phrases: string[];
     paper_type?: string; snowballed?: number; experts?: string[]; conflicts_found?: number; venue_style?: string | null;
     novelty?: { verdict: string; explanation: string } | null; consistency_edits?: number; gaps_filled?: number; synthesis_flags?: number;
-    claims_unclear?: number; figures_checked?: number; captions_corrected?: number;
-    review_panel?: { overall: number | null; scores: Record<string, number>; issues: number; sections_revised: number };
+    claims_unclear?: number; claims_fulltext_checked?: number; figures_checked?: number; captions_corrected?: number;
+    review_panel?: { overall: number | null; final?: number | null; scores: Record<string, number>; issues: number; sections_revised: number; rounds?: { round: number; overall: number | null }[] };
     data_analysis?: { analyses?: number; error?: string } | null;
   };
 }
@@ -183,13 +183,13 @@ function Report({ p }: { p: StudioPaper }) {
     ["Real references, every one linked", `${r.references} works${r.snowballed ? ` · ${r.snowballed} via citation chaining` : ""}`, true],
     ...(r.experts?.length ? [["Expert roundtable & conflicting evidence", `${r.experts.length} experts · ${r.conflicts_found ?? 0} conflict(s) addressed`, true] as [string, string, boolean]] : []),
     ...(r.novelty ? [["Novelty check against prior work", r.novelty.verdict === "novel" ? "looks novel" : r.novelty.verdict === "unchecked" ? "skipped" : "prior work credited", true] as [string, string, boolean]] : []),
-    ...(panel?.overall ? [["Reviewer panel (3 reviewers, draft score)", `${panel.overall}/10 · ${panel.issues} issues · ${panel.sections_revised} section(s) revised`, true] as [string, string, boolean]] : []),
+    ...(panel?.overall ? [["Reviewer panel (3 reviewers)", `draft ${panel.overall}/10${panel.final ? ` → ${panel.final}/10 after revision` : ""} · ${panel.sections_revised} section(s) revised`, true] as [string, string, boolean]] : []),
     ...(r.gaps_filled !== undefined ? [["Uncited claims given new evidence", `${r.gaps_filled} new source(s) cited`, true] as [string, string, boolean]] : []),
     ...(r.consistency_edits !== undefined ? [["Consistency edits (repetition, terms)", String(r.consistency_edits), true] as [string, string, boolean]] : []),
     ...(r.figures_checked ? [["Figures checked against captions", `${r.figures_checked} checked · ${r.captions_corrected ?? 0} caption(s) corrected`, true] as [string, string, boolean]] : []),
     ...(r.data_analysis?.analyses ? [["Analyses run on your dataset", String(r.data_analysis.analyses), true] as [string, string, boolean]] : []),
     ["Checked for retraction notices", `${r.retraction_checked} clear${r.retracted_excluded.length ? ` · ${r.retracted_excluded.length} retracted excluded` : ""}`, true],
-    ["Citation claims checked against abstracts", `${r.claims_supported} supported · ${r.claims_unsupported} fixed of ${r.claims_checked}${r.claims_unclear ? ` · ${r.claims_unclear} need full text` : ""}`, true],
+    ["Citation claims checked against abstracts", `${r.claims_supported} supported · ${r.claims_unsupported} fixed of ${r.claims_checked}${r.claims_fulltext_checked ? ` · ${r.claims_fulltext_checked} checked in full text` : ""}${r.claims_unclear ? ` · ${r.claims_unclear} unclear` : ""}`, true],
     ["Copied text (8-word matches) after revision", r.verbatim_paragraphs_after ? `${r.verbatim_paragraphs_after} paragraph(s)` : "none found", !r.verbatim_paragraphs_after],
     ["Unmeasured numbers / results claims", `${r.unmeasured_claims_found ?? 0} found · ${r.unmeasured_claims_remaining ?? 0} left`, !(r.unmeasured_claims_remaining ?? 0)],
     ["Paragraphs revised for originality / support", `${r.paragraphs_revised} of ${r.paragraphs_flagged} flagged`, true],

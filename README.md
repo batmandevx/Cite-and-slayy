@@ -9,7 +9,7 @@ convenes a reviewer jury, and tells you exactly where to submit.**
 
 [**citeslayy.com**](https://citeslayy.com) · [Watch](#-watch-it-work) · [Features](#-what-it-does) · [Architecture](#-architecture) · [The maths](#-the-maths-behind-the-decisions) · [Quick start](#-quick-start) · [Security](#-security-and-production)
 
-![Next.js](https://img.shields.io/badge/Next.js-16-000?logo=nextdotjs) ![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=000) ![FastAPI](https://img.shields.io/badge/FastAPI-Python%203.11-009688?logo=fastapi&logoColor=fff) ![three.js](https://img.shields.io/badge/three.js-R3F-000?logo=threedotjs) ![Tailwind](https://img.shields.io/badge/Tailwind-4-38bdf8?logo=tailwindcss&logoColor=fff) ![AWS](https://img.shields.io/badge/AWS-EC2%20%2B%20Bedrock-ff9900?logo=amazonwebservices&logoColor=fff) ![Tests](https://img.shields.io/badge/tests-110%20passing-2ea44f) ![License](https://img.shields.io/badge/license-MIT-blue)
+![Next.js](https://img.shields.io/badge/Next.js-16-000?logo=nextdotjs) ![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=000) ![FastAPI](https://img.shields.io/badge/FastAPI-Python%203.11-009688?logo=fastapi&logoColor=fff) ![three.js](https://img.shields.io/badge/three.js-R3F-000?logo=threedotjs) ![Tailwind](https://img.shields.io/badge/Tailwind-4-38bdf8?logo=tailwindcss&logoColor=fff) ![AWS](https://img.shields.io/badge/AWS-EC2%20%2B%20Bedrock-ff9900?logo=amazonwebservices&logoColor=fff) ![Tests](https://img.shields.io/badge/tests-123%20passing-2ea44f) ![License](https://img.shields.io/badge/license-MIT-blue)
 
 <img src="docs/screenshots/hero.png" width="100%" alt="Cite & Slayy landing page" />
 
@@ -93,36 +93,56 @@ with evidence you can click:
 
 ## ✨ What it does
 
-### ✍️ Paper Studio: a 14-agent writing room
+### ✍️ Paper Studio: a research team that plans, writes, reviews and verifies
 
-Type a topic. Watch fourteen specialised agents work in parallel and stream their status live.
+Type a topic. The team researches it, shows you the plan, then writes the paper your field expects: a **technical method
+paper**, an **empirical study**, a **literature review** or a **position paper**. Every stage streams live.
 
 ```mermaid
 flowchart LR
-  T([Your topic + angle]) --> S[🔎 Scout<br/>3 searches · OpenAlex<br/>rerank by embedding<br/>drop retracted works]
-  S --> A[📊 Analyst<br/>yearly counts via OpenAlex group_by<br/>matplotlib figures]
-  A --> R[🏛️ Architect<br/>title · research question<br/>contributions · method · briefs]
-  R --> W1[Intro] & W2[Related work] & W3[Formulation] & W4[Method<br/>+ architecture diagram] & W5[Theory] & W6[Bibliometric results] & W7[Protocol<br/>+ workflow diagram] & W8[Discussion]
-  W1 & W2 & W3 & W4 & W5 & W6 & W7 & W8 --> E[✒️ Editor<br/>abstract · keywords<br/>highlights · summary]
-  E --> V{🛡️ Verifier}
-  V -->|flags| X[🔧 Reviser<br/>rewrite flagged paragraphs<br/>repair LaTeX + diagrams]
-  X --> V
-  V -->|clean| P([📄 Paper + integrity report])
+  T([Topic + angle<br/>optional PDFs, CSV, target venue]) --> S[🔭 Scout<br/>OpenAlex · Semantic Scholar · arXiv<br/>picks the paper type]
+  S --> L[📚 Librarian<br/>citation chaining · S2 recommendations<br/>influence data · retraction screen]
+  L --> R[🗣️ Expert roundtable<br/>4 perspectives question the corpus<br/>conflicting evidence extracted]
+  R --> D[🗂️ Dossier + Architect<br/>best-of-N title & question<br/>novelty check · venue style]
+  D --> P{{👀 You review the plan}}
+  P --> W[✍️ Writers in dependency order<br/>shared paper memory]
+  W --> E[🖋️ Consistency editor]
+  E --> RV[⚖️ 3-reviewer panel<br/>2 rounds of revision]
+  RV --> V[🛡️ Verifier ×2<br/>every citation vs abstract + full text<br/>gap filling · numbers · LaTeX]
+  V --> F[🖼️ Figure check · best-of-3 abstract]
+  F --> OUT([📄 Paper · click any citation to see its source])
 ```
 
-| Agent | Job |
+| Stage | What it does |
 |---|---|
-| **Scout** | Plans 3 searches, pulls real papers with abstracts, reranks them by semantic similarity, removes anything Crossref marks retracted or under an expression of concern |
-| **Analyst** | Measures real publication counts per year and draws the trend, citation-age and impact figures in code |
-| **Architect** | Designs the title, research question, contributions, the proposed method and a brief for each section |
-| **8 Section writers** (parallel) | Introduction, Related Work, Problem Formulation, Proposed Method, Theoretical Analysis, Bibliometric Results, Experimental Protocol, Discussion. Short sections get a deepening pass |
-| **Editor** | Abstract, keywords, four highlights and a plain-language summary |
-| **Verifier** | Drops citations that point nowhere; flags verbatim and semantic overlap with the cited abstracts, unsupported claims, unmeasured numbers, invented results tables, malformed LaTeX and broken Mermaid |
-| **Reviser** | Rewrites only what was flagged, then renumbers citations in order of first use (IEEE) |
+| **Scout** | Plans searches, chooses the paper type, searches OpenAlex, Semantic Scholar and arXiv |
+| **Librarian** | Adds works cited by several of the most relevant papers (citation chaining) and Semantic Scholar recommendations; picks the reference list with quotas for seminal (by *influential* citations) and recent work; screens Crossref retractions |
+| **Expert roundtable** | Four experts chosen for the topic question the literature from their angle; findings that contradict each other are extracted as explicit conflicts |
+| **Dossier & architect** | A grounded 2-3k-word research dossier, an outline for the paper type, the best title and research question from several candidates, a target-venue style card |
+| **Novelty check** | Searches for prior work that already does the proposal; if found, cites it and repositions the contribution |
+| **Your review (co-pilot)** | Edit the title, question, contributions, section briefs and sources, or add instructions, before writing starts |
+| **Writers** | Foundations first, Introduction last, all sharing a paper memory of terms and points already made; content checklists instead of word counts |
+| **Your data** | Upload a CSV and vetted statistics run in code (t-tests, ANOVA, correlation, OLS, chi-square, Holm correction): the paper reports real results |
+| **Simulation study** | For method papers: the proposed method vs baselines over 5 seeds, an ablation and a stress sweep, executed in a sandbox |
+| **Consistency editor & reviewer panel** | Whole-paper edits for repetition and terminology; three reviewers on different model families score the draft and the flagged sections are revised, twice |
+| **Verifier** | Every cited sentence is judged against each cited abstract, and against the paper's **full text** (Semantic Scholar snippets) when the abstract can't settle it; claims that still lack evidence get a new search; unmeasured numbers, copied text, LaTeX and diagrams are checked; a second pass re-checks the revised text |
+| **Figures & abstract** | A vision model checks each figure against its caption; three candidate abstracts, the best one chosen |
 
-**Honest by construction.** The proposed method is never claimed to have results; its evaluation is a protocol whose
-cells read *to be measured*. Results tables with unmeasured numbers are removed automatically. Papers carry an
-AI-assistance acknowledgment and the integrity report is shown next to the paper.
+**Measured, not claimed.** `scripts/paper_bench.py` writes papers on fixed topics and scores them the same way every
+release (3-reviewer panel averaged over two runs, every citation checked with full text):
+
+| Version | Reviewer panel (1-10) | Citation support | Cost / paper |
+|---|---|---|---|
+| Before this pipeline | 3.7 | 63% | $0.87 |
+| Paper types, dossier, reviewer panel, full claim checks | 4.95 | 83% | $1.49 |
+| + strongest model for writing, simulation studies, second review round | **5.44** | 82% | $2.02 |
+
+A second verification pass over the revised text then cut unsupported citations from 12 to 5 on the sleep-study topic
+(panel 5.5, about $2.30 per paper).
+
+**Honest by construction.** Work that was not run is written as a design, hypothesis or protocol, never as a result;
+tables with unmeasured numbers are removed; every number traces to a measurement listed under *Where the numbers come
+from*. Papers carry an AI-assistance acknowledgment and the integrity report is shown next to the paper.
 
 **After the paper:**
 
@@ -496,7 +516,7 @@ All long operations return `{ "job_id" }`; follow `GET /api/jobs/{id}/events` fo
 ## 🧪 Testing
 
 ```bash
-uv run pytest -m "not live"     # 86 offline tests
+uv run pytest -m "not live"     # 123 offline tests
 uv run pytest -m live           # 3 tests against real public records
 ```
 
@@ -526,7 +546,7 @@ cite-and-slayy/
 ├─ backend/
 │  ├─ app/            FastAPI routes · jobs + SSE · exporters · venue finder · demo papers
 │  ├─ accounts/       auth (sessions, passwords, founders, quotas) · plans · billing (Razorpay)
-│  ├─ paper_studio/   14-agent writer · slide data · submission kit · palette · template catalogue
+│  ├─ paper_studio/   planner, dossier, writers, reviewer panel, verifier · data analysis · slides · submission kit
 │  ├─ agent/          Azora AI agent and its 16 tools
 │  ├─ citeguard/      resolver · claims · phrases · overlap · score · audit · fixer
 │  ├─ jury/           personas · venues · verdict

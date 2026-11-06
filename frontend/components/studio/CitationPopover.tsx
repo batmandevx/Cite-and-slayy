@@ -4,7 +4,7 @@ import clsx from "clsx";
 import { ExternalLink, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 
-export interface ProvenanceEntry { sentence: string; label: string; rationale: string; quote: string }
+export interface ProvenanceEntry { sentence: string; label: string; rationale: string; quote: string; source?: string }
 export interface CiteTarget { nums: number[]; x: number; y: number; paragraph: string }
 interface Ref { n: number; title: string; year?: number; url?: string; venue?: string }
 
@@ -58,7 +58,7 @@ export function CitationPopover({ target, refs, provenance, onClose }: {
                   <div key={i} className="mt-2 rounded-xl border-2 border-edge p-2.5">
                     <span className={clsx("inline-block rounded-full px-2 py-0.5 text-[11px] font-bold", cls)}>{lbl}</span>
                     {!here.length && <p className="mt-1 text-[11px] text-muted">Elsewhere in the paper: “{e.sentence.slice(0, 160)}{e.sentence.length > 160 ? "…" : ""}”</p>}
-                    {e.quote && <p className="mt-1.5 text-xs"><span className="font-bold">Closest passage in the source:</span> <i>“{e.quote}”</i></p>}
+                    {e.quote && <p className="mt-1.5 text-xs"><span className="font-bold">{e.source === "full text" ? "Matching passage from the paper's full text:" : "Closest passage in the abstract:"}</span> <i>“{e.quote}”</i></p>}
                     {e.rationale && <p className="mt-1 text-[11px] text-muted">{e.rationale}</p>}
                   </div>
                 );

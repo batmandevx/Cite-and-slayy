@@ -34,6 +34,47 @@ def _ok(p: Paper) -> bool:
     return bool(p.title and p.abstract and len(p.abstract) > 180)
 
 
+# ---------- Semantic Scholar enrichment and recommendations ----------
+
+async def enrich(papers: list[Paper]) -> int:
+    """Add TLDR, influential-citation count, publication types, open-access link and corpus id (one batch request)."""
+    ids = [(p, s2.s2_id(p)) for p in papers]
+    ids = [(p, i) for p, i in ids if i]
+    if not ids:
+        return 0
+    try:
+        rows = await s2.batch([i for _, i in ids])
+    except SourceError:
+        return 0
+    n = 0
+    for (p, _), r in zip(ids, rows):
+        if not r:
+            continue
+        p.tldr = (r.get("tldr") or {}).get("text") or p.tldr
+        p.influential = r.get("influentialCitationCount")
+        p.corpus_id = str(r["corpusId"]) if r.get("corpusId") else p.corpus_id
+        p.pub_types = r.get("publicationTypes") or []
+        p.oa_url = (r.get("openAccessPdf") or {}).get("url") or p.oa_url
+        if not p.cited_by and r.get("citationCount"):
+            p.cited_by = r["citationCount"]
+        n += 1
+    return n
+
+
+async def recommended(top: list[Paper], known: set[str], limit: int = 40) -> list[Paper]:
+    """Semantic Scholar's recommender seeded with our most relevant papers."""
+    pos = [s2.s2_id(p) for p in top]
+    pos = [x for x in pos if x][:10]
+    if len(pos) < 2:
+        return []
+    try:
+        recs = await s2.recommend(pos, limit)
+    except SourceError:
+        return []
+    titles = {t.strip().lower() for t in known}
+    return [p for p in recs if _ok(p) and p.title.strip().lower() not in titles]
+
+
 # ---------- snowballing ----------
 
 async def snowball(top: list[Paper], known: set[str], min_shared: int = 2, limit: int = 15) -> list[Paper]:
@@ -78,7 +119,9 @@ def balanced_select(pool: list[Paper], sims: np.ndarray, n: int, this_year: int,
                 k -= 1
     cites = sorted((p.cited_by or 0 for p in relevant), reverse=True)
     hi = cites[max(0, len(cites) // 10 - 1)] if cites else 0
-    take(sorted((p for p in relevant if (p.cited_by or 0) >= hi and hi > 0), key=lambda p: -(p.cited_by or 0)), max(2, int(0.15 * n)))
+    # seminal: rank by influential citations when Semantic Scholar knows them (a better signal than raw counts)
+    take(sorted((p for p in relevant if (p.cited_by or 0) >= hi and hi > 0), key=lambda p: (-(p.influential or 0), -(p.cited_by or 0))),
+         max(2, int(0.15 * n)))
     take([p for p in relevant if p.year and p.year >= this_year - 3], max(3, int(0.2 * n)))
     take([p for p in relevant if p.id in snowballed], int(0.2 * n))
     take(relevant, n)
@@ -124,8 +167,26 @@ async def fill_gaps(md: str, refs: list[Paper], known_ids: set[str], max_new: in
     log: list[dict] = []
     seen = set(known_ids)
 
-    async def candidates(q: str) -> list[Paper]:
+    passages: dict[str, str] = {}      # paper id -> full-text passage that matched the claim
+
+    async def candidates(q: str, claim: str) -> list[Paper]:
         out: list[Paper] = []
+        # full-text passages first: a paper whose body states the claim is the strongest candidate
+        try:
+            sn = await s2.snippets(claim[:400], limit=5)
+            cids = list(dict.fromkeys(x["corpus_id"] for x in sn if x["corpus_id"]))[:5]
+            if cids:
+                rows = await s2.batch([f"CorpusId:{c}" for c in cids], fields=s2.FIELDS + ",corpusId")
+                for r in rows:
+                    if r:
+                        p = s2.to_paper(r)
+                        p.corpus_id = str(r.get("corpusId") or "")
+                        txt = next((x["text"] for x in sn if x["corpus_id"] == p.corpus_id), "")
+                        if txt:
+                            passages[p.id] = txt
+                        out.append(p)
+        except SourceError:
+            pass
         try:
             f = await openalex.related_works(q, per_page=8)
             out += [openalex.to_paper(w) for w in (f.data or {}).get("results", [])]
@@ -148,14 +209,16 @@ async def fill_gaps(md: str, refs: list[Paper], known_ids: set[str], max_new: in
     for gap in gaps:
         if len(new) >= max_new:
             break
-        cands = await candidates(gap.query)
+        cands = await candidates(gap.query, gap.quote)
         if not cands:
             continue
         sv = await embed_async([gap.quote])
         av = await embed_async([f"{p.title}. {p.abstract}" for p in cands])
-        top = [cands[i] for i in np.argsort(-(av @ sv.T).ravel())[:3]]
+        order = list(np.argsort(-(av @ sv.T).ravel()))
+        top = ([p for p in cands if p.id in passages][:2] + [cands[i] for i in order if cands[i].id not in passages])[:3]
         try:
-            verdicts = await judge([(k, gap.quote, p.title, p.abstract or "") for k, p in enumerate(top)])
+            verdicts = await judge([(k, gap.quote, p.title, (p.abstract or "") + (f"\n\nFULL-TEXT PASSAGE: {passages[p.id]}" if p.id in passages else ""))
+                                    for k, p in enumerate(top)])
         except llm.LLMError:
             continue
         best = next((top[k] for k in range(len(top)) if getattr(verdicts.get(k), "label", "") == "supported"), None)
@@ -164,7 +227,7 @@ async def fill_gaps(md: str, refs: list[Paper], known_ids: set[str], max_new: in
             md = _cite_into(md, gap.quote.strip(), n)
             new.append(best)
             seen.add(best.id)
-            log.append({"sentence": gap.quote, "added": best.title, "n": n})
+            log.append({"sentence": gap.quote, "added": best.title, "n": n, "full_text": best.id in passages})
             if say:
                 await say("librarian", "run", f"Cited new evidence: “{best.title[:70]}”")
         else:

@@ -50,3 +50,50 @@ def to_paper(p: dict) -> Paper:
         abstract=p.get("abstract"), authors=[a.get("name", "") for a in p.get("authors") or []],
         source="semantic_scholar",
     )
+
+
+# ---------- keyed features (Paper Studio quality) ----------
+
+ENRICH = "paperId,corpusId,externalIds,tldr,influentialCitationCount,citationCount,publicationTypes,openAccessPdf"
+
+
+def s2_id(p: Paper) -> str | None:
+    """An id the Graph API accepts for one of our papers."""
+    if p.id.startswith("s2:"):
+        return p.id[3:]
+    if p.doi:
+        return f"DOI:{p.doi}"
+    m = (p.url or "") + " " + p.id
+    import re
+    a = re.search(r"arxiv\.org/abs/([\w.\-/]+?)(?:v\d+)?(?:\s|$)|arxiv:([\w.\-/]+)", m, re.I)
+    return f"ARXIV:{a.group(1) or a.group(2)}" if a else None
+
+
+async def batch(ids: list[str], fields: str = ENRICH) -> list[dict | None]:
+    """Up to 500 papers in one request (keyed: counts as one request against the 1/s limit). None where not found."""
+    if not ids:
+        return []
+    f = await client().post_json(f"{BASE}/paper/batch", {"ids": ids[:500]}, {"fields": fields})
+    return list(f.data or [])
+
+
+async def recommend(positive: list[str], limit: int = 40) -> list[Paper]:
+    """Papers similar to a set of known-good papers (S2's recommender; catches what keyword search misses)."""
+    f = await client().post_json(f"{REC}/papers", {"positivePaperIds": positive[:10]}, {"fields": FIELDS, "limit": limit})
+    return [to_paper(p) for p in (f.data or {}).get("recommendedPapers", []) or []]
+
+
+async def snippets(query: str, corpus_ids: list[str] | None = None, limit: int = 3) -> list[dict]:
+    """Passages from papers' full text (or abstract) matching the query, optionally limited to given papers.
+    Returns [{"text", "section", "corpus_id", "title"}]."""
+    params = {"query": query[:500], "limit": limit}
+    if corpus_ids:
+        params["paperIds"] = ",".join(f"CorpusId:{c}" for c in corpus_ids[:20])
+    f = await client().get(f"{BASE}/snippet/search", params)
+    out = []
+    for d in (f.data or {}).get("data", []) or []:
+        sn, pp = d.get("snippet") or {}, d.get("paper") or {}
+        if sn.get("text"):
+            out.append({"text": sn["text"], "section": sn.get("section") or sn.get("snippetKind") or "",
+                        "corpus_id": str(pp.get("corpusId") or ""), "title": pp.get("title") or "", "score": d.get("score")})
+    return out

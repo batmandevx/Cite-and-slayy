@@ -1,0 +1,468 @@
+{
+  "label": "v4",
+  "at": "2026-11-05T19:07:20.205486+00:00",
+  "rows": [
+    {
+      "topic": "Graph neural networks for traffic forecasting",
+      "paper_id": "fd16aac12d",
+      "title": "Masked Diffusion Convolution for Sensor-Degraded Traffic Forecasting: Robustness Under Structured Missingness on METR-LA and PEMS-BAY",
+      "seconds": 1162,
+      "words": 16514,
+      "references": 24,
+      "write_usd": 2.0356,
+      "eval_usd": 0.2591,
+      "panel": 3.67,
+      "panel_scores": {
+        "soundness": 4,
+        "evidence": 2,
+        "novelty": 5,
+        "significance": 6,
+        "positioning": 6,
+        "clarity": 4,
+        "coherence": 3,
+        "concision": 2
+      },
+      "panel_reviews": {
+        "soundness": {
+          "overall": 3,
+          "summary": "The paper proposes a technically motivated masked diffusion convolution operator with a formal perturbation bound and conformal coverage analysis, which is a coherent research design. However, the paper explicitly contains no experimental results whatsoever\u2014every empirical table is filled with 'to be measured'\u2014making it an unfalsified design document rather than a research contribution, and several theoretical claims contain subtle but significant logical errors.",
+          "scores": {
+            "soundness": 4,
+            "evidence": 2
+          }
+        },
+        "significance": {
+          "overall": 5,
+          "summary": "The paper identifies a genuine gap in STGNN robustness evaluation and proposes a principled mechanism (masked diffusion convolution) with formal coverage analysis, but presents no executed experiments\u2014only a 'planned evaluation'\u2014making all empirical claims unfalsified hypotheses. The theoretical contribution is real but narrow: a linear perturbation bound and standard conformal failure regimes that are essentially applications of existing theory rather than novel methodological advances.",
+          "scores": {
+            "novelty": 5,
+            "significance": 6,
+            "positioning": 6
+          }
+        },
+        "clarity": {
+          "overall": 3,
+          "summary": "The paper tackles an important problem\u2014robustness of spatiotemporal GNNs under sensor degradation\u2014with formal theoretical contributions including perturbation bounds and exchangeability analysis for conformal prediction. However, the presentation is severely undermined by chronic repetition across sections, vague claims unanchored to executed experiments, inconsistent terminology, and a disorienting structure that emphasizes planned-but-unexecuted evaluation over coherent argumentation, making it difficult to extract the actual novelty and contribution.",
+          "scores": {
+            "clarity": 4,
+            "coherence": 3,
+            "concision": 2
+          }
+        }
+      },
+      "panel_issues": [
+        {
+          "section": "Abstract",
+          "quote": "A controlled five-schedule evaluation protocol comparing ROSTER against STGCN, DCRNN, AGCRN, and DAGNN...is fully specified and awaits empirical execution.",
+          "problem": "The paper is submitted without any experimental results. Every performance claim is a hypothesis, every table is empty, and no empirical validation of any kind is provided. Submitting an unexecuted protocol as a research paper does not meet the minimum evidentiary standard for any research venue.",
+          "fix": "Execute the specified experiments before submission. If this is intended as a position or design paper, it must be reframed explicitly and submitted to an appropriate venue with that understanding, and all claims of contribution must be downgraded accordingly.",
+          "severity": "major",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Theoretical and Formal Analysis",
+          "quote": "\\|\\boldsymbol{\\Delta}_t\\mathbf{X}\\|_F \\leq \\rho\\|\\mathbf{X}\\|_F by a direct row-counting argument: the Frobenius norm is the sum of squared row norms, and at most \\rho N of the N rows are retained",
+          "problem": "The bound is stated incorrectly. Delta_t is defined as I - Lambda_t, so it *selects* the corrupted rows (zeroes out clean rows), not the other way around. The paper says 'at most rho N rows are retained by Delta_t', but since Delta_t has at most rho*N unit diagonal entries, ||Delta_t X||_F^2 = sum of squared norms of at most rho*N rows. The inequality ||Delta_t X||_F <= rho^{1/2} ||X||_F (not rho||X||_F) would follow from Cauchy-Schwarz applied to at most rho*N rows each bounded by their own norm. The bound as written requires ||Delta_t X||_F^2 <= rho ||X||_F^2, which only holds if the corrupted rows together have squared-norm at most rho times the total\u2014true by the row-counting argument\u2014so ||Delta_t X||_F <= sqrt(rho) ||X||_F, not rho||X||_F. The paper conflates sqrt(rho) with rho throughout.",
+          "fix": "Correct the single-hop bound to lambda_max * sqrt(rho) * ||X||_F, propagate sqrt(rho) through the telescoping sum to get phi = sqrt(rho)*K*lambda_max*||X||_F, and update all downstream statements in A2, Lemma 1, Theorem 1, and Proposition 2 accordingly.",
+          "severity": "major",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Theoretical and Formal Analysis",
+          "quote": "\\|A - B\\|_2 = \\|\\tilde{P}\\boldsymbol{\\Delta}_t\\|_2 \\leq \\lambda_{\\max}\\rho",
+          "problem": "The operator-norm bound ||P_tilde * Delta_t||_2 <= lambda_max * rho is incorrect for the same reason as above. The spectral norm of Delta_t (a diagonal 0/1 matrix) is 1, not rho, so ||P_tilde * Delta_t||_2 <= lambda_max * ||Delta_t||_2 = lambda_max. The factor rho enters only when bounding the action on a specific vector or in Frobenius norm via the row-counting argument. Using rho in the operator-norm bound is unjustified.",
+          "fix": "Separate the operator-norm argument from the Frobenius-norm argument carefully. The telescoping sum should bound ||A^K X - B^K X||_F directly using the mixed Frobenius/spectral-norm inequality, applying the rho factor only where ||Delta_t X||_F appears, not in the operator norm of A-B.",
+          "severity": "major",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Problem Formulation and System Model",
+          "quote": "\\rho^* = 1 - \\lceil (n_{\\text{cal}}+1)(1-\\alpha)\\rceil / n_{\\text{cal}}",
+          "problem": "This formula for rho* is presented as 'the maximum corruption fraction preserving conformal coverage guarantee', but it is derived from standard split-conformal sample-size arguments about the calibration quantile level, not from the perturbation bound phi. The connection between the perturbation bound (which involves lambda_max, K, and ||X||_F) and this purely statistical threshold rho* is never formally established. The two quantities are independently derived and their claimed relationship\u2014that coverage holds iff rho <= rho*\u2014is asserted but not proved.",
+          "fix": "Provide an explicit proof or clear argument linking the aggregation perturbation bound to the conformal coverage threshold. If they are independent (one is statistical, one is spectral), acknowledge this and state two separate sufficient conditions rather than conflating them into one rho*.",
+          "severity": "major",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Proposed Method",
+          "quote": "the mask zeroing columns of the intermediate result before each application of \\tilde{P}",
+          "problem": "The paper defines the masked operator as (P_tilde * Lambda_t)^k H, where Lambda_t is applied *after* P_tilde at each hop (i.e., Lambda_t post-multiplies P_tilde, zeroing columns of P_tilde). But the stated motivation is to zero corrupted *node contributions before* they are aggregated by neighbours, which requires Lambda_t to pre-multiply P_tilde: (P_tilde * Lambda_t) zeros node j's outgoing signal before P_tilde aggregates it. These are not the same operation. The precomputation note then contradicts by saying 'the mask zeroing columns of the intermediate result before each application of P_tilde', which corresponds to Lambda_t H followed by P_tilde\u2014yet another ordering. The three descriptions are mutually inconsistent.",
+          "fix": "Fix the definition of the masked operator to consistently reflect the intended semantics (pre-multiply H by Lambda_t before each P_tilde application, i.e., P_tilde*(Lambda_t*H) iterated), update the algebra throughout, and re-examine whether the perturbation bound proof still holds under the corrected operator definition.",
+          "severity": "major",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Background and Related Work",
+          "quote": "[12] M. Gorodnichev, 'On the Problem of Traffic Forecasting Using Graph Neural Networks and Dynamic Adjacency Matrix', 2025 Intelligent Technologies and Electronic Devices in Vehicle and Road Transport Complex (TIRVED)",
+          "problem": "Reference [12] is cited throughout the paper as 'DAGNN' and treated as a major baseline with specific architectural claims ('per-timestep dynamic adjacency from current node embeddings', 'per-step dynamic graph convolution'). However, the actual cited paper is a 2025 single-author conference paper from TIRVED\u2014a venue not listed among the field's major outlets\u2014with no indication it is the 'DAGNN' paper the authors intend. The DAGNN paper commonly referenced in the STGNN literature is a different work. The mismatch between the cited paper and the architectural description applied to it is a significant bibliographic error.",
+          "fix": "Verify that reference [12] is the correct DAGNN paper. If not, locate and cite the correct reference. Ensure all architectural descriptions attributed to [12] match the actual cited work.",
+          "severity": "major",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Abstract",
+          "quote": "A controlled five-schedule evaluation protocol ... is fully specified and awaits empirical execution",
+          "problem": "The entire empirical contribution is aspirational; no experiments have been run. This is buried in the abstract and not prominently flagged as a limitation, creating a misleading impression that results exist.",
+          "fix": "Restructure the abstract to lead with 'We formalise... and specify an evaluation protocol' rather than implying completed experiments; add 'This paper presents a theoretical and methodological framework; empirical validation is ongoing' as the second sentence.",
+          "severity": "major",
+          "reviewer": "significance"
+        },
+        {
+          "section": "Contributions",
+          "quote": "matched-capacity evaluation protocol across five structured degradation schedules ... awaits empirical execution",
+          "problem": "The fourth claimed contribution is explicitly a protocol, not results, yet the framing throughout treats hypotheses as if they were findings. This blurs the line between design and validation.",
+          "fix": "Separate methodological contributions from empirical claims: retitle section 7 to 'Planned Evaluation Protocol' and remove all language of 'validation' or 'confirmation' until experiments are complete.",
+          "severity": "major",
+          "reviewer": "significance"
+        },
+        {
+          "section": "Introduction / Research Question and Scope",
+          "quote": "The research question this paper addresses is therefore the following: does replacing standard diffusion convolution with a degradation-mask-reweighted variant ... yield measurable robustness improvements",
+          "problem": "The research question is empirical, yet no empirical evidence is provided to answer it. The paper answers a different question (can we bound perturbation?) rather than the stated one.",
+          "fix": "Reframe the research question to match what is actually delivered: 'What theoretical guarantees can be established for masked diffusion convolution, and what evaluation protocol would test its empirical efficacy?'",
+          "severity": "major",
+          "reviewer": "significance"
+        },
+        {
+          "section": "Experimental Setup and Ablation Protocol",
+          "quote": "As this evaluation has not yet been executed, all performance claims in the paper are framed as design hypotheses",
+          "problem": "This critical limitation appears only deep in the paper; prior sections repeatedly use language implying empirical validation ('improvements', 'benefits', 'robustness') without qualification.",
+          "fix": "Add a prominent 'Limitations' paragraph to the Introduction stating clearly that no experiments have been conducted; audit all downstream claims to ensure they are framed as theoretical predictions only.",
+          "severity": "major",
+          "reviewer": "significance"
+        },
+        {
+          "section": "Abstract",
+          "quote": "A bibliometric synthesis over 32 included references (17 published since 2023, median 9 citations) reveals that the phrase 'temporal graph attention' grew 37.8-fold between 2019 and 2025",
+          "problem": "The bibliometric synthesis occupies a substantial portion of the abstract but does not establish why this publication growth is relevant to ROSTER's contribution. The abstract conflates field trends with the paper's methodological claims, diluting focus on the core innovation.",
+          "fix": "Remove or drastically compress bibliometric statistics from the abstract. Reserve those details for Section 6 (Literature). Rewrite the abstract to lead with: problem statement, core innovation (masked diffusion convolution), key theoretical result (perturbation bound and coverage threshold \u03c1*), and evaluation design. State explicitly that experiments are planned, not executed.",
+          "severity": "major",
+          "reviewer": "clarity"
+        },
+        {
+          "section": "Introduction",
+          "quote": "The aggregation-level technical gap that perpetuates this situation lies in how standard diffusion convolution aggregates neighbourhood information.",
+          "problem": "This section repeats the 'aggregation-level vulnerability' theme from the opening paragraph of the Introduction without adding specificity. The problem statement is circled multiple times (paragraphs 1\u20133) before the contribution is introduced, creating narrative redundancy.",
+          "fix": "Consolidate the problem narrative into a single 2\u20133 paragraph block: state the clean-data blind spot once, then identify the specific technical gap (diffusion convolution propagates corrupted signals unchanged). Move immediately to research question and scope. Eliminate the separate 'Aggregation-Level Technical Gap' subsection heading; fold its content into the main problem narrative.",
+          "severity": "major",
+          "reviewer": "clarity"
+        }
+      ],
+      "support": 0.68,
+      "checked": 147,
+      "unsupported": 15,
+      "synthesis_flags": 2,
+      "repetition": 0.0129,
+      "unmeasured": 3,
+      "paper_type": "method"
+    },
+    {
+      "topic": "Effect of smartphone use before bedtime on adolescent sleep quality",
+      "paper_id": "87d4dd334b",
+      "title": "In-Bed Smartphone Use, Circadian Phase, and Sleep Onset Latency in Adolescents: A Longitudinal Passive-Sensing Study",
+      "seconds": 910,
+      "words": 10389,
+      "references": 28,
+      "write_usd": 1.1776,
+      "eval_usd": 0.1899,
+      "panel": 4.33,
+      "panel_scores": {
+        "soundness": 5,
+        "evidence": 4,
+        "novelty": 5,
+        "significance": 6,
+        "positioning": 5,
+        "clarity": 5,
+        "coherence": 5,
+        "concision": 3
+      },
+      "panel_reviews": {
+        "soundness": {
+          "overall": 4,
+          "summary": "The paper proposes a methodologically ambitious prospective design that genuinely addresses identifiable gaps in the adolescent smartphone-sleep literature, but it is a protocol paper with no data, and several of its strongest claims\u2014about uniqueness, causal closure, and effect-size interpretation\u2014are overclaimed or internally inconsistent. The evidence base leans heavily on very recent, largely uncited preprints and conference abstracts (several dated 2026) whose reliability cannot be verified, and key methodological specifications leave critical inferential assumptions underspecified or contradictory.",
+          "scores": {
+            "soundness": 5,
+            "evidence": 4
+          }
+        },
+        "significance": {
+          "overall": 5,
+          "summary": "The paper presents a well-specified study design that addresses a genuine methodological gap\u2014combining passive sensing of location-specific smartphone use, actigraphy-derived sleep outcomes, and circadian phase measurement in adolescents. However, its central contribution is incremental rather than transformative: it adds one operational refinement (actigraphy-confirmed bed entry parsing) and one covariate (baseline DLMO) to a recently published framework [15], while the core within-person, passive-sensing approach has already been demonstrated in that same age group.",
+          "scores": {
+            "novelty": 5,
+            "significance": 6,
+            "positioning": 5
+          }
+        },
+        "clarity": {
+          "overall": 4,
+          "summary": "The paper ambitiously frames a 12-week within-person panel study addressing genuine gaps in smartphone-sleep research, with careful attention to methodological detail and circadian covariates. However, the manuscript is severely bloated by repetitive literature review, tangential bibliometric analysis, and a diffuse narrative structure that obscures rather than clarifies the research contribution.",
+          "scores": {
+            "clarity": 5,
+            "coherence": 5,
+            "concision": 3
+          }
+        }
+      },
+      "panel_issues": [
+        {
+          "section": "Methods",
+          "quote": "a fixed within-person effect of person-mean-centred in-bed use duration on SOL, conservatively set at a standardised coefficient smaller than estimates reported in comparable passive-sensing longitudinal work [15]",
+          "problem": "The power analysis anchor effect size is described only qualitatively as 'smaller than estimates reported in [15]' without stating the numerical value used in the simulations. A Monte Carlo power analysis is only reproducible and evaluable if the assumed effect size is reported explicitly. Readers cannot assess whether N=200 is adequate without this figure.",
+          "fix": "Report the exact standardised coefficient (and its source) assumed in the primary simulation, alongside the assumed random-slope variance, so the power claim is independently verifiable.",
+          "severity": "major",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Introduction",
+          "quote": "No prior study has parsed EARS-type data by actigraphy-confirmed bed entry location in an adolescent sample while simultaneously measuring actigraphy-derived SOL",
+          "problem": "This uniqueness claim is stated repeatedly (Introduction, Conclusion, Abstract) as though it constitutes causal closure, but the paper itself notes that this design cannot rule out time-varying confounding not captured by PHQ-A/GAD-7 (e.g., exam stress). The repeated assertion that the compound structural gap is 'closed' by adding DLMO and bed-entry parsing overstates what an observational panel design can deliver.",
+          "fix": "Qualify uniqueness claims consistently: the design adds important controls but remains observational; replace language such as 'closing the confound' with 'reducing confounding from circadian phase'.",
+          "severity": "major",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Literature Review",
+          "quote": "Nineteen of thirty-two included works (59%) were published since 2023, and only a handful of pre-2015 studies anchor the conceptual framework",
+          "problem": "Multiple cited references carry 2026 publication dates (refs 6, 8, 9, 10, 14, 15, 16, 17, 21, 24, 26, 27, 28), many appearing to be preprints, conference abstracts, or partial-year indexed records. These are used as peer-reviewed empirical foundations (e.g., ref 15 as 'direct methodological precedent', ref 14 for odds ratios) without acknowledging their preliminary status. The bibliometric table itself flags median citations of zero, yet these works anchor key empirical claims.",
+          "fix": "Clearly distinguish peer-reviewed published studies from preprints and conference abstracts; do not use uncited 2026 preprints as empirical anchors for specific quantitative claims without explicit caveats about their provisional status.",
+          "severity": "major",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Discussion",
+          "quote": "If a one-standard-deviation increase in nightly in-bed use duration corresponds to an SOL prolongation of two or more minutes within-person, the effect approaches the magnitude of a well-characterised circadian mismatch intervention",
+          "problem": "The comparison to the Carskadon et al. [4] MSLT benchmark is mechanistically inappropriate. MSLT latency (a measure of daytime sleepiness via sleep propensity) is not the same construct as nocturnal sleep onset latency (SOL), and a 'two-minute SOL prolongation' cannot be directly expressed relative to an MSLT decrement without a validated conversion. The paper later correctly disclaims mechanistic comparability but has already made the functional equivalence argument.",
+          "fix": "Remove the quantitative comparison between SOL minutes and MSLT latency, or provide a validated psychometric bridge between these two distinct constructs; retain [4] only as qualitative context for circadian mismatch effects.",
+          "severity": "major",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Methods",
+          "quote": "Missing actigraphy nights (fewer than 20% expected) will be handled by full information maximum likelihood (FIML) estimation within the multilevel framework, which yields consistent estimates under the missing-at-random assumption",
+          "problem": "The paper simultaneously uses FIML for actigraphy nights and multiple imputation (MI) for questionnaire data without explaining why the same MAR assumption justifies different missing-data methods for different variables within the same model. More importantly, whether nights are missing at random is empirically implausible: nights of heaviest in-bed use or worst sleep may be the nights most likely to have missing actigraphy data (device not charged, not worn), creating missing-not-at-random (MNAR) conditions that FIML cannot correct.",
+          "fix": "Acknowledge the plausibility of MNAR for actigraphy nights explicitly; pre-register a sensitivity analysis under a plausible MNAR mechanism (e.g., pattern-mixture model or selection model) rather than asserting MAR without justification.",
+          "severity": "major",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Introduction",
+          "quote": "The present study therefore extends [15] by parsing passively sensed application activity specifically by actigraphy-confirmed bed entry location and by adding salivary DLMO as a time-invariant covariate\u2014a refinement within existing passive-sensing infrastructure rather than a structural departure from it.",
+          "problem": "The authors explicitly acknowledge that the study is 'a refinement within existing passive-sensing infrastructure rather than a structural departure,' yet simultaneously claim 'the design configuration that prior structural critiques identify as necessary but still absent from the literature.' This tension is unresolved: if the framework is established by [15], the contribution is operational detail, not foundational novelty.",
+          "fix": "Reframe the contribution candidly as operational refinement and validation in an adolescent sample, rather than claiming to fill a 'compound structural absence' that excludes [15]. Clarify whether [15] used any bed-entry proxy (Fitbit sleep detection) and why actigraphy-confirmed parsing represents meaningful methodological advance versus minor technical improvement.",
+          "severity": "major",
+          "reviewer": "significance"
+        },
+        {
+          "section": "Introduction",
+          "quote": "No existing adolescent study combines passively sensed location-specific exposure, objective circadian phase measurement, and longitudinal mediation analysis with actigraphy-derived outcomes.",
+          "problem": "This compound claim is carefully constructed to exclude [15] by adding 'location-specific' and 'circadian phase' as conjunctive requirements. Yet [15] already combined passive sensing + actigraphy-derived outcomes + longitudinal within-person analysis in adolescents. The claim reads as strategic scope-narrowing rather than genuine gap identification.",
+          "fix": "Replace with transparent enumeration: [15] demonstrated passively sensed smartphone exposure with actigraphy outcomes in adolescents; the present study adds (a) actigraphy-confirmed bed-entry parsing to isolate in-bed exposure, and (b) baseline DLMO to control circadian confounding. Acknowledge that combining all three elements has not been achieved, but that two of three have.",
+          "severity": "major",
+          "reviewer": "significance"
+        },
+        {
+          "section": "Methods",
+          "quote": "The design is distinguished from prior cross-sectional and retrospective self-report research [5, 8, 11] by three structural features",
+          "problem": "The comparison baseline is selectively chosen as 'cross-sectional and retrospective self-report research' while omitting comparison to [15], which shares the first two claimed distinguishing features (concurrent measurement, objective outcomes). This obscures the actual incremental contribution.",
+          "fix": "Add explicit comparison to intensive longitudinal designs including [13] and [15], distinguishing the present study on the specific dimensions where it advances: adolescent sample (vs. [13]), bed-entry parsing (vs. [15]), and DLMO covariate (neither).",
+          "severity": "major",
+          "reviewer": "significance"
+        },
+        {
+          "section": "Literature Review & Evidence Base sections combined",
+          "quote": "The epidemiological literature establishes adverse associations... Systematic reviews spanning pediatric... Population cohort studies have linked... university-based surveys document...",
+          "problem": "The Introduction (paragraphs 3\u20134) and Literature Review section (\u00a7 Epidemiological Evidence) recite nearly identical claims about cross-sectional associations, systematic review conclusions, and design limitations, creating substantial verbatim repetition across ~1,000 words. This violates basic composition discipline and suggests the sections were drafted independently without integration.",
+          "fix": "Delete the Literature Review \u00a7 Epidemiological Evidence section entirely and consolidate its distinct content (mechanism parsing, location-specificity, location specificity effect) into a single Literature Review section. The Introduction's design-limitation critique should be tightened to 2\u20133 paragraphs, with detailed mechanism discussions moved to Literature Review to preserve flow.",
+          "severity": "major",
+          "reviewer": "clarity"
+        },
+        {
+          "section": "Evidence Base and Bibliometric Overview",
+          "quote": "Bibliometric analysis reveals that indexed publications containing the phrase 'screen time' increased 7.5-fold from 458 in 2016 to 3,438 in 2025... Parallel trajectories appear for 'sleep hygiene' (5.0-fold increase) and 'circadian disruption' (4.9-fold increase)",
+          "problem": "This entire section (3+ pages of figures, tables, and prose) documents publication growth trends but does not explain why growth matters for the proposed study's research question, nor does it defend the choice of three specific phrases. The section reads as a detour into bibliometrics rather than a justified rationale for the study design. The interpretation 'acceleration suggests that scientific output may be tracking public health concern and policy debate rather than cumulative refinement' is speculative and unsupported.",
+          "fix": "Delete or reduce the Bibliometric Overview section to 1\u20132 paragraphs. Replace elaborate figures and tables with a single sentence acknowledging rapid growth and citing one recent systematic review identifying design gaps. Redirect that space to concrete specification of H1, H2, H3 or to the Methods section, which is currently underspecified relative to the literature review's length.",
+          "severity": "major",
+          "reviewer": "clarity"
+        },
+        {
+          "section": "Introduction and Evidence Base sections",
+          "quote": "Introduction: 'The practical question facing clinicians and policymakers is whether in-bed smartphone use exerts a comparable, independently measurable effect on sleep onset latency.' Evidence Base: 'the field's theoretical scaffolding derives from studies now aging out of relevance to current device technologies and usage patterns, while methodological innovations (passive sensing, objective circadian measurement) remain underrepresented'",
+          "problem": "The manuscript repeatedly asserts that prior work is cross-sectional, lacks location-specificity, omits circadian covariates, and uses self-report outcomes. This argument is made in the Abstract, Introduction (twice), Literature Review (four subsections), and again in the Evidence Base synthesis. The repetition across ~5,000 words suggests either that the core argument is being used as filler or that the author lacks confidence in its justification and reinforces it excessively.",
+          "fix": "State the core gap once, concisely, in the Introduction (2 paragraphs). Then move immediately to the proposed study's design logic. In the Literature Review, discuss mechanisms and empirical findings rather than repeatedly cataloguing design limitations. Use the word count saved to strengthen the Methods section and provide detailed prospective analysis specifications.",
+          "severity": "major",
+          "reviewer": "clarity"
+        },
+        {
+          "section": "Methods",
+          "quote": "Each participant's spline-derived DLMO clock time is retained as a time-invariant Level-2 covariate\u2026 consistent with the longitudinal adolescent circadian work of [3]",
+          "problem": "The paper later acknowledges in Limitations that DLMO can drift with season or escalating device use over 12 weeks, directly contradicting the justification for treating it as time-invariant. Reference [3] measured circadian phase longitudinally precisely because it changes; citing [3] to justify a single-point measurement misrepresents what that study demonstrates.",
+          "fix": "Replace the citation of [3] as a justification for single-point measurement with an honest statement that one-time DLMO is a pragmatic constraint; strengthen the limitation acknowledgment and pre-register a sensitivity analysis limited to participants whose DLMO assessment falls within a narrow seasonal window.",
+          "severity": "minor",
+          "reviewer": "soundness"
+        }
+      ],
+      "support": 0.785,
+      "checked": 135,
+      "unsupported": 16,
+      "synthesis_flags": 0,
+      "repetition": 0.002,
+      "unmeasured": 12,
+      "paper_type": "empirical"
+    },
+    {
+      "topic": "Large language model tutors in school education: benefits, risks and evidence",
+      "paper_id": "222e9789a1",
+      "title": "Effect-Size Stability or Illusion? Testing Whether LLM Tutors Replicate Pre-2020 Intelligent Tutoring Gains Under Stricter Alignment Criteria",
+      "seconds": 1676,
+      "words": 11058,
+      "references": 33,
+      "write_usd": 1.1815,
+      "eval_usd": 0.1934,
+      "panel": 5.33,
+      "panel_scores": {
+        "soundness": 5,
+        "evidence": 4,
+        "novelty": 6,
+        "significance": 7,
+        "positioning": 5,
+        "clarity": 6,
+        "coherence": 6,
+        "concision": 4
+      },
+      "panel_reviews": {
+        "soundness": {
+          "overall": 5,
+          "summary": "The review provides a clearly structured and internally consistent analytical framework for diagnosing the evidentiary gaps in LLM tutoring research, and its central argument\u2014that no LLM-era study has tested the alignment-moderation mechanism\u2014is logically coherent. However, the paper's empirical claims routinely outrun what the cited sources can verify: precise failure-rate figures (17.7%, 77.8%) are asserted with false precision from a single benchmark, the 0.66 SD figure is repeatedly attributed to Kulik and Fletcher [1] with claims about its moderators that cannot be confirmed without access to that paper, and several quantitative anchors used throughout the synthesis derive from preprints or low-venue publications whose findings are treated as settled facts.",
+          "scores": {
+            "soundness": 5,
+            "evidence": 4
+          }
+        },
+        "significance": {
+          "overall": 6,
+          "summary": "The review makes a methodologically valuable contribution by rigorously documenting the evidentiary gaps between pre-LLM and LLM-era intelligent tutoring research, particularly the systematic absence of test-instruction alignment testing, retention intervals, and standardized assessments. However, its own positioning against prior work is weakened by treating conceptual distinctions as novel analytical moves when they largely recombine existing frameworks, and by a related work section that lists rather than synthesizes contributions from adjacent review papers.",
+          "scores": {
+            "novelty": 6,
+            "significance": 7,
+            "positioning": 5
+          }
+        },
+        "clarity": {
+          "overall": 5,
+          "summary": "The paper presents a systematic and methodologically sophisticated synthesis of LLM tutor effectiveness with rigorous attention to effect-size moderation and pedagogical failure modes, establishing important distinctions between single-turn benchmarks and multi-turn degradation. However, the paper is severely undermined by verbose repetition across sections, generic hedging language that obscures claims, and a bloated structure that repeatedly restates the same findings without advancing argument.",
+          "scores": {
+            "clarity": 6,
+            "coherence": 6,
+            "concision": 4
+          }
+        }
+      },
+      "panel_issues": [
+        {
+          "section": "Thematic Synthesis",
+          "quote": "pedagogical failure rates escalated from roughly 18 percent in single-turn exchanges to nearly 78 percent in multi-turn dialogue",
+          "problem": "These precise figures (17.7% and 77.8%) are cited from a single benchmark paper [5]/[6], which are two references to what appears to be the same SAFETUTORS work. The paper treats these numbers as established facts throughout the synthesis, the conflict section, and the research agenda, yet the benchmark's own generalisability is unestablished\u2014sample sizes, subject domains, number of turns, and model versions are never reported or scrutinised in this review. Relying on a single, unreplicated benchmark for the field's primary risk quantification is a major evidential overreach.",
+          "fix": "Report the SAFETUTORS figures as preliminary estimates from one benchmark study, explicitly note the methodological details (models tested, turn counts, domain coverage) needed to assess their reliability, and hedge all downstream inferences accordingly.",
+          "severity": "major",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Introduction",
+          "quote": "gains on locally developed assessments substantially exceeded those on standardised tests, implying that test-instruction alignment is the principal determinant",
+          "problem": "This moderator claim is attributed to Kulik and Fletcher [1] and then treated as the load-bearing analytical framework for the entire review. The review cannot independently verify that [1] actually reported this moderator result with the specificity claimed, nor does it report the effect-size difference between locally developed and standardised assessment conditions from [1]. The phrase 'principal determinant' goes beyond what a single moderator analysis in a meta-analysis typically supports.",
+          "fix": "Quote or paraphrase the exact finding and effect-size contrast from [1] regarding assessment type, and soften 'principal determinant' to 'a documented moderator,' acknowledging it may interact with other moderators.",
+          "severity": "major",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Conflicting Evidence and Open Questions",
+          "quote": "A 2026 review cites 0.73\u20131.3 SD gains for 'carefully designed' AI tutors in randomised trials [23]; without specifying which studies achieved these values, that range is unverifiable.",
+          "problem": "The review correctly flags this claim in [23] as unverifiable, yet it continues to use similarly unverified effect-size ranges from [2] (d = 0.76\u20130.91) as positive anchors throughout the paper without equivalent scepticism. The GUIDE-PATH study [2] is published in a low-visibility computing/biomedical informatics journal, has not been replicated, and its effect sizes on learner-facing assessments are given prominent positive treatment throughout, creating an asymmetric evidential standard.",
+          "fix": "Apply the same sceptical framing to [2]'s effect sizes as to [23]'s: flag that both come from single unreplicated studies in non-education journals, and present them with equivalent hedging.",
+          "severity": "major",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Review Methodology",
+          "quote": "Forty records were checked against this registry \u2014 those ranked highest for relevance and those appearing most frequently as citation targets",
+          "problem": "The review screened only 40 of 240 candidate works (17%) for retraction, selecting by relevance rank and citation frequency. This means 200 candidate works\u2014potentially including the 32 included studies\u2014may not have been retraction-screened. The text states none of the 40 checked carried flags, but this cannot be extended to the full inclusion set. The review does not clarify whether all 32 included works were among the 40 screened.",
+          "fix": "Clarify explicitly whether all 32 included works were among the 40 retraction-screened records; if not, acknowledge this as a limitation and confirm all included works were at minimum screened.",
+          "severity": "major",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Introduction",
+          "quote": "The contribution of the present work is therefore to systematically test whether established measurement frameworks for alignment hold in LLM-era studies",
+          "problem": "Claims novelty for 'systematically testing' alignment frameworks, but the paper later admits no LLM-era study has administered both assessment types, making this a gap identification rather than a systematic test. The contribution is descriptive synthesis, not empirical testing.",
+          "fix": "Reframe contribution as 'synthesizing the structural impossibility of testing alignment moderation under current architectures' rather than claiming to test it.",
+          "severity": "major",
+          "reviewer": "significance"
+        },
+        {
+          "section": "Introduction",
+          "quote": "No prior review in this corpus applies these three analytical moves in combination",
+          "problem": "The three analytical moves\u2014alignment moderation, dialogue depth as variable, population-stratified risk-benefit\u2014are largely separable framings of existing concepts. Dialogue depth appears in SAFETUTORS; population stratification appears in fairness-aware tutoring literature. The combination claim overstates differentiation.",
+          "fix": "Explicitly contrast against the specific synthesis moves in [9] and [10], showing what their frameworks cannot capture that this review addresses.",
+          "severity": "major",
+          "reviewer": "significance"
+        },
+        {
+          "section": "Review Methodology",
+          "quote": "Education-specific databases (ERIC, PsycINFO) were not queried. This decision reflects the review's computational-linguistics and NLP venue orientation",
+          "problem": "The exclusion of education databases is acknowledged as a limitation, but the paper simultaneously makes strong claims about pedagogical effectiveness and teacher role displacement that likely have substantial literature in excluded sources. The boundary decision undermines claims about \"every quantitative outcome study.\"",
+          "fix": "Scope claims to \"NLP and AI venue literature\" rather than \"the LLM-era corpus\" or \"the field\" when referring to absence of retention studies.",
+          "severity": "major",
+          "reviewer": "significance"
+        },
+        {
+          "section": "Introduction",
+          "quote": "The practical stakes of this divergence are high. Governments, school districts, and edtech investors routinely invoke '0.66 standard deviations' as the expected return on intelligent tutoring investment \u2014 a figure derived from a meta-analysis of 50 controlled evaluations conducted before large language models existed [1]. That study established not only a median effect size but a critical moderator: gains on locally developed assessments substantially exceeded those on standardised tests, implying that test-instruction alignment is the principal determinant of whether a reported effect generalises [1].",
+          "problem": "This passage restates the 0.66 SD anchor and alignment-moderator finding three times within two sentences before the review questions are even posed. The same claim appears again verbatim in Abstract, Introduction paragraphs 2\u20133, Review Methodology, Bibliometric Overview, and Theme 1. This level of repetition suggests either unclear thinking or padding.",
+          "fix": "State the 0.66 SD anchor and alignment moderator once in the Abstract and once in early Introduction. Remove all subsequent restatements. Use cross-references ('as established above') instead of re-explaining.",
+          "severity": "major",
+          "reviewer": "clarity"
+        },
+        {
+          "section": "Review Methodology",
+          "quote": "The review does not follow a formally registered PRISMA protocol. PRISMA guidelines are designed primarily for meta-analyses of homogeneous randomised controlled trials with a single well-defined outcome measure; the present synthesis integrates heterogeneous evidence types \u2014 single-turn capability benchmarks, multi-turn interaction studies, quasi-experiments, systematic reviews, and qualitative interview studies \u2014 for which a narrative synthesis framework is more appropriate.",
+          "problem": "The justification for not using PRISMA is presented as a methodological choice, but the reasoning is vague and self-serving. 'PRISMA is for homogeneous RTCs' conflates PRISMA-P (for protocols) with PRISMA 2020, which explicitly accommodates mixed-methods syntheses. The real issue is that the search strategy was not pre-registered and inclusion criteria were refined post-hoc (acknowledged in 'Scope Boundaries'). This should be stated directly rather than hidden behind generic justification.",
+          "fix": "Replace the PRISMA paragraph with: 'This synthesis was not pre-registered. Inclusion criteria were developed inductively after initial scoping of the candidate corpus, violating pre-specification standards. This choice prioritized responsiveness to rapid emergence of new benchmarking tools (SAFETUTORS, MRBench) but sacrifices replicability. Future work should pre-register alignment criteria before database queries.'",
+          "severity": "major",
+          "reviewer": "clarity"
+        },
+        {
+          "section": "Thematic Synthesis",
+          "quote": "The three quantitative anchors available from the LLM era each support directionally positive estimates but cannot resolve the alignment question. A quasi-experiment of 56 seventh-grade students using a RAG-grounded LLM tutor for fraction arithmetic produced 47.02% learning gains versus 31.54% in the control group [3]. An RCT of the GUIDE-PATH framework \u2014 the only randomised design in the corpus \u2014 reported Cohen's d = 0.76\u20130.91 on grammar, vocabulary, and speaking confidence across 172 intermediate EFL learners [2]. A pre-post study of 34 students using Santa and Duolingo found engagement and performance gains on paired t-tests [4]. All three use immediate post-test designs, none employs standardised assessments, and none includes a retention interval, meaning they cannot speak to the alignment-moderation hypothesis that makes the 0.66 SD figure historically contingent [1].",
+          "problem": "This passage appears verbatim in Introduction ('These three studies constitute the totality of quantitative LLM-era learning-outcome evidence in this review, and none spans the design elements...') and then again in Theme 1 section. The repetition across multiple sections\u2014Introduction, Bibliometric Overview, and Theme 1\u2014suggests copy-pasting rather than narrative synthesis. No new argument is advanced in the second or third iteration.",
+          "fix": "Keep this passage only in Theme 1 (Measured Effectiveness). In Introduction, reduce to: 'Three quantitative LLM-era studies report positive effects on immediate post-tests [2, 3, 4], but none employs standardised assessments or retention intervals, leaving the alignment-moderation mechanism untested.' Cite Theme 1 for detail.",
+          "severity": "major",
+          "reviewer": "clarity"
+        },
+        {
+          "section": "Conflicting Evidence and Open Questions",
+          "quote": "The conflict between high initial performance and steep harm accumulation is precisely what immediate post-test designs cannot detect, and explains why the 0.76\u20130.91 SD range from [2] may overstate durable effectiveness. / A system can satisfy single-turn benchmarks while systematically degrading over session length: high initial accuracy and high terminal failure rate are not logically inconsistent.",
+          "problem": "The same logical point\u2014that single-turn benchmarks and multi-turn failure are compatible, not contradictory\u2014is stated in two different subsections ('The Safety Conflict' and earlier in Theme 2). The phrase 'immediate post-test designs cannot detect' appears throughout multiple sections. This repetition flattens the argument and wastes space that could develop novel distinctions.",
+          "fix": "Consolidate the single-turn/multi-turn compatibility argument to one location (e.g., Theme 2). In Conflicting Evidence, cross-reference: 'As shown in Theme 2, the apparent conflict between MRBench and SAFETUTORS findings dissolves when dialogue-length is held constant.' Remove the redundant statement.",
+          "severity": "major",
+          "reviewer": "clarity"
+        },
+        {
+          "section": "Conclusion",
+          "quote": "**Does the 0.66 SD median effect size from pre-LLM intelligent tutoring systems replicate under LLM architectures when the same test-instruction alignment criteria are applied?** It does not replicate \u2014 not because contradictory evidence exists, but because no LLM-era study has applied the alignment criteria necessary to test replication. The three quantitative anchors available from LLM-era work are directionally positive but none combines randomised assignment, a standardised assessment comparator, and a retention interval [1, 2, 3].",
+          "problem": "The conclusion reiterates findings restated multiple times already: (a) the three quantitative anchors lack alignment criteria (stated in Introduction, Bibliometric Overview, Theme 1, and Conflicting Evidence); (b) no study has applied strict criteria (stated in Abstract and Introduction). The Conclusion section adds no new synthesis; it merely rehearses existing points with slightly different wording. This makes the paper feel like it is circling rather than progressing.",
+          "fix": "Reduce Conclusion to one paragraph per research question that synthesizes only novel integrations, not prior restatements. For RQ1, write: 'Replication remains untestable because the empirical gap is design-level, not evidence-level. Closing it requires a single study with delayed post-tests and dual assessments\u2014a feasible design we specify in Gap 1 of the Research Agenda.' Move detailed evidence inventory to Appendix if needed.",
+          "severity": "major",
+          "reviewer": "clarity"
+        }
+      ],
+      "support": 0.731,
+      "checked": 160,
+      "unsupported": 18,
+      "synthesis_flags": 1,
+      "repetition": 0.0157,
+      "unmeasured": 8,
+      "paper_type": "review"
+    }
+  ]
+}

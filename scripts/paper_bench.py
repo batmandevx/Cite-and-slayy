@@ -78,12 +78,11 @@ async def bench_one(i: int, label: str, extra: dict) -> dict:
     print(f"[{tag}] evaluating ({secs}s to write, ${write_usd})", flush=True)
     panel, claims = await asyncio.gather(review.panel(md), quality.check_all_claims(md, refs, cap=160))
     allowed = studio._allowed_numbers(rec.get("_facts", ""), *((r.get("abstract") or "") for r in refs))
-    unmeasured = 0
-    for h, body in quality.sections(md):
-        if h in studio.DESIGN_SECTIONS or h.lower().startswith(("references", "abstract")):
-            continue
-        for para in body.split("\n\n"):
-            unmeasured += len(studio._unmeasured(para, allowed, rec.get("_method", "")))
+    # same rules as the pipeline: prose paragraphs only, and each paper type's design sections are exempt
+    from backend.paper_studio.paper_types import PLANS
+    design = {x.heading for x in PLANS.get(rec.get("paper_type") or "method", PLANS["method"]).sections if x.design} | studio.DESIGN_SECTIONS
+    unmeasured = sum(len(studio._unmeasured(t, allowed, rec.get("_method", ""))) for st, _, t in studio._paragraphs(md)
+                     if studio._section_of(md, st) not in design and not studio._section_of(md, st).lower().startswith(("references", "abstract")))
     return {
         "topic": topic, "paper_id": pid, "title": rec.get("title"), "seconds": secs, "words": rec.get("words"),
         "references": len(refs), "write_usd": write_usd, "eval_usd": _usd(eval_uid),

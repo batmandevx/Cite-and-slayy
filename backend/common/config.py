@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     premium_fast_models: str = ("moonshotai.kimi-k2.5,us.anthropic.claude-haiku-4-5-20251001-v1:0,"   # paid: bulk/simple steps
                                 "amazon.nova-pro-v1:0")
     vision_models: str = "amazon.nova-pro-v1:0,us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    # Paper Studio, paid users: the strongest model this account can use for the steps that decide paper quality
+    # (dossier, outline, section writers, consistency editor, reviewer responses, abstract). Falls back to premium_models.
+    studio_models: str = "us.anthropic.claude-opus-4-6-v1"
     price_overrides: dict[str, list[float]] | None = None   # USD per 1M tokens per model id, e.g. Bedrock rates
     usd_inr: float = 88.0               # conversion for budgets; update to the current rate
     razorpay_key_id: str | None = None

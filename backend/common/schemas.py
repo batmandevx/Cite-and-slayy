@@ -69,6 +69,12 @@ class Paper(PaperRef):
     date: str | None = None          # ISO publication date when known
     authors: list[str] = Field(default_factory=list)
     source: SourceName = "openalex"
+    # Semantic Scholar enrichment (Paper Studio): one-sentence summary, influential citations, full-text lookup id
+    tldr: str | None = None
+    influential: int | None = None
+    corpus_id: str | None = None
+    pub_types: list[str] = Field(default_factory=list)
+    oa_url: str | None = None
 
 
 # ---------- documents ----------

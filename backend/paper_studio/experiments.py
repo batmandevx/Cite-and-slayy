@@ -297,6 +297,46 @@ Build a small toy simulation that illustrates the proposed mechanism against a s
 report 3-8 metrics, one table and 1-2 clearly labelled figures (axis labels, legend, title). Return only the code."""
 
 
+STUDY_RULES = """Write ONE self-contained Python script for a CONTROLLED SIMULATION STUDY of the proposed method.
+Allowed imports only: numpy, scipy, sklearn, pandas, matplotlib.pyplot, math, statistics, random, itertools, functools, collections.
+No file, network or OS access. No open(), eval, exec, getattr, dunder attributes, np.save/np.load, read_csv, fetch_* or savefig.
+Must finish in under 45 seconds on one CPU core (synthetic data <= 3,000 samples per run; vectorise with numpy).
+Report results ONLY through: report(name, value), report_table(title, header, rows) (<= 12 rows), save_figure(name, caption) (max 2).
+The study MUST:
+1. Generate synthetic data from a generator that matches the formal setting and assumptions (state them in comments).
+2. Implement a faithful, simplified version of the proposed method AND at least two baselines named after families in the
+   cited literature (e.g. a standard method and a strong simple heuristic).
+3. Run every method over 5 random seeds and report mean and standard deviation of 2-3 metrics that match the hypotheses.
+4. Run one ablation: the proposed method with its key component removed.
+5. Run one sweep of a stress parameter into the failure regime described below, for the proposed method and the best baseline.
+6. Report a results table (method x metric, cells 'mean ± std'), a sweep figure with error bars, and scalar metrics for the
+   headline comparisons (e.g. 'proposed_minus_best_baseline_<metric>'). Use paired differences over the same seeds.
+Report honestly whatever the numbers are, including when the proposed method does not win. Return only the code."""
+
+
+async def study(topic: str, method: str, summary: str, design: str, prefer: list[str] | None = None) -> tuple[sandbox.SandboxResult | None, str]:
+    """A seeded, multi-baseline simulation with an ablation and a failure-regime sweep. Up to three attempts."""
+    prompt = (f"Topic: {topic}\nProposed method: {method}\nMethod summary: {summary}\nFORMAL DESIGN (assumptions, claim, failure "
+              f"regime, contributions):\n{design}\n\n{STUDY_RULES}")
+    err = ""
+    for _ in range(3):
+        try:
+            code = (await llm.complete_json("You are a meticulous research engineer who writes correct, deterministic, vectorised simulation studies.",
+                                            prompt + (f"\n\nThe previous attempt failed: {err}. Fix it and keep it fast." if err else ""),
+                                            _Code, effort="medium", max_tokens=9000, prefer=prefer)).code
+        except llm.LLMError as e:
+            return None, f"model error: {e}"
+        code = code.strip().removeprefix("```python").removeprefix("```").removesuffix("```").strip()
+        try:
+            res = await asyncio.to_thread(sandbox.run, code)
+            if res.tables and len(res.metrics) >= 3:
+                return res, ""
+            err = "it must report a results table and at least 3 metrics"
+        except sandbox.SandboxError as e:
+            err = str(e)[:300]
+    return None, err
+
+
 async def _custom(topic: str, method: str, summary: str, plan: _Plan) -> tuple[sandbox.SandboxResult | None, str]:
     prompt = (f"Topic: {topic}\nProposed method: {method}\nMethod summary: {summary}\n"
               f"Simulation to build: {plan.custom_title or 'toy simulation of the core mechanism'} — {plan.custom_description}\n\n{CODE_RULES}")
@@ -319,7 +359,7 @@ async def _custom(topic: str, method: str, summary: str, plan: _Plan) -> tuple[s
     return None, err
 
 
-async def run_for_paper(topic: str, method: str, summary: str, say) -> Experiments:
+async def run_for_paper(topic: str, method: str, summary: str, say, design: str = "", prefer: list[str] | None = None) -> Experiments:
     """Plan, run and package pilot experiments. Never raises; returns an empty result if nothing could run."""
     try:
         plan = await llm.complete_json(
@@ -341,18 +381,28 @@ async def run_for_paper(topic: str, method: str, summary: str, say) -> Experimen
     else:
         # A generic classification benchmark unrelated to the topic weakens the paper (every reviewer flags it), so skip it.
         exp = Experiments(report={"benchmark_skipped": f"no benchmark dataset matches the topic ({plan.relevance} relevance)"})
-    await say("experimenter", "run", "Writing and running a sandboxed toy simulation of the proposed mechanism…", 0.33)
-    res, err = await _custom(topic, method, summary, plan)
+    if design:
+        await say("experimenter", "run", "Running a controlled simulation study: method vs baselines, 5 seeds, ablation, stress sweep…", 0.33)
+        res, err = await study(topic, method, summary, design, prefer)
+        if res:
+            exp.report["study"] = True
+    else:
+        res, err = None, ""
+    if not res:
+        await say("experimenter", "run", "Writing and running a sandboxed toy simulation of the proposed mechanism…", 0.33)
+        res, err = await _custom(topic, method, summary, plan)
     if res:
-        exp.facts.append(f"- Toy simulation (model-written script executed in an isolated sandbox): {plan.custom_title or 'mechanism simulation'}. "
+        label = ("Controlled simulation study (seeded synthetic data, proposed method vs baselines, ablation and stress sweep; script executed in an isolated sandbox)"
+                 if exp.report.get("study") else f"Toy simulation (model-written script executed in an isolated sandbox): {plan.custom_title or 'mechanism simulation'}")
+        exp.facts.append(f"- {label}. "
                          + "; ".join(f"{k} = {v:.4g}" for k, v in list(res.metrics.items())[:8]) + ".")
         parts = []
         for t in res.tables[:2]:
             head = [h.replace("|", "/") for h in t["header"]]
-            parts.append(f"Table: {t['title']} (toy simulation, executed in sandbox)\n| " + " | ".join(head) + " |\n|" + "---|" * len(head) + "\n"
+            parts.append(f"Table: {t['title']} ({'simulation study' if exp.report.get('study') else 'toy simulation'}, executed in sandbox)\n| " + " | ".join(head) + " |\n|" + "---|" * len(head) + "\n"
                          + "\n".join("| " + " | ".join(c.replace("|", "/") for c in r[:len(head)]) + " |" for r in t["rows"]))
         for k, (name, cap, png) in enumerate(res.figures[:2]):
-            exp.figures[f"exp_sim{k}"] = (png, f"{cap} (toy simulation executed by the pipeline)")
+            exp.figures[f"exp_sim{k}"] = (png, f"{cap} ({'simulation study' if exp.report.get('study') else 'toy simulation'} executed by the pipeline)")
         exp.markdown = (exp.markdown + "\n\n" + "\n\n".join(parts)).strip()
         exp.report["simulation"] = {"title": plan.custom_title, "metrics": len(res.metrics), "figures": len(res.figures)}
     else:
@@ -367,8 +417,10 @@ def section(exp: Experiments, fig_block) -> str:
     if not exp.facts:
         return ""
     figs = "\n\n".join(fig_block(k) for k in ("exp_bar", "exp_cm", "exp_sweep", "exp_noise", "exp_sim0", "exp_sim1") if k in exp.figures)
-    what = ("a toy simulation of the proposed mechanism on synthetic data" if "benchmark_skipped" in exp.report else
-            "a small battery of pilot experiments on public benchmark data and a toy simulation of the proposed mechanism")
+    sim = ("a controlled simulation study (the proposed method against baselines over five seeds, with an ablation and a "
+           "stress sweep into the predicted failure regime)" if exp.report.get("study") else "a toy simulation of the proposed mechanism")
+    what = (f"{sim} on synthetic data" if "benchmark_skipped" in exp.report else
+            f"a small battery of pilot experiments on public benchmark data and {sim}")
     return ("# Pilot Experiments\n\nTo ground the discussion in measured evidence, the pipeline executed " + what + ". These runs are illustrative: they "
             "characterise the problem setting and the baselines, and they are not a full-scale evaluation of the proposed method, "
             "which remains specified in the protocol below. All numbers in this section were computed by the executed code.\n\n"

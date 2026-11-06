@@ -46,6 +46,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from backend.cache.store import get_store, now
+from backend.common.config import get_settings
 from backend.citeguard.overlap import find_overlaps
 from backend.citeguard.phrases import find_phrases
 from backend.citeguard.resolver import retraction_status
@@ -200,13 +201,22 @@ def _ieee_ref(p: Paper) -> str:
     return f'{au}, "{p.title}",{venue} {p.year or "n.d."}.{tail}'
 
 
+def _tags(p: Paper) -> str:
+    t = []
+    if any(x in ("Review", "MetaAnalysis") for x in p.pub_types):
+        t.append("review" if "Review" in p.pub_types else "meta-analysis")
+    if p.influential:
+        t.append(f"{p.influential} influential citations")
+    return f" [{'; '.join(t)}]" if t else ""
+
+
 def _ref_listing(refs: list[Paper], ids: list[int] | None = None, abstract_chars: int = 440) -> str:
     rows = []
     for i, p in enumerate(refs, 1):
         if ids and i not in ids:
-            rows.append(f"[{i}] {p.title} ({p.year})")
+            rows.append(f"[{i}] {p.title} ({p.year}){_tags(p)}" + (f" TL;DR: {p.tldr}" if p.tldr else ""))
         else:
-            rows.append(f"[{i}] {p.title} ({p.year}, {p.venue or 'n/a'})\n    Abstract: {(p.abstract or '')[:abstract_chars]}")
+            rows.append(f"[{i}] {p.title} ({p.year}, {p.venue or 'n/a'}){_tags(p)}\n    Abstract: {(p.abstract or '')[:abstract_chars]}")
     return "\n".join(rows)
 
 
@@ -497,6 +507,11 @@ def _unmeasured(text: str, allowed: set[str], method: str = "") -> list[str]:
 PLAN_KIND = "paper_plan"
 
 
+def _best() -> list[str]:
+    """Strongest models for the quality-critical steps (paid users only: llm ignores `prefer` for the free engine)."""
+    return [m.strip() for m in (get_settings().studio_models or "").split(",") if m.strip()]
+
+
 class _Reposition(BaseModel):
     title: str
     research_question: str
@@ -645,8 +660,21 @@ async def plan_paper(req: StudioRequest, ctx) -> str:
     if snow:
         pool += snow
         sims = np.concatenate([sims, (await embed_async([f"{p.title}. {p.abstract}" for p in snow]) @ tv.T).ravel()])
-    await say("librarian", "done", f"{len(snow)} foundational work(s) found by citation chaining", 0.09)
-    ranked = literature.balanced_select(pool, sims, req.max_refs + 8, this_year, seeds, {p.id for p in snow})
+    await say("librarian", "run", "Asking Semantic Scholar for related work and influence data…", 0.09)
+    head = [pool[i] for i in np.argsort(-sims)[:80]] + seeds
+    enriched = await literature.enrich(head)
+    recs = await literature.recommended([p for p in head if p.corpus_id or p.id.startswith("s2:")][:10] or head[:10],
+                                        {p.title for p in pool} | {p.title for p in seeds})
+    if recs:   # keep only recommendations at least as relevant as the median of the top of the pool
+        rs = (await embed_async([f"{p.title}. {p.abstract}" for p in recs]) @ tv.T).ravel()
+        bar = float(np.median(np.sort(sims)[::-1][:40]))
+        recs = [p for p, x in zip(recs, rs) if x >= bar]
+    if recs:
+        pool += recs
+        sims = np.concatenate([sims, (await embed_async([f"{p.title}. {p.abstract}" for p in recs]) @ tv.T).ravel()])
+        sources_used["Semantic Scholar recommendations"] += len(recs)
+    await say("librarian", "done", f"{len(snow)} work(s) via citation chaining · {len(recs)} via recommendations · {enriched} enriched", 0.1)
+    ranked = literature.balanced_select(pool, sims, req.max_refs + 8, this_year, seeds, {p.id for p in snow} | {p.id for p in recs})
     await say("scout", "run", f"{len(pool)} candidate papers; screening {len(ranked)} against Crossref retractions…", 0.1)
     sem = asyncio.Semaphore(6)
 
@@ -662,6 +690,7 @@ async def plan_paper(req: StudioRequest, ctx) -> str:
     dropped = [p for p, s in zip(ranked, statuses) if s in ("retracted", "expression_of_concern")]
     refs = [p for p, s in zip(ranked, statuses) if s not in ("retracted", "expression_of_concern")][:req.max_refs]
     checked = sum(s in ("none_found", "corrected") for s in statuses)
+    await literature.enrich([p for p in refs if not p.corpus_id])
     await say("scout", "done", f"{len(refs)} verified references selected from {len(pool)} candidates · {checked} retraction-clear"
               + (f" · {len(dropped)} retracted work(s) excluded" if dropped else ""), 0.14)
 
@@ -698,7 +727,8 @@ async def plan_paper(req: StudioRequest, ctx) -> str:
              + ", ".join(f"{k}: {v}" for k, v in raw_seen.items()) + f"); {sum(raw_seen.values()) - len(cands)} removed as duplicates "
              "or for lacking a usable abstract; kept per database: "
              + ", ".join(f"{k} {v}" for k, v in sources_used.items())
-             + f"; {len(snow)} further works found by citation chaining from the 20 most relevant papers; {len(pool)} unique "
+             + f"; {len(snow)} further works found by citation chaining from the 20 most relevant papers and {len(recs)} via Semantic "
+             f"Scholar recommendations; {len(pool)} unique "
              f"candidate works ranked by semantic relevance; {len(ranked)} screened against Crossref retraction notices; "
              f"{len(refs)} included in the bibliography."]
     for ph, c in trends.items():
@@ -732,7 +762,7 @@ async def plan_paper(req: StudioRequest, ctx) -> str:
     await say("roundtable", "done", f"{len(notes)} expert(s) consulted · {len(cs)} conflict(s) found in the evidence", 0.32)
     await say("dossier", "run", "Writing the research dossier…", 0.33)
     try:
-        dossier = await dossier_mod.synthesize(topic, angle, TYPE_LABEL[ptype], refs, facts_txt, notes, cs)
+        dossier = await dossier_mod.synthesize(topic, angle, TYPE_LABEL[ptype], refs, facts_txt, notes, cs, prefer=_best())
     except llm.LLMError:
         dossier = "\n\n".join(t for _, t in notes)
     await say("dossier", "done", f"Dossier: {len(dossier.split()):,} words", 0.4)
@@ -754,7 +784,7 @@ async def plan_paper(req: StudioRequest, ctx) -> str:
         "question); contributions (4, phrased as what this paper formulates, proposes, analyses or synthesises, never unrun "
         "results); the fields for this paper type (leave the others empty); and briefs: for EVERY key in "
         f"{[x.key for x in specs]}, a 3-sentence brief naming the points that section must make, plus 6-14 relevant reference numbers.",
-        _Outline, effort="high")
+        _Outline, effort="high", prefer=_best())
     outline = await _best_title_rq(outline, dossier, ptype)
     await say("architect", "done", f"“{outline.title}”", 0.46, title=outline.title)
 
@@ -897,7 +927,9 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
                 store.put("paper_fig", f"{pid}-{name}", {"png": base64.b64encode(png).decode()})
         await say("statistician", "done", f"{len(data.facts) - 1 if data else 0} analyses run" if data else f"Dataset skipped: {data_error}", 0.53)
     elif tplan.experiments:
-        exp = await experiments.run_for_paper(req.topic, method_label, outline.method_summary, say)
+        design = ("ASSUMPTIONS:\n" + "\n".join(outline.formal_assumptions) + f"\nANALYTICAL CLAIM: {outline.formal_claim}\n"
+                  f"FAILURE REGIME: {outline.failure_boundary}\nCONTRIBUTIONS: {outline.contributions}")
+        exp = await experiments.run_for_paper(req.topic, method_label, outline.method_summary, say, design=design, prefer=_best())
         for name, (png, cap) in exp.figures.items():
             captions[name] = cap
             store.put("paper_fig", f"{pid}-{name}", {"png": base64.b64encode(png).decode()})
@@ -926,7 +958,8 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
                   + f"\nSECTION: # {sp.heading}\nARCHITECT BRIEF: {b.brief if b else ''}\nCHECKLIST (every item is required): {sp.task}\n"
                   "Length: as long as the checklist needs, typically 900-1,500 words. Every paragraph must add something new.")
         tier = "fast" if sp.key == tplan.analysis_key else "main"     # reporting measured counts needs no frontier model
-        text = re.sub(r"^```(?:markdown)?\n|\n```$", "", (await llm.complete(system, prompt, effort="medium", max_tokens=8000, tier=tier)).strip())
+        text = re.sub(r"^```(?:markdown)?\n|\n```$", "", (await llm.complete(system, prompt, effort="medium", max_tokens=8000, tier=tier,
+                                                                         prefer=_best() if tier == "main" else None)).strip())
         if not text.lstrip().startswith("# "):
             text = f"# {sp.heading}\n\n{text}"
         text = normalize_section(text, sp.heading)
@@ -965,7 +998,7 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
         try:
             fx = await llm.complete_json("You are the handling editor doing a whole-manuscript consistency pass. You make surgical edits only.",
                                          ask.format(paper=body[: llm.context_chars() - 8000], n=n), _Fixes, effort="medium",
-                                         max_tokens=9000, tier=tier)
+                                         max_tokens=9000, tier=tier, prefer=_best() if tier == "main" else None)
             break
         except llm.LLMError as e:
             consistency_error = str(e)[:200]
@@ -978,43 +1011,53 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
         consistency_error = ""
     await say("editor", "done", f"{consistency} consistency edit(s) applied", 0.73)
 
-    # ---- Reviewer panel, then revise the sections it flags ----
-    await say("reviewers", "run", "Three reviewers are scoring the draft…", 0.74)
-    pan = await review.panel(f"# {outline.title}\n\n{body}", TYPE_LABEL[ptype].lower())
-    secs = _sections(body)
-    by_sec = review.issues_by_section(pan["issues"], secs)
-    targets = sorted(((h, iss) for h, iss in by_sec.items() if any(i["severity"] == "major" for i in iss) or len(iss) >= 2),
-                     key=lambda kv: -sum(i["severity"] == "major" for i in kv[1]))[:3]
-    await say("reviewers", "done", (f"Draft scored {pan['overall']}/10 · {len(pan['issues'])} issue(s) · revising {len(targets)} section(s)"
-                                    if pan["overall"] else "Review panel unavailable"), 0.76)
+    # ---- Reviewer panel, then revise what it flags; a second round if major issues remain ----
+    async def respond(h: str, iss: list[dict], cur: str) -> tuple[str, str | None]:
+        await say("reviser", "run", f"Addressing reviewer comments in {h}…")
+        try:
+            new = await llm.complete(
+                system, f"{core}\n\nREFERENCES:\n{_ref_listing(refs, sorted({n for g in _CITE.findall(cur) for n in _nums(g)}) or None, abstract_chars=400)}"
+                f"\n\nCURRENT SECTION:\n{cur}\n\nREVIEWER ISSUES:\n"
+                + "\n".join(f"- [{i['severity']}] {i['problem']} (quote: “{i['quote']}”). Fix: {i['fix']}" for i in iss)
+                + "\n\nRevise the section so every issue is resolved. Keep every table, equation, diagram, algorithm block, token "
+                "line ([[...]]) and valid citation; add no new numbers or references. Where an issue cannot be fixed honestly "
+                "(e.g. it asks for results that were not measured), state the limitation instead. Return the complete section "
+                "starting with its level-1 heading.", effort="medium", max_tokens=8000, prefer=_best())
+        except llm.LLMError:
+            return h, None
+        new = normalize_section(re.sub(r"^```(?:markdown)?\n|\n```$", "", new.strip()), h)
+        kept = all(t in new for t in re.findall(r"\[\[[A-Z]+:[a-z]+\]\]", cur)) and new.count("```mermaid") >= cur.count("```mermaid")
+        return h, (new if kept and len(new.split()) > 0.6 * len(cur.split()) else None)
+
+    rounds: list[dict] = []
     revised_sections = 0
-    if targets:
-        async def respond(h: str, iss: list[dict]) -> tuple[str, str | None]:
-            cur = dict(secs)[h]
-            await say("reviser", "run", f"Addressing reviewer comments in {h}…")
-            try:
-                new = await llm.complete(
-                    system, f"{core}\n\nREFERENCES:\n{_ref_listing(refs, sorted({n for g in _CITE.findall(cur) for n in _nums(g)}) or None, abstract_chars=400)}"
-                    f"\n\nCURRENT SECTION:\n{cur}\n\nREVIEWER ISSUES:\n"
-                    + "\n".join(f"- [{i['severity']}] {i['problem']} (quote: “{i['quote']}”). Fix: {i['fix']}" for i in iss)
-                    + "\n\nRevise the section so every issue is resolved. Keep every table, equation, diagram, algorithm block, token "
-                    "line ([[...]]) and valid citation; add no new numbers or references. Where an issue cannot be fixed honestly "
-                    "(e.g. it asks for results that were not measured), state the limitation instead. Return the complete section "
-                    "starting with its level-1 heading.", effort="medium", max_tokens=8000)
-            except llm.LLMError:
-                return h, None
-            new = normalize_section(re.sub(r"^```(?:markdown)?\n|\n```$", "", new.strip()), h)
-            kept = all(t in new for t in re.findall(r"\[\[[A-Z]+:[a-z]+\]\]", cur)) and new.count("```mermaid") >= cur.count("```mermaid")
-            return h, (new if kept and len(new.split()) > 0.6 * len(cur.split()) else None)
-        for h, new in await asyncio.gather(*(respond(h, iss) for h, iss in targets)):
+    for rnd, cap in ((1, 3), (2, 2)):
+        await say("reviewers", "run", "Three reviewers are scoring the draft…" if rnd == 1 else "Second review round…", 0.74 if rnd == 1 else 0.77)
+        pan = await review.panel(f"# {outline.title}\n\n{body}", TYPE_LABEL[ptype].lower())
+        secs = _sections(body)
+        by_sec = review.issues_by_section(pan["issues"], secs)
+        targets = sorted(((h, iss) for h, iss in by_sec.items()
+                          if any(i["severity"] == "major" for i in iss) or (rnd == 1 and len(iss) >= 2)),
+                         key=lambda kv: -sum(i["severity"] == "major" for i in kv[1]))[:cap]
+        rounds.append({"round": rnd, "overall": pan["overall"], "scores": pan["scores"], "issues": len(pan["issues"]),
+                       "major": sum(i["severity"] == "major" for i in pan["issues"]), "revised": 0})
+        await say("reviewers", "done", (f"Round {rnd}: {pan['overall']}/10 · {rounds[-1]['major']} major issue(s) · revising {len(targets)} section(s)"
+                                        if pan["overall"] else "Review panel unavailable"), 0.76 if rnd == 1 else 0.78)
+        if not targets or not pan["overall"]:
+            break
+        cur_of = dict(secs)
+        for h, new in await asyncio.gather(*(respond(h, iss, cur_of[h]) for h, iss in targets)):
             if new:
-                body = body.replace(dict(secs)[h], new.rstrip() + "\n\n", 1)
+                body = body.replace(cur_of[h], new.rstrip() + "\n\n", 1)
                 revised_sections += 1
+                rounds[-1]["revised"] += 1
+    pan = {"overall": rounds[0]["overall"], "scores": rounds[0]["scores"], "reviews": {}, "issues": [None] * rounds[0]["issues"]}
 
     # ---- Gap filling: cite new evidence where claims still lack it ----
     await say("librarian", "run", "Looking for claims that still need evidence…", 0.78)
     body, new_refs, gaplog = await literature.fill_gaps(body, refs, {p.id for p in refs}, max_new=6, say=say)
     refs += new_refs
+    await literature.enrich([p for p in new_refs if not p.corpus_id])
     await say("librarian", "done", f"{len(new_refs)} new source(s) cited for unsupported claims", 0.8)
 
     # ---- Verifier ----
@@ -1044,7 +1087,7 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
         if (k := para_idx.get(h.paragraph)) is not None:
             flags.setdefault(k, []).append(f"too close to the abstract of “{h.matched.title}” (similarity {h.similarity:.2f}); "
                                            f"closest sentence: “{h.matched_text}”")
-    claims = await quality.check_all_claims(body, [p.model_dump() for p in refs], cap=140)
+    claims = await quality.check_all_claims(body, [p.model_dump() for p in refs], cap=140, fulltext_cap=20)
     judged = {(_squash(r["sentence"]), r["n"]): r for r in claims["pairs"]}
     sq_paras = [(k, _squash(t)) for k, (_, _, t) in enumerate(paras)]
 
@@ -1074,21 +1117,21 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
 
     # ---- Reviser ----
     revised = 0
+
+    async def fix(k: int) -> tuple[int, str]:
+        _, _, t = paras[k]
+        try:
+            out = await llm.complete_json(
+                "You revise one paragraph of a research paper to fix the listed problems. " + RULES + "\n" + TYPE_RULES[ptype],
+                f"REFERENCES:\n{_ref_listing(refs, abstract_chars=300)}\n\nPARAGRAPH:\n{t.strip()}\n\nPROBLEMS:\n- "
+                + "\n- ".join(flags[k]) + "\n\nRewrite the paragraph in original wording; remove or replace any citation that its "
+                "abstract does not support; remove every number that is not in FACTS or a cited abstract. Keep similar length."
+                "\n\nFACTS:\n" + facts_txt, _Rewrite, effort="low", tier="fast")
+            return k, out.paragraph.strip()
+        except llm.LLMError:
+            return k, t
     if flags:
         await say("reviser", "run", f"Revising {len(flags)} flagged paragraph(s)…", 0.87)
-
-        async def fix(k: int) -> tuple[int, str]:
-            _, _, t = paras[k]
-            try:
-                out = await llm.complete_json(
-                    "You revise one paragraph of a research paper to fix the listed problems. " + RULES + "\n" + TYPE_RULES[ptype],
-                    f"REFERENCES:\n{_ref_listing(refs, abstract_chars=300)}\n\nPARAGRAPH:\n{t.strip()}\n\nPROBLEMS:\n- "
-                    + "\n- ".join(flags[k]) + "\n\nRewrite the paragraph in original wording; remove or replace any citation that its "
-                    "abstract does not support; remove every number that is not in FACTS or a cited abstract. Keep similar length."
-                    "\n\nFACTS:\n" + facts_txt, _Rewrite, effort="low", tier="fast")
-                return k, out.paragraph.strip()
-            except llm.LLMError:
-                return k, t
         for k, new in await asyncio.gather(*(fix(k) for k in flags)):
             s, e, old = paras[k]
             if new and new != old.strip():
@@ -1096,7 +1139,34 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
                 revised += 1
         body, more_bad = _fix_citations(body, len(refs))
         bad_cites += more_bad
-        await say("reviser", "done", f"{revised} paragraph(s) rewritten", 0.9)
+        await say("reviser", "done", f"{revised} paragraph(s) rewritten", 0.89)
+
+    # ---- Second verification pass on the revised text: catch what the rewrite (or Opus's richer prose) still gets wrong ----
+    await say("verifier", "run", "Re-checking every citation in the revised text…", 0.895)
+    claims = await quality.check_all_claims(body, [p.model_dump() for p in refs], cap=160, fulltext_cap=12)
+    judged = {(_squash(r["sentence"]), r["n"]): r for r in claims["pairs"]}
+    paras = _paragraphs(body)
+    sq_paras = [(k, _squash(t)) for k, (_, _, t) in enumerate(paras)]
+    flags = {}
+    for r in claims["pairs"]:
+        if r["label"] == "unsupported" and (k := para_of(r["sentence"])) is not None:
+            flags.setdefault(k, []).append(f"the sentence “{r['sentence']}” cites [{r['n']}], whose abstract and full text do not support it ({r['rationale']})")
+    for s_ in claims["synthesis_flags"]:
+        if (k := para_of(s_)) is not None:
+            flags.setdefault(k, []).append(f"the sentence “{s_}” combines several citations into a claim none of them supports on its own")
+    second = 0
+    if flags:
+        for k, new in await asyncio.gather(*(fix(k) for k in flags)):
+            s0, e0, old = paras[k]
+            if new and new != old.strip():
+                body = body.replace(old, old[: len(old) - len(old.lstrip())] + new + old[len(old.rstrip()):], 1)
+                second += 1
+        body, more_bad = _fix_citations(body, len(refs))
+        bad_cites += more_bad
+        # the rewritten sentences no longer match the stored verdicts; drop them so the reader sees 'edited after check'
+        judged = {key: r for key, r in judged.items() if r["label"] != "unsupported"}
+    revised += second
+    await say("verifier", "done", f"Second pass: {claims['unsupported']} unsupported citation(s) found · {second} paragraph(s) fixed", 0.9)
     bad_math = [(st, en, tex, disp, err) for st, en, tex, disp in _math_spans(body) if (err := math_problem(tex))]
     math_fixed = 0
     if bad_math:
@@ -1147,7 +1217,8 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
         "numbers; the only numbers allowed are in FACTS. Never mention how the text was produced.",
         f"{core}\n\nPAPER BODY:\n{body[: llm.context_chars() - 9000]}\n\nWrite:\n1. abstracts: THREE distinct candidate abstracts, "
         f"each {lo}-{hi} words, covering {content}. No citations; no unmeasured results.\n2. keywords: 6 index terms.\n"
-        "3. highlights: 4 crisp one-sentence takeaways.\n4. summary: a 3-4 sentence plain-language summary.", _Front, effort="medium")
+        "3. highlights: 4 crisp one-sentence takeaways.\n4. summary: a 3-4 sentence plain-language summary.", _Front, effort="medium",
+        prefer=_best())
     cands_abs = [a for a in front.abstracts if len(a.split()) > 60] or front.abstracts[:1] or [""]
     abstract = cands_abs[await _pick("abstract", cands_abs, "Prefer the abstract that is most specific, accurate to the paper "
                                      "body, free of hype, and states exactly what was done and found (or proposed).")]
@@ -1243,7 +1314,8 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
                 lst = provenance.setdefault(str(n), [])
                 if len(lst) < 6:
                     lst.append({"sentence": s_[:500], "label": j["label"] if j else "revised", "rationale": (j or {}).get("rationale", ""),
-                                "quote": quote[:400]})
+                                "quote": ((j or {}).get("passage") or quote)[:500],
+                                "source": "full text" if (j or {}).get("passage") else "abstract"})
 
     report = {
         "paper_type": ptype, "references": len(cited_refs), "candidates": pl["candidates"], "retraction_checked": pl["checked"],
@@ -1251,11 +1323,13 @@ async def write_from_plan(plan_id: str, edits: dict, ctx) -> str:
         "conflicts_found": len(pl.get("conflicts") or []), "novelty": pl.get("novelty"),
         "venue_style": (style or {}).get("stats", {}).get("venue"), "consistency_edits": consistency,
         "consistency_error": consistency_error or None,
-        "review_panel": {"overall": pan["overall"], "scores": pan["scores"], "reviews": pan["reviews"],
-                         "issues": len(pan["issues"]), "sections_revised": revised_sections},
+        "review_panel": {"overall": pan["overall"], "scores": pan["scores"], "issues": len(pan["issues"]),
+                         "sections_revised": revised_sections, "rounds": rounds,
+                         "final": rounds[-1]["overall"] if len(rounds) > 1 else None},
         "gaps_filled": len(new_refs), "gap_log": gaplog[:8],
         "invalid_citations_removed": bad_cites, "claims_checked": claims["checked"], "claims_unsupported": claims["unsupported"],
         "claims_supported": claims["supported"], "claims_unclear": claims["unclear"], "synthesis_flags": len(claims["synthesis_flags"]),
+        "claims_fulltext_checked": claims.get("fulltext_checked", 0),
         "paragraphs_flagged": len(flags), "diagrams_repaired": diagrams_repaired, "diagrams_removed": diagrams_removed,
         "equations_repaired": math_fixed, "equations_still_invalid": max(0, len(bad_math) - math_fixed),
         "unmeasured_claims_found": unmeasured + len(abs_issues), "unmeasured_claims_remaining": remaining,

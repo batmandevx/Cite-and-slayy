@@ -54,8 +54,12 @@ class _Conflicts(BaseModel):
 
 
 def listing(refs: list[Paper], chars: int = 1400) -> str:
-    return "\n".join(f"[{i}] {p.title} ({p.year}, {p.venue or 'n/a'}; cited {p.cited_by or 0}x)\n    {(p.abstract or '')[:chars]}"
-                     for i, p in enumerate(refs, 1))
+    def tag(p: Paper) -> str:
+        t = [f"cited {p.cited_by or 0}x"] + ([f"{p.influential} influential"] if p.influential else []) \
+            + (["review"] if "Review" in p.pub_types else []) + (["meta-analysis"] if "MetaAnalysis" in p.pub_types else [])
+        return "; ".join(t)
+    return "\n".join(f"[{i}] {p.title} ({p.year}, {p.venue or 'n/a'}; {tag(p)})" + (f"\n    TL;DR: {p.tldr}" if p.tldr else "")
+                     + f"\n    {(p.abstract or '')[:chars]}" for i, p in enumerate(refs, 1))
 
 
 async def roundtable(topic: str, angle: str, refs: list[Paper], facts: str, say) -> list[tuple[_Persona, str]]:
@@ -128,7 +132,7 @@ def conflicts_text(cs: list[dict]) -> str:
 
 
 async def synthesize(topic: str, angle: str, paper_type: str, refs: list[Paper], facts: str, notes: list[tuple[_Persona, str]],
-                     cs: list[dict]) -> str:
+                     cs: list[dict], prefer: list[str] | None = None) -> str:
     panel = "\n\n".join(f"### Notes from a {p.role}\n{t}" for p, t in notes) or "(no expert notes)"
     return (await llm.complete(
         "You are the lead author preparing a research dossier that a team of writers will rely on. Ground every statement in "
@@ -141,4 +145,4 @@ async def synthesize(topic: str, angle: str, paper_type: str, refs: list[Paper],
         "disagrees (use the conflicts); Definitions and terminology (the terms writers must use consistently); What the "
         "measured facts show; The gap (the most defensible open problem, with why prior work leaves it open); Candidate "
         "contributions (3-5 that this paper could honestly make). 2,000-2,800 words.",
-        effort="medium", max_tokens=7000)).strip()
+        effort="medium", max_tokens=7000, prefer=prefer)).strip()

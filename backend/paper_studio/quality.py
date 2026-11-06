@@ -12,6 +12,8 @@ import re
 
 from backend.citeguard.claims import judge
 from backend.llm import client as llm
+from backend.sources import semantic_scholar as s2
+from backend.sources.http import SourceError
 
 _CITE = re.compile(r"\[(\d+(?:\s*[,–-]\s*\d+)*)\]")
 _SKIP_SECTIONS = ("references", "abstract", "acknowledg")
@@ -57,7 +59,8 @@ def cited_sentences(md: str) -> list[tuple[str, str, list[int]]]:
     return out
 
 
-async def check_all_claims(md: str, refs: list[dict], cap: int = 160, batch: int = 8, on_progress=None) -> dict:
+async def check_all_claims(md: str, refs: list[dict], cap: int = 160, batch: int = 8, on_progress=None,
+                           fulltext_cap: int = 0) -> dict:
     """Judge every (sentence, cited paper) pair, up to `cap` pairs. refs: numbered list (1-based) of dicts with title/abstract."""
     pairs: list[tuple[int, str, int]] = []       # (sentence index, sentence, ref number)
     sents = cited_sentences(md)
@@ -90,6 +93,33 @@ async def check_all_claims(md: str, refs: list[dict], cap: int = 160, batch: int
         j = judged.get(k)
         results.append({"sentence": s, "section": sents[si][0], "n": n,
                         "label": getattr(j, "label", "not_assessed"), "rationale": getattr(j, "rationale", "")})
+
+    # Second pass on full text: when the abstract alone can't settle a claim, fetch the matching passage from the paper's
+    # body (Semantic Scholar snippet search) and judge again with abstract + passage.
+    fulltext = 0
+    unclear = [r for r in results if r["label"] in ("unclear", "unsupported") and refs[r["n"] - 1].get("corpus_id")][:fulltext_cap]
+    if unclear:
+        found = []
+        for r in unclear:                                        # sequential: the keyed API allows one request per second
+            try:
+                sn = await s2.snippets(re.sub(r"\[[\d,\s–-]+\]", "", r["sentence"])[:400], [refs[r["n"] - 1]["corpus_id"]], limit=2)
+            except SourceError:
+                continue
+            if sn:
+                found.append((r, sn[0]))
+        items2 = [(k, r["sentence"], refs[r["n"] - 1].get("title", ""),
+                   (refs[r["n"] - 1].get("abstract") or "")[:1500] + f"\n\nFULL-TEXT PASSAGE ({sn['section'] or 'body'}): {sn['text']}")
+                  for k, (r, sn) in enumerate(found)]
+        for i in range(0, len(items2), batch):
+            try:
+                again = await judge(items2[i:i + batch])
+            except llm.LLMError:
+                continue
+            for k, j in again.items():
+                if 0 <= k < len(found):
+                    r, sn = found[k]
+                    r.update(label=j.label, rationale=j.rationale, passage=sn["text"][:500], evidence="full text")
+                    fulltext += 1
     # sentences citing several papers where no single citation supports the claim
     by_sent: dict[str, list[dict]] = {}
     for r in results:
@@ -98,7 +128,7 @@ async def check_all_claims(md: str, refs: list[dict], cap: int = 160, batch: int
                  if len(rs) > 1 and all(r["label"] in ("unsupported", "unclear") for r in rs) and any(r["label"] == "unsupported" for r in rs)]
     assessed = [r for r in results if r["label"] != "not_assessed"]
     return {
-        "pairs": results, "sentences": len(sents), "checked": len(assessed),
+        "pairs": results, "sentences": len(sents), "checked": len(assessed), "fulltext_checked": fulltext,
         "supported": sum(r["label"] == "supported" for r in assessed),
         "unclear": sum(r["label"] == "unclear" for r in assessed),
         "unsupported": sum(r["label"] == "unsupported" for r in assessed),

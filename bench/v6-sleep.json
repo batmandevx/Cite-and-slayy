@@ -1,0 +1,160 @@
+{
+  "label": "v6-sleep",
+  "at": "2026-11-06T00:08:41.062160+00:00",
+  "rows": [
+    {
+      "topic": "Effect of smartphone use before bedtime on adolescent sleep quality",
+      "paper_id": "85358cad10",
+      "title": "Disentangling Blue-Light and Cognitive Arousal Pathways in Adolescent Pre-Bedtime Smartphone Use: A 2\u00d72 Factorial Polysomnography Study Extending Single-Factor Designs",
+      "seconds": 1247,
+      "words": 11265,
+      "references": 28,
+      "write_usd": 2.3244,
+      "eval_usd": 0.1713,
+      "panel": 5.33,
+      "panel_scores": {
+        "soundness": 6,
+        "evidence": 5,
+        "novelty": 6,
+        "significance": 5,
+        "positioning": 5,
+        "clarity": 5,
+        "coherence": 6,
+        "concision": 3
+      },
+      "panel_reviews": {
+        "soundness": {
+          "overall": 6,
+          "summary": "The protocol is methodologically coherent and addresses a genuine gap with a well-specified 2\u00d72 PSG factorial design, careful spectral calibration, and honest acknowledgment that three-way moderation tests are underpowered. However, several technical inconsistencies undermine confidence: references [8] and [9] resolve to the same paper yet are assigned different roles (one as a gap, one as prior work), the power justification omits the table it promises, the washout rationale contains a logical tension, and the duplicate citation [12]/[13] for the He et al. RCT is unexplained.",
+          "scores": {
+            "soundness": 6,
+            "evidence": 5
+          }
+        },
+        "significance": {
+          "overall": 5,
+          "summary": "The paper proposes a well-constructed factorial crossover design that applies standard chronobiological methods to an understudied population-measurement configuration. However, it presents a study protocol rather than empirical findings, overstates methodological novelty relative to established adult chronobiology literature, and devotes excessive space to bibliometric analysis that adds limited conceptual value.",
+          "scores": {
+            "novelty": 6,
+            "significance": 5,
+            "positioning": 5
+          }
+        },
+        "clarity": {
+          "overall": 5,
+          "summary": "The paper articulates a clear and well-motivated factorial crossover design addressing a genuine gap in the adolescent smartphone\u2013sleep literature, with detailed pre-registration and methodological rigor that elevate it above typical observational work. However, it suffers from severe redundancy across sections, vague or unsupported claims in the literature review, and excessive length driven by repetitive exposition rather than new insight, making it difficult to extract the core contribution despite methodological soundness.",
+          "scores": {
+            "clarity": 5,
+            "coherence": 6,
+            "concision": 3
+          }
+        }
+      },
+      "panel_issues": [
+        {
+          "section": "Introduction",
+          "quote": "no subsequent PSG study has replicated the full melatonin-suppression-to-architecture-disruption chain specifically in adolescents [8]",
+          "problem": "Reference [8] (H\u00f6hn et al. 2024, Brain Communications, DOI 10.1093/braincomms/fcae173) is identical to reference [9] used throughout as the key prior PSG adolescent study. Citing the same paper as both the 'gap' (no replication) and the 'prior work' (partial evidence) is internally contradictory and misleading.",
+          "fix": "Verify that [8] and [9] are distinct publications. If they are the same, remove one citation and rewrite the surrounding claim so the gap is accurately characterised relative to what H\u00f6hn et al. actually demonstrated.",
+          "severity": "major",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Methods",
+          "quote": "the minimum detectable effect sizes at N = 80 (power \u2265 0.80) and the achieved power at selected benchmarks are as follows:",
+          "problem": "The sentence introduces a table or list of power benchmarks that is never rendered\u2014the text jumps directly from the colon to a paragraph beginning 'The design achieves adequate power\u2026'. The quantitative basis for the N=80 choice is therefore unverifiable.",
+          "fix": "Insert the promised sensitivity power table (f values vs. achieved power) before the interpretive paragraph, or replace the dangling colon with the actual numeric values in prose.",
+          "severity": "major",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Introduction",
+          "quote": "The contribution is not methodological novelty\u2014factorial crossovers are standard in chronobiology\u2014but rather the application of this established design to a population-measurement configuration",
+          "problem": "Despite this explicit acknowledgment that the factorial crossover design lacks methodological novelty, the paper repeatedly frames its contribution in inflated terms throughout, including listing \"five elements\" of contribution that largely restate the same applied extension. This contradicts the honest self-assessment and creates conceptual drift between claimed and actual novelty.",
+          "fix": "Restrain contribution claims to the specific empirical gap being filled; remove redundant framings; avoid numbered lists that artificially inflate distinct contributions when they describe a single experimental application.",
+          "severity": "major",
+          "reviewer": "significance"
+        },
+        {
+          "section": "Introduction",
+          "quote": "The central limitation motivating this protocol is that no study within the adolescent smartphone-sleep literature has experimentally crossed spectral light manipulation with content interactivity in a factorial design",
+          "problem": "The novelty claim is narrowly constructed by restricting to \"adolescent smartphone-sleep literature.\" Factorial designs crossing light with task demands are indeed standard in adult chronobiology, and the paper's actual contribution is narrower than presented: applying an existing design to adolescents with added hormonal sampling. The hedging strategy of admitting factorial designs exist elsewhere while claiming novelty through population restriction is superficial.",
+          "fix": "Explicitly situate the work as a direct replication and extension of Stich et al. [9] with added content manipulation; acknowledge that the design is a straightforward adaptation of standard chronobiological methods; foreground the empirical rather than methodological contribution.",
+          "severity": "major",
+          "reviewer": "significance"
+        },
+        {
+          "section": "Evidence Base and Bibliometric Overview",
+          "quote": "The adolescent smartphone-sleep literature exhibits explosive growth in specialized constructs that outpaces substantive methodological advancement",
+          "problem": "The three bibliometric subsections (736 words) devote substantial space to field-level description without advancing the paper's core argument. Citation counts, venue distributions, and publication trajectories are presented descriptively without being operationalized to shape study design or interpretation. This reads as padding rather than synthesis.",
+          "fix": "Condense to one paragraph identifying the specific structural bias relevant to the current design (e.g., construct proliferation inflating harm estimates); remove figures and tables presenting raw bibliometric statistics; redirect space toward explicit comparison with Stich et al. [9]'s actual methods and results.",
+          "severity": "major",
+          "reviewer": "significance"
+        },
+        {
+          "section": "Methods",
+          "quote": "The design achieves adequate power (\u2265 0.80) only for interaction effects of f \u2265 0.25",
+          "problem": "The power analysis reveals a critical design weakness: the study is underpowered for the three-way moderation tests (H3), which are nonetheless presented as confirmatory hypotheses. The authors acknowledge this but then state these are \"pre-registered as exploratory\"\u2014yet H3 appears in the Introduction as a formal hypothesis with directional predictions. This creates confusion about inferential status.",
+          "fix": "Remove H3 from the formal hypothesis set; reframe Tanner stage and chronotype analyses as purely exploratory with no directional predictions; or increase sample size to achieve adequate power for moderated effects if these are theoretically central.",
+          "severity": "major",
+          "reviewer": "significance"
+        },
+        {
+          "section": "Introduction",
+          "quote": "The central limitation motivating this protocol is that no study within the adolescent smartphone-sleep literature has experimentally crossed spectral light manipulation with content interactivity",
+          "problem": "This claim appears verbatim or near-identically in the Introduction, Literature Review gap summary, and Methods sections. The repetition across three major sections is excessive and dilutes the paper's argumentative force. Each section reiterates the same gap\u2014no factorial design\u2014without adding cumulative depth.",
+          "fix": "State the gap once in the Introduction with precision, then in subsequent sections either build on it (e.g., 'As established above, the gap...') or focus on how the Methods section operationalises the solution rather than re-explaining the problem.",
+          "severity": "major",
+          "reviewer": "clarity"
+        },
+        {
+          "section": "Literature Review",
+          "quote": "the evidence base remains dominated by observational, self-report designs that cannot isolate causal mechanisms",
+          "problem": "This generic claim appears in the Introduction, Abstract, and Literature Review opening without being anchored to specific citations or quantitative evidence of the prevalence of self-report designs versus experimental ones. 'Dominated' is vague\u2014how many studies are self-report versus experimental? The literature review should provide a breakdown or cite a systematic review establishing this proportionality, but does not.",
+          "fix": "Either cite a systematic review that quantifies the proportion of self-report versus experimental designs in the field, or conduct a brief meta-analysis of the candidate corpus (n=194) showing the breakdown. Alternatively, delete the claim if it cannot be substantiated with numbers.",
+          "severity": "major",
+          "reviewer": "clarity"
+        },
+        {
+          "section": "Literature Review",
+          "quote": "A experience-sampling study with objective app tracking found that, relative to each participant's own average, greater nighttime smartphone use was associated with poorer same-night sleep outcomes, though the effect was modest [14]",
+          "problem": "Reference [14] is cited here as an experience-sampling study with objective app tracking, but later in the references, [14] is identified as 'Daily links between objective smartphone use and sleep among adolescents' (Burnell et al. 2024). The paper does not provide sufficient detail on effect sizes or statistical evidence from [14] to justify the claim that the effect was 'modest,' and the pairing of weak within-person effects with strong between-person effects as evidence of confounding is asserted rather than proven.",
+          "fix": "Cite the actual effect size (Cohen's d or \u03b2) from [14] when claiming the effect is 'modest.' Alternatively, synthesise effect-size data across multiple intensive-longitudinal studies (e.g., a mini-meta-analysis) to support the between-person versus within-person discrepancy claim, rather than relying on a single study.",
+          "severity": "major",
+          "reviewer": "clarity"
+        },
+        {
+          "section": "Methods \u00a7 Sample-Size Rationale",
+          "quote": "Because no prior study has orthogonally crossed blue-light filtering and content arousal in an adolescent PSG paradigm, no direct empirical estimate of the interaction effect size exists. Rather than relying on a single conventional value, we therefore report a sensitivity power curve across a range of plausible interaction effect sizes.",
+          "problem": "The paper claims to report a 'sensitivity power curve' but then immediately states 'The design achieves adequate power (\u2265 0.80) only for interaction effects of f \u2265 0.25' without actually displaying the curve or providing effect-size estimates at multiple power levels. The reader cannot verify the power calculation or understand the specific thresholds chosen. A table or figure was promised but is absent.",
+          "fix": "Either include the sensitivity power curve as a table or figure showing power at multiple effect sizes (e.g., f = 0.15, 0.20, 0.25, 0.30) and explain why f = 0.25 was selected as the threshold, or remove the claim of a sensitivity analysis and justify the sample size via effect-size estimation from [9] (Stich et al.) adapted to the interaction context.",
+          "severity": "major",
+          "reviewer": "clarity"
+        },
+        {
+          "section": "Methods",
+          "quote": "A minimum seven-day washout separates consecutive laboratory nights\u2026whereas a shorter washout (e.g., 48 hours) would risk residual carryover",
+          "problem": "The washout section compares seven days against 48 hours as if those are the only alternatives, yet the Chang et al. e-reader study used a five-day washout. More critically, the section says the washout 'reconciles' the requirement for full re-entrainment with the need to detect acute effects, but also says a significant carryover finding would 'prompt further extension'\u2014implying the seven-day interval may itself be insufficient. This internal hedging undermines the logical justification.",
+          "fix": "Provide a direct quantitative estimate of expected phase-shift magnitude (in minutes) from 80 lux, 60 min blue-light exposure, reference the specific phase-response curve data supporting re-entrainment within seven days, and remove the circular fallback that would require extending washout post-hoc.",
+          "severity": "minor",
+          "reviewer": "soundness"
+        },
+        {
+          "section": "Literature Review",
+          "quote": "A single randomized pilot trial restricting bedtime mobile phone use for four weeks reduced both sleep latency and pre-sleep arousal [12] [13]",
+          "problem": "References [12] and [13] have identical titles, authors, journal, year and DOI (10.1371/journal.pone.0228756). Citing the same paper twice as if it were two independent pieces of evidence inflates the apparent support for the arousal-pathway claim.",
+          "fix": "Remove the duplicate citation; retain only [12] and delete [13] from the reference list, updating all in-text citations accordingly.",
+          "severity": "minor",
+          "reviewer": "soundness"
+        }
+      ],
+      "support": 0.844,
+      "checked": 109,
+      "unsupported": 9,
+      "synthesis_flags": 0,
+      "repetition": 0.0054,
+      "unmeasured": 25,
+      "paper_type": "empirical"
+    }
+  ]
+}
