@@ -499,6 +499,16 @@ def own(kind: str, id: str, user: dict) -> None:
         store.set_owner(f"{kind}+", f"{id}:{user['uid']}", user["uid"])
 
 
+def make_public(kind: str, id: str) -> None:
+    """Bundled content someone claimed by uploading it: readable by everyone again (the uploader keeps a grant)."""
+    store = get_store()
+    if (uid := store.owner_of(kind, id)) is None:
+        return
+    if kind in SHARED_BY_CONTENT:
+        store.set_owner(f"{kind}+", f"{id}:{uid}", uid)
+    store.clear_owner(kind, id)
+
+
 def check_access(kind: str, id: str, user: dict) -> None:
     """Owned by someone else -> 404 (don't reveal it exists). Unowned legacy/demo objects stay readable."""
     if not get_settings().auth_required:

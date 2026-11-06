@@ -421,6 +421,8 @@ def test_owner_can_remove_a_members_subscription(prod, monkeypatch):
 def test_email_signin_drops_a_squatters_unverified_password(prod):
     squatter = TestClient(prod)
     assert squatter.post("/api/auth/register", json={"email": "victim@x.org", "password": "Squat2026x"}).status_code == 200
+    from backend.accounts import auth
+    auth._clear_limit("register-ip:testclient")                   # the shared test DB counts every signup in the suite
     login(prod, "victim@x.org")                                   # the real owner proves the address
     assert squatter.get("/api/auth/me").status_code == 401        # the squatter's session is gone
     assert TestClient(prod).post("/api/auth/login", json={"email": "victim@x.org", "password": "Squat2026x"}).status_code == 401
@@ -489,3 +491,34 @@ def test_webhook_retry_is_processed_if_the_first_delivery_crashed(prod, monkeypa
     billing.handle_webhook(body, sig, "evt_retry")
     billing.handle_webhook(body, sig, "evt_retry")         # now a true replay: skipped
     assert len(calls) == 2
+
+
+def test_job_interrupted_by_restart_is_reported_and_refunded(prod):
+    from backend.accounts import auth
+    from backend.app.jobs import INTERRUPTED, JobManager, refund_undo
+    from backend.cache.store import get_store
+    c = login(prod, "restart@x.org")
+    user = auth.get_user(get_store().get("user_email", "restart@x.org")["uid"])
+    auth.consume(user, "papers")
+    assert auth.usage(user)["papers"] == 1
+    # what the previous process left behind: a job still marked running, with its undo
+    get_store().put("job", "deadjob00001", {"job_id": "deadjob00001", "kind": "paper_studio", "status": "running",
+                                            "progress": 0.4, "created_at": "2026-11-06T10:00:00+00:00",
+                                            "_owner": user["uid"], "_undo": refund_undo(user, "papers")})
+    assert JobManager().recover_interrupted() == 1
+    assert auth.usage(user)["papers"] == 0                       # credit given back
+    j = c.get("/api/jobs/deadjob00001").json()
+    assert j["status"] == "error" and j["error"] == INTERRUPTED
+    assert "event: end" in c.get("/api/jobs/deadjob00001/events").text
+    assert login(prod, "other-restart@x.org").get("/api/jobs/deadjob00001").status_code == 404
+    assert JobManager().recover_interrupted() == 0               # never refunded twice
+
+
+def test_claimed_demo_document_is_released(prod):
+    from backend.accounts import auth
+    from backend.cache.store import get_store
+    get_store().set_owner("document", "demo123", "claimer")
+    auth.make_public("document", "demo123")
+    assert get_store().owner_of("document", "demo123") is None
+    auth.check_access("document", "demo123", {"uid": "anyone"})          # readable by all
+    assert get_store().owner_of("document+", "demo123:claimer") == "claimer"

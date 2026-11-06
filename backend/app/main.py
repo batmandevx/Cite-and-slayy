@@ -21,7 +21,7 @@ from backend.accounts.plans import PLANS as PLANS_, plan_of, public_pack, public
 from backend.app import dashboard, demo_papers, export as exporter, library, pipeline, reports
 from backend.paper_studio import kit as kit_mod
 from backend.paper_studio import studio
-from backend.app.jobs import jobs
+from backend.app.jobs import jobs, refund_undo
 from backend.autoclaw_bridge import runner as claw
 from backend.cache.store import get_store
 from backend.citeguard.audit import run_audit
@@ -61,11 +61,22 @@ def _adopt_orphan_papers() -> None:
             store.set_owner("paper_studio", pid, uid)
 
 
+def _release_bundled_documents() -> None:
+    """Demo and sample PDFs are public. Before uploads stopped claiming them, a user could make one private to them."""
+    bundled = [ROOT / "demo/showcase_papers" / d["filename"] for d in demo_papers.SHOWCASE_PAPERS]
+    bundled += sorted((ROOT / "demo" / "sample_pdfs").glob("*")) + [ROOT / "demo/autoclaw_run/deliverables/paper.pdf"]
+    for p in bundled:
+        if p.is_file():
+            auth.make_public("document", hashlib.sha256(p.read_bytes()).hexdigest()[:16])
+
+
 @app.on_event("startup")
 async def _seed_founders() -> None:
     if get_settings().auth_required:
         auth.ensure_founders()
         _adopt_orphan_papers()
+        _release_bundled_documents()
+    jobs.recover_interrupted()          # jobs cut off by the last restart: report them failed and give credits back
     if get_settings().claw_url:
         claw.resume_live_runs()        # live AutoResearchClaw runs survive backend restarts and deploys
     # Load and run the embedding model once at startup, so no user request pays (or stalls on) the cold start.
@@ -580,18 +591,19 @@ async def stats():
 
 # ---------- jobs ----------
 
-def _job_access(job_id: str, request: Request) -> None:
-    if job_id not in jobs.jobs:
+def _job_access(job_id: str, request: Request) -> Job:
+    found = jobs.get(job_id)
+    if not found:
         raise HTTPException(404, "job not found")
-    owner = jobs.owners.get(job_id)
+    owner = jobs.owner(job_id)
     if get_settings().auth_required and owner and owner != me(request)["uid"]:
         raise HTTPException(404, "job not found")
+    return found
 
 
 @app.get("/api/jobs/{job_id}", response_model=Job)
 async def job(job_id: str, request: Request):
-    _job_access(job_id, request)
-    return jobs.jobs[job_id]
+    return _job_access(job_id, request)
 
 
 @app.get("/api/jobs/{job_id}/events")
@@ -708,7 +720,7 @@ async def gap_run(req: GapRadarRequest, request: Request):
     auth.require_paid(user, "scans")
     auth.consume(user, "scans")
     return JobRef(job_id=jobs.submit("gap_radar", lambda ctx: gap.run(req, ctx), owner=user["uid"],
-                                     on_error=lambda: auth.refund(user, "scans")).job_id)
+                                     undo=refund_undo(user, "scans")).job_id)
 
 
 @app.get("/api/gap-radar/runs", response_model=list[GapRadarResult])
@@ -746,7 +758,7 @@ async def autoclaw_run(req: AutoClawRequest, request: Request):
     auth.require_paid(user, "drafts")
     auth.consume(user, "drafts")
     return JobRef(job_id=jobs.submit("autoclaw", lambda ctx: claw.run(req, ctx, user["uid"]), owner=user["uid"],
-                                     on_error=lambda: auth.refund(user, "drafts")).job_id)
+                                     undo=refund_undo(user, "drafts")).job_id)
 
 
 @app.get("/api/autoclaw/runs/{run_id}", response_model=AutoClawRun)
@@ -775,7 +787,7 @@ async def audit(req: AuditRequest, request: Request):
     auth.require_paid(user, "audits")
     auth.consume(user, "audits")
     return JobRef(job_id=jobs.submit("citeguard", lambda ctx: run_audit(req, ctx), owner=user["uid"],
-                                     on_error=lambda: auth.refund(user, "audits")).job_id)
+                                     undo=refund_undo(user, "audits")).job_id)
 
 
 @app.get("/api/citeguard/audits/{audit_id}", response_model=AuditReport)
@@ -837,7 +849,7 @@ async def jury(req: JuryRequest, request: Request):
     auth.consume(user, "reviews")
     llm.set_premium(auth.is_premium(user))   # inherited by the job's task
     return JobRef(job_id=jobs.submit("jury", lambda ctx: run_jury(req, ctx), owner=user["uid"],
-                                     on_error=lambda: auth.refund(user, "reviews")).job_id)
+                                     undo=refund_undo(user, "reviews")).job_id)
 
 
 @app.get("/api/jury/reviews/{review_id}", response_model=Verdict)
@@ -1109,7 +1121,7 @@ async def paper_studio_start(req: studio.StudioRequest, request: Request):
         if rid.startswith("pl"):
             auth.own("paper_plan", rid, user)
         return rid
-    return JobRef(job_id=jobs.submit("paper_studio", job, owner=user["uid"], on_error=lambda: auth.refund(user, "papers")).job_id)
+    return JobRef(job_id=jobs.submit("paper_studio", job, owner=user["uid"], undo=refund_undo(user, "papers")).job_id)
 
 
 @app.post("/api/paper-studio/datasets")
@@ -1183,12 +1195,9 @@ async def paper_studio_write(plan_id: str, edits: PlanEdits, request: Request):
         raise HTTPException(409, "This plan has already been written. Open the paper from your list.")
     get_store().put("paper_plan", plan_id, {**pl, "status": "writing"})
     llm.set_premium(auth.is_premium(user))
-
-    def failed():
-        cur = get_store().get("paper_plan", plan_id) or pl
-        get_store().put("paper_plan", plan_id, {**cur, "status": "planned"})   # let them try again with the same plan
+    # on failure the plan goes back to "planned": they can try again with the same plan
     return JobRef(job_id=jobs.submit("paper_studio", lambda ctx: studio.write_from_plan(plan_id, edits.model_dump(), ctx),
-                                     owner=user["uid"], on_error=failed).job_id)
+                                     owner=user["uid"], undo={"plan_reset": plan_id}).job_id)
 
 
 @app.get("/api/paper-studio")
@@ -1246,7 +1255,7 @@ async def paper_studio_revise(pid: str, body: ReviseRequest, request: Request):
     auth.consume(user, "revisions")
     llm.set_premium(auth.is_premium(user))
     return JobRef(job_id=jobs.submit("paper_revise", lambda ctx: studio.revise(pid, body.instruction.strip()[:2000], ctx),
-                                     owner=user["uid"], on_error=lambda: auth.refund(user, "revisions")).job_id)
+                                     owner=user["uid"], undo=refund_undo(user, "revisions")).job_id)
 
 
 @app.post("/api/paper-studio/{pid}/kit")
@@ -1632,11 +1641,8 @@ async def run_pipeline(req: pipeline.PipelineRequest, request: Request):
                 auth.refund(user, g)
             raise
     llm.set_premium(auth.is_premium(user))
-
-    def _refund_all():
-        for f in feats:
-            auth.refund(user, f)
-    return JobRef(job_id=jobs.submit("pipeline", lambda ctx: pipeline.run(req, ctx), owner=user["uid"], on_error=_refund_all).job_id)
+    return JobRef(job_id=jobs.submit("pipeline", lambda ctx: pipeline.run(req, ctx), owner=user["uid"],
+                                     undo=refund_undo(user, *feats)).job_id)
 
 
 @app.get("/api/pipeline/{pipeline_id}", response_model=pipeline.PipelineResult)

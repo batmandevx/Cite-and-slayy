@@ -104,6 +104,11 @@ class Store:
             row = self._conn.execute("SELECT uid FROM owners WHERE kind=? AND id=?", (kind, id)).fetchone()
         return row[0] if row else None
 
+    def clear_owner(self, kind: str, id: str) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM owners WHERE kind=? AND id=?", (kind, id))
+            self._conn.commit()
+
     def owned_ids(self, kind: str, uid: str) -> set[str]:
         with self._lock:
             rows = self._conn.execute("SELECT id FROM owners WHERE kind=? AND uid=?", (kind, uid)).fetchall()
